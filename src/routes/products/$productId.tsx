@@ -21,7 +21,7 @@ function ProductDetails() {
   const { productId } = useParams({ from: "/products/$productId" });
   const product = getProduct(productId);
   const navigate = useNavigate();
-  const [size, setSize] = useState(product.sizes[0]);
+  const [size, setSize] = useState(product.sizes[0]!);
   const [qty, setQty] = useState(10);
 
   return (

@@ -26,7 +26,7 @@ const quick = [
 function HomePage() {
   const remaining = dealer.nextRewardAt - dealer.points;
   const pct = (dealer.points / dealer.nextRewardAt) * 100;
-  const campaign = campaigns[1];
+  const campaign = campaigns[1]!;
 
   return (
     <AppShell>

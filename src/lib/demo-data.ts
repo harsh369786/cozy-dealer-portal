@@ -61,7 +61,7 @@ export const products: Product[] = [
   },
 ];
 
-export const getProduct = (id: string) => products.find((p) => p.id === id) ?? products[0];
+export const getProduct = (id: string) => products.find((p) => p.id === id) ?? products[0]!;
 
 export const dealer = {
   name: "Rajesh",
