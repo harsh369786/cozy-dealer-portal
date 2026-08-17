@@ -1,27 +1,28 @@
-import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { THEMES, useTheme } from "@/lib/theme";
+import { THEMES, useTheme, type ThemeKey } from "@/lib/theme";
+import logoGold from "@/assets/logo-gold.jpg.asset.json";
+import logoCream from "@/assets/logo-cream.jpg.asset.json";
+import logoYellow from "@/assets/logo-yellow.jpg.asset.json";
+
+const LOGOS: Record<ThemeKey, string> = {
+  gold: logoGold.url,
+  neutral: logoCream.url,
+  fresh: logoYellow.url,
+};
 
 export function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
-  const scale = { sm: "text-lg", md: "text-2xl", lg: "text-4xl" }[size];
+  const { theme } = useTheme();
+  const height = { sm: "h-8", md: "h-11", lg: "h-20" }[size];
   return (
-    <div className="inline-flex items-center gap-2">
-      <span
-        className={cn(
-          "grid place-items-center rounded-xl brand-gradient text-primary-foreground font-display font-bold",
-          size === "lg" ? "h-12 w-12 text-2xl" : size === "md" ? "h-9 w-9 text-lg" : "h-7 w-7 text-sm",
-        )}
-        aria-hidden
-      >
-        B
-      </span>
-      <span className={cn("font-display font-bold tracking-tight leading-none", scale)}>
-        Back<span className="text-brand-gradient">Rest</span>
-      </span>
-    </div>
+    <img
+      src={LOGOS[theme]}
+      alt="BackRest — Sleep. Reset. Perform."
+      className={cn("w-auto rounded-lg object-contain", height)}
+    />
   );
 }
+
 
 export function ThemeSwitcher() {
   const { theme, setTheme } = useTheme();
