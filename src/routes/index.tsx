@@ -47,10 +47,10 @@ function Login() {
 
         <div className="mt-10 animate-rise">
           <Logo size="lg" />
-          <p className="mt-4 font-display text-3xl font-bold leading-tight">
-            Sleep. Reset.
+          <p className="mt-6 font-display text-3xl font-bold leading-tight">
+            Welcome to your
             <br />
-            <span className="text-brand-gradient">Perform.</span>
+            <span className="text-brand-gradient">Dealer App</span>
           </p>
           <p className="mt-3 text-base text-muted-foreground">
             Welcome back. Order BackRest products, track them and earn rewards — all in one place.
