@@ -2,7 +2,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Home, LayoutGrid, Package, Gift, Menu, ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Logo, ThemeSwitcher } from "@/components/brand";
+import { Logo } from "@/components/brand";
 
 const nav = [
   { to: "/home", label: "Home", icon: Home },
@@ -37,7 +37,6 @@ export function AppShell({
           ) : (
             <Logo size="sm" />
           )}
-          <ThemeSwitcher />
         </header>
 
         <main className="px-5 pt-5">{children}</main>

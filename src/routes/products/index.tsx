@@ -1,53 +1,51 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { Search } from "lucide-react";
+import { ShieldCheck, Gift } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { cn } from "@/lib/utils";
-import { inr, products } from "@/lib/demo-data";
+import { inr, pillows, products, type Product } from "@/lib/demo-data";
 
 export const Route = createFileRoute("/products/")({
   head: () => ({
     meta: [
-      { title: "Products — BackRest Dealer App" },
-      { name: "description", content: "Browse BackRest mattresses, pillows and cushions with dealer prices." },
-      { property: "og:title", content: "Products — BackRest Dealer App" },
-      { property: "og:description", content: "Mattresses, pillows and cushions with dealer prices and reward points." },
+      { title: "Choose a Model — BackRest Dealer App" },
+      {
+        name: "description",
+        content: "Tap a mattress or pillow model to start an order — guarantee, thickness, dealer price and reward points on every card.",
+      },
+      { property: "og:title", content: "Choose a Model — BackRest Dealer App" },
+      { property: "og:description", content: "Quick tap ordering for BackRest mattresses and pillows." },
     ],
   }),
   component: Catalogue,
 });
 
-const categories = ["All", "Mattresses", "Pillows", "Cushions"] as const;
+const tabs = ["Mattresses", "Foldable", "Pillows"] as const;
 
 function Catalogue() {
-  const [cat, setCat] = useState<(typeof categories)[number]>("All");
-  const [q, setQ] = useState("");
+  const [tab, setTab] = useState<(typeof tabs)[number]>("Mattresses");
 
-  const list = products.filter(
-    (p) =>
-      (cat === "All" || p.category === cat) && p.name.toLowerCase().includes(q.toLowerCase()),
-  );
+  const list = tab === "Pillows" ? pillows : products.filter((p) => p.category === tab);
+
+  const groups = Array.from(new Set(list.map((p) => p.guarantee))).map((g) => ({
+    guarantee: g,
+    items: list.filter((p) => p.guarantee === g),
+  }));
 
   return (
-    <AppShell title="Products">
-      <div className="flex items-center gap-2 rounded-2xl border border-input bg-card px-4">
-        <Search className="h-5 w-5 text-muted-foreground" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="What are you looking for?"
-          className="h-14 w-full bg-transparent text-base outline-none"
-        />
-      </div>
+    <AppShell title="Choose a Model">
+      <p className="text-sm text-muted-foreground">
+        Tap any model to start your order. No searching needed.
+      </p>
 
       <div className="-mx-5 mt-4 flex gap-2 overflow-x-auto px-5 pb-1">
-        {categories.map((c) => (
+        {tabs.map((c) => (
           <button
             key={c}
-            onClick={() => setCat(c)}
+            onClick={() => setTab(c)}
             className={cn(
               "press shrink-0 rounded-full border px-5 py-2.5 text-sm font-bold",
-              cat === c
+              tab === c
                 ? "border-transparent brand-gradient text-primary-foreground"
                 : "border-border bg-card text-foreground",
             )}
@@ -57,45 +55,63 @@ function Catalogue() {
         ))}
       </div>
 
-      <div className="mt-5 space-y-4">
-        {list.map((p, i) => (
-          <div
-            key={p.id}
-            className="animate-rise overflow-hidden rounded-3xl border border-border bg-card shadow-soft"
-            style={{ animationDelay: `${i * 60}ms` }}
-          >
-            <img src={p.image} alt={p.name} loading="lazy" width={800} height={800} className="h-44 w-full object-cover" />
-            <div className="p-4">
-              <p className="font-display text-lg font-bold">{p.name}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{p.blurb}</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {p.sizes.map((s) => (
-                  <span key={s} className="rounded-lg bg-secondary px-2.5 py-1 text-xs font-semibold">
-                    {s}
-                  </span>
-                ))}
-              </div>
-              <div className="mt-4 flex items-end justify-between">
-                <div>
-                  <p className="text-xs text-muted-foreground">Dealer price</p>
-                  <p className="font-display text-xl font-bold">{inr(p.price)}</p>
-                </div>
-                <p className="text-sm font-bold text-primary">Earn {p.points} points 🎁</p>
-              </div>
-              <Link
-                to="/products/$productId"
-                params={{ productId: p.id }}
-                className="press mt-4 block rounded-2xl brand-gradient py-3.5 text-center text-base font-bold text-primary-foreground"
-              >
-                View Details
-              </Link>
-            </div>
+      {groups.map((g) => (
+        <section key={g.guarantee} className="mt-6">
+          <h2 className="mb-3 flex items-center gap-2 font-display text-base font-bold">
+            <ShieldCheck className="h-4 w-4 text-primary" />
+            {g.guarantee === "Pillow" || g.guarantee === "Foldable"
+              ? g.guarantee
+              : `${g.guarantee} Guarantee`}
+          </h2>
+          <div className="grid grid-cols-2 gap-3">
+            {g.items.map((p, i) => (
+              <ModelCard key={p.id} product={p} delay={i * 50} />
+            ))}
           </div>
-        ))}
-        {list.length === 0 && (
-          <p className="py-16 text-center text-muted-foreground">No products found.</p>
-        )}
-      </div>
+        </section>
+      ))}
     </AppShell>
+  );
+}
+
+function ModelCard({ product: p, delay }: { product: Product; delay: number }) {
+  return (
+    <Link
+      to="/products/$productId"
+      params={{ productId: p.id }}
+      style={{ animationDelay: `${delay}ms` }}
+      className="press animate-rise flex flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-soft"
+    >
+      <div className="relative">
+        <img
+          src={p.image}
+          alt={p.name}
+          loading="lazy"
+          width={800}
+          height={800}
+          className="h-24 w-full object-cover"
+        />
+        <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-0.5 text-[10px] font-bold">
+          {p.guarantee === "Pillow" ? "Pillow" : p.guarantee}
+        </span>
+      </div>
+      <div className="flex flex-1 flex-col p-3">
+        <p className="font-display text-sm font-bold leading-tight">{p.name}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {p.thicknesses.length ? p.thicknesses.join(" · ") : p.fixedSize}
+        </p>
+        <p className="mt-2 text-[11px] text-muted-foreground line-through">MRP {inr(p.mrp)}</p>
+        <p className="font-display text-lg font-bold text-primary">{inr(p.price)}</p>
+        <p className="text-[11px] font-semibold">Earn {p.points} points</p>
+        {p.free && (
+          <p className="mt-2 flex items-center gap-1 rounded-lg bg-secondary px-2 py-1 text-[10px] font-bold">
+            <Gift className="h-3 w-3 text-primary" /> FREE {p.free}
+          </p>
+        )}
+        <span className="press mt-3 block rounded-xl brand-gradient py-2 text-center text-xs font-bold text-primary-foreground">
+          Select
+        </span>
+      </div>
+    </Link>
   );
 }

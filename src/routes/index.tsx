@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import loginBg from "@/assets/login-bg.jpg";
-import { Logo, ThemeSwitcher } from "@/components/brand";
+import { Logo } from "@/components/brand";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -41,10 +41,6 @@ function Login() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[46vh] bg-gradient-to-b from-transparent to-background" />
 
       <div className="relative mx-auto flex min-h-screen w-full max-w-[430px] flex-col px-6 pb-10 pt-6 md:max-w-[520px]">
-        <div className="flex justify-end">
-          <ThemeSwitcher />
-        </div>
-
         <div className="mt-10 animate-rise">
           <Logo size="lg" />
           <p className="mt-6 font-display text-3xl font-bold leading-tight">

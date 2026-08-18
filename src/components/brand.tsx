@@ -1,82 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import { THEMES, useTheme, type ThemeKey } from "@/lib/theme";
-import logoGold from "@/assets/logo-gold.jpg.asset.json";
 import logoCream from "@/assets/logo-cream.jpg.asset.json";
-import logoYellow from "@/assets/logo-yellow.jpg.asset.json";
-
-const LOGOS: Record<ThemeKey, string> = {
-  gold: logoGold.url,
-  neutral: logoCream.url,
-  fresh: logoYellow.url,
-};
 
 export function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
-  const { theme } = useTheme();
   const height = { sm: "h-8", md: "h-11", lg: "h-20" }[size];
   return (
     <img
-      src={LOGOS[theme]}
+      src={logoCream.url}
       alt="BackRest — Sleep. Reset. Perform."
       className={cn("w-auto rounded-lg object-contain", height)}
     />
-  );
-}
-
-
-export function ThemeSwitcher() {
-  const { theme, setTheme } = useTheme();
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="relative">
-      <button
-        onClick={() => setOpen((o) => !o)}
-        aria-label="Change theme"
-        className="press flex h-11 items-center gap-2 rounded-full border border-border bg-card px-3 text-sm font-semibold"
-      >
-        <span className="flex -space-x-1">
-          {THEMES.find((t) => t.key === theme)!.swatch.slice(0, 3).map((c) => (
-            <span
-              key={c}
-              className="h-4 w-4 rounded-full border border-border"
-              style={{ backgroundColor: c }}
-            />
-          ))}
-        </span>
-        Theme
-      </button>
-      {open && (
-        <div className="animate-pop absolute right-0 z-50 mt-2 w-60 rounded-2xl border border-border bg-popover p-2 shadow-lift">
-          {THEMES.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => {
-                setTheme(t.key);
-                setOpen(false);
-              }}
-              className={cn(
-                "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left",
-                theme === t.key ? "bg-secondary" : "hover:bg-secondary/60",
-              )}
-            >
-              <span className="flex -space-x-1">
-                {t.swatch.map((c) => (
-                  <span
-                    key={c}
-                    className="h-5 w-5 rounded-full border border-border"
-                    style={{ backgroundColor: c }}
-                  />
-                ))}
-              </span>
-              <span>
-                <span className="block text-sm font-semibold">{t.name}</span>
-                <span className="block text-xs text-muted-foreground">{t.note}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 

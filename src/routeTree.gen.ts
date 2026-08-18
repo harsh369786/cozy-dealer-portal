@@ -12,7 +12,6 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CampaignsRouteImport } from './routes/campaigns'
 import { Route as HomeRouteImport } from './routes/home'
-import { Route as OrderRouteImport } from './routes/order'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as RewardsRouteImport } from './routes/rewards'
 import { Route as ProductsIndexRouteImport } from './routes/products/index'
@@ -31,11 +30,6 @@ const CampaignsRoute = CampaignsRouteImport.update({
 const HomeRoute = HomeRouteImport.update({
   id: '/home',
   path: '/home',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const OrderRoute = OrderRouteImport.update({
-  id: '/order',
-  path: '/order',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OrdersRoute = OrdersRouteImport.update({
@@ -63,7 +57,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/campaigns': typeof CampaignsRoute
   '/home': typeof HomeRoute
-  '/order': typeof OrderRoute
   '/orders': typeof OrdersRoute
   '/rewards': typeof RewardsRoute
   '/products/$productId': typeof ProductsProductIdRoute
@@ -73,7 +66,6 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/campaigns': typeof CampaignsRoute
   '/home': typeof HomeRoute
-  '/order': typeof OrderRoute
   '/orders': typeof OrdersRoute
   '/rewards': typeof RewardsRoute
   '/products/$productId': typeof ProductsProductIdRoute
@@ -84,7 +76,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/campaigns': typeof CampaignsRoute
   '/home': typeof HomeRoute
-  '/order': typeof OrderRoute
   '/orders': typeof OrdersRoute
   '/rewards': typeof RewardsRoute
   '/products/$productId': typeof ProductsProductIdRoute
@@ -96,7 +87,6 @@ export interface FileRouteTypes {
     | '/'
     | '/campaigns'
     | '/home'
-    | '/order'
     | '/orders'
     | '/rewards'
     | '/products/$productId'
@@ -106,7 +96,6 @@ export interface FileRouteTypes {
     | '/'
     | '/campaigns'
     | '/home'
-    | '/order'
     | '/orders'
     | '/rewards'
     | '/products/$productId'
@@ -116,7 +105,6 @@ export interface FileRouteTypes {
     | '/'
     | '/campaigns'
     | '/home'
-    | '/order'
     | '/orders'
     | '/rewards'
     | '/products/$productId'
@@ -127,7 +115,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CampaignsRoute: typeof CampaignsRoute
   HomeRoute: typeof HomeRoute
-  OrderRoute: typeof OrderRoute
   OrdersRoute: typeof OrdersRoute
   RewardsRoute: typeof RewardsRoute
   ProductsProductIdRoute: typeof ProductsProductIdRoute
@@ -155,13 +142,6 @@ declare module '@tanstack/react-router' {
       path: '/home'
       fullPath: '/home'
       preLoaderRoute: typeof HomeRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/order': {
-      id: '/order'
-      path: '/order'
-      fullPath: '/order'
-      preLoaderRoute: typeof OrderRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/orders': {
@@ -199,7 +179,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CampaignsRoute: CampaignsRoute,
   HomeRoute: HomeRoute,
-  OrderRoute: OrderRoute,
   OrdersRoute: OrdersRoute,
   RewardsRoute: RewardsRoute,
   ProductsProductIdRoute: ProductsProductIdRoute,
