@@ -9,29 +9,50 @@ import {
   Gift,
   ShoppingBag,
 } from "lucide-react";
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { DistributorShell, DistSection } from "@/components/distributor-shell";
 import { StatCard } from "@/components/shared/stat-card";
 import { OrderCard } from "@/components/shared/order-card";
-import { ChartCard } from "@/components/shared/chart-card";
 import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
-import { ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useSession } from "@/hooks/use-session";
 import { inr } from "@/lib/demo-data";
+import type { MonthlySales } from "@/lib/mock/distributor/types";
 import { getPendingOrders } from "@/services/orders";
 import { getDashboardStats, getMonthlySales } from "@/services/reports";
-import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 export const Route = createFileRoute("/distributor/dashboard")({
   component: DashboardPage,
 });
 
-const chartConfig = {
-  sales: { label: "Sales", color: "hsl(var(--primary))" },
-};
+function SalesTrendSimple({ data }: { data: MonthlySales[] }) {
+  const max = Math.max(...data.map((d) => d.sales), 1);
+
+  return (
+    <div className="rounded-3xl border border-border bg-card p-4 shadow-soft">
+      <p className="text-sm text-muted-foreground">Each bar shows how that month compares to your best month.</p>
+      <div className="mt-4 space-y-4">
+        {data.map((row) => (
+          <div key={row.month}>
+            <div className="mb-1.5 flex items-center justify-between gap-2 text-sm">
+              <span className="w-10 font-semibold">{row.month}</span>
+              <span className="font-bold">{inr(row.sales)}</span>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full bg-primary"
+                style={{ width: `${(row.sales / max) * 100}%` }}
+              />
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{row.orders} orders</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function DashboardPage() {
-  const reducedMotion = useReducedMotion();
+  const { user } = useSession();
   const simulateError =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("error") === "1";
@@ -74,7 +95,7 @@ function DashboardPage() {
     <DistributorShell title="Dashboard">
       <div className="animate-rise">
         <h1 className="font-display text-2xl font-bold">Distributor Hub</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Maharashtra Central region overview</p>
+        <p className="mt-1 text-sm font-semibold text-muted-foreground">{user?.name ?? "Distributor"}</p>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -127,31 +148,7 @@ function DashboardPage() {
       </DistSection>
 
       <DistSection title="Sales Trend">
-        <ChartCard
-          title="6-Month Sales"
-          description="Revenue across your dealer network"
-          config={chartConfig}
-        >
-          <AreaChart data={sales} margin={{ left: 0, right: 8, top: 8, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="month" tickLine={false} axisLine={false} />
-            <YAxis
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={(v) => `${(v / 100000).toFixed(0)}L`}
-              width={36}
-            />
-            <ChartTooltip content={<ChartTooltipContent />} />
-            <Area
-              type="monotone"
-              dataKey="sales"
-              stroke="var(--color-sales)"
-              fill="var(--color-sales)"
-              fillOpacity={0.2}
-              animationDuration={reducedMotion ? 0 : 800}
-            />
-          </AreaChart>
-        </ChartCard>
+        <SalesTrendSimple data={sales} />
       </DistSection>
     </DistributorShell>
   );

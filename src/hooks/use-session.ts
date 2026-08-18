@@ -15,14 +15,10 @@ export function useSession() {
     refresh();
   }, [refresh]);
 
-  const switchRole = useCallback(
-    (next: UserRole) => {
-      auth.switchRoleDemo(next);
-      refresh();
-      window.location.reload();
-    },
-    [refresh],
-  );
+  const switchRole = useCallback((next: UserRole) => {
+    auth.switchRoleDemo(next);
+    window.location.href = auth.getHomePath(next);
+  }, []);
 
   return { user, role, isDistributor: role === "distributor", switchRole, refresh };
 }

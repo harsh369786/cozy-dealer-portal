@@ -62,20 +62,20 @@ export async function login(phone: string): Promise<SessionUser> {
 export function switchRoleDemo(role: UserRole): void {
   sessionStorage.setItem(ROLE_KEY, role);
   const existing = readSession();
-  if (existing) {
-    const dist = distributors[DISTRIBUTOR_ID];
-    const updated: SessionUser =
-      role === "distributor"
-        ? {
-            id: DISTRIBUTOR_ID,
-            name: dist!.name,
-            phone: dist!.phone,
-            role: "distributor",
-            distributorId: DISTRIBUTOR_ID,
-          }
-        : { ...DEFAULT_USER, phone: existing.phone };
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated));
-  }
+  const dist = distributors[DISTRIBUTOR_ID];
+  const updated: SessionUser =
+    role === "distributor"
+      ? {
+          id: DISTRIBUTOR_ID,
+          name: dist!.name,
+          phone: dist!.phone,
+          role: "distributor",
+          distributorId: DISTRIBUTOR_ID,
+        }
+      : existing
+        ? { ...DEFAULT_USER, phone: existing.phone }
+        : { ...DEFAULT_USER };
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated));
 }
 
 export function logout(): void {

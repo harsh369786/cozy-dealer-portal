@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 
 export function useOnline() {
-  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  const [online, setOnline] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
+    setOnline(navigator.onLine);
     const on = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener("online", on);
@@ -14,5 +17,5 @@ export function useOnline() {
     };
   }, []);
 
-  return online;
+  return { online, mounted };
 }

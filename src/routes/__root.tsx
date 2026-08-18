@@ -132,7 +132,8 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
-  const online = useOnline();
+  const { online, mounted } = useOnline();
+  const showOffline = mounted && !online;
 
   useEffect(() => {
     if (typeof window !== "undefined" && "serviceWorker" in navigator) {
@@ -142,8 +143,8 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {!online && <OfflineBanner />}
-      <div className={online ? undefined : "pt-10"}>
+      {showOffline && <OfflineBanner />}
+      <div className={showOffline ? "pt-10" : undefined}>
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
       </div>
