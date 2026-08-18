@@ -298,7 +298,7 @@ Size:
 
 Quantity:
 
-"−  10  +"
+"− 10 +"
 
 You'll earn 500 points 🎁
 
@@ -474,65 +474,21 @@ Use subtle animations for progress and achievement.
 
 ---
 
-Theme Variations
+## Visual Theme — Warm Neutral
 
-Using the three BackRest logo files I provide, create 3 visual theme directions.
-
-Do not change the logo.
-
-Theme A — Premium Gold
-
-Use the black + gold logo as the inspiration.
+The prototype uses a **single Warm Neutral theme** — calm, premium, and welcoming.
 
 Visual direction:
 
-- Black
+- Cream and warm white backgrounds
+- Soft beige cards and surfaces
+- Muted soft gold for CTAs, rewards, and progress
+- Subtle taupe/brown for secondary text and borders
+- Dark warm charcoal for primary text
 
-- Gold
+The overall feeling is **Comfortable • Premium • Calm • Elegant • Trustworthy** — appropriate for a mattress and sleep-products brand, without a heavy black-and-gold luxury aesthetic.
 
-- Warm neutrals
-
-- Off-white
-
-- Premium luxury feel
-
-This should feel like a premium mattress brand.
-
-Theme B — Elegant Warm Neutral
-
-Use the beige/cream logo variation.
-
-Visual direction:
-
-- Cream
-
-- Beige
-
-- Warm brown
-
-- Soft gold accents
-
-- White
-
-This should feel calm, comfortable and sophisticated.
-
-Theme C — Modern & Fresh
-
-Use the yellow/black logo variation.
-
-Visual direction:
-
-- Warm yellow
-
-- Black
-
-- White
-
-- Soft neutral backgrounds
-
-This should feel more energetic, approachable and modern.
-
-Do not make the application overly bright or childish.
+Gold is used sparingly for primary CTAs, reward highlights, progress indicators, and success moments. The interface stays light, airy, and comfortable.
 
 ---
 

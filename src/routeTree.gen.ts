@@ -14,8 +14,25 @@ import { Route as CampaignsRouteImport } from './routes/campaigns'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as RewardsRouteImport } from './routes/rewards'
+import { Route as ComplaintsIndexRouteImport } from './routes/complaints/index'
+import { Route as ComplaintsComplaintIdRouteImport } from './routes/complaints/$complaintId'
+import { Route as DistributorIndexRouteImport } from './routes/distributor/index'
+import { Route as Distributor_layoutRouteImport } from './routes/distributor/__layout'
+import { Route as DistributorDashboardRouteImport } from './routes/distributor/dashboard'
+import { Route as DistributorMoreRouteImport } from './routes/distributor/more'
+import { Route as DistributorNotificationsRouteImport } from './routes/distributor/notifications'
+import { Route as DistributorProfileRouteImport } from './routes/distributor/profile'
+import { Route as DistributorReportsRouteImport } from './routes/distributor/reports'
 import { Route as ProductsIndexRouteImport } from './routes/products/index'
 import { Route as ProductsProductIdRouteImport } from './routes/products/$productId'
+import { Route as DistributorCampaignsIndexRouteImport } from './routes/distributor/campaigns/index'
+import { Route as DistributorCampaignsCampaignIdRouteImport } from './routes/distributor/campaigns/$campaignId'
+import { Route as DistributorComplaintsIndexRouteImport } from './routes/distributor/complaints/index'
+import { Route as DistributorComplaintsComplaintIdRouteImport } from './routes/distributor/complaints/$complaintId'
+import { Route as DistributorDealersIndexRouteImport } from './routes/distributor/dealers/index'
+import { Route as DistributorDealersDealerIdRouteImport } from './routes/distributor/dealers/$dealerId'
+import { Route as DistributorOrdersIndexRouteImport } from './routes/distributor/orders/index'
+import { Route as DistributorOrdersOrderIdRouteImport } from './routes/distributor/orders/$orderId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -42,6 +59,52 @@ const RewardsRoute = RewardsRouteImport.update({
   path: '/rewards',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ComplaintsIndexRoute = ComplaintsIndexRouteImport.update({
+  id: '/complaints/',
+  path: '/complaints/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ComplaintsComplaintIdRoute = ComplaintsComplaintIdRouteImport.update({
+  id: '/complaints/$complaintId',
+  path: '/complaints/$complaintId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DistributorIndexRoute = DistributorIndexRouteImport.update({
+  id: '/distributor/',
+  path: '/distributor/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Distributor_layoutRoute = Distributor_layoutRouteImport.update({
+  id: '/distributor/__layout',
+  path: '/distributor',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DistributorDashboardRoute = DistributorDashboardRouteImport.update({
+  id: '/distributor/dashboard',
+  path: '/distributor/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DistributorMoreRoute = DistributorMoreRouteImport.update({
+  id: '/distributor/more',
+  path: '/distributor/more',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DistributorNotificationsRoute =
+  DistributorNotificationsRouteImport.update({
+    id: '/distributor/notifications',
+    path: '/distributor/notifications',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DistributorProfileRoute = DistributorProfileRouteImport.update({
+  id: '/distributor/profile',
+  path: '/distributor/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DistributorReportsRoute = DistributorReportsRouteImport.update({
+  id: '/distributor/reports',
+  path: '/distributor/reports',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProductsIndexRoute = ProductsIndexRouteImport.update({
   id: '/products/',
   path: '/products/',
@@ -52,6 +115,52 @@ const ProductsProductIdRoute = ProductsProductIdRouteImport.update({
   path: '/products/$productId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DistributorCampaignsIndexRoute =
+  DistributorCampaignsIndexRouteImport.update({
+    id: '/distributor/campaigns/',
+    path: '/distributor/campaigns/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DistributorCampaignsCampaignIdRoute =
+  DistributorCampaignsCampaignIdRouteImport.update({
+    id: '/distributor/campaigns/$campaignId',
+    path: '/distributor/campaigns/$campaignId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DistributorComplaintsIndexRoute =
+  DistributorComplaintsIndexRouteImport.update({
+    id: '/distributor/complaints/',
+    path: '/distributor/complaints/',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DistributorComplaintsComplaintIdRoute =
+  DistributorComplaintsComplaintIdRouteImport.update({
+    id: '/distributor/complaints/$complaintId',
+    path: '/distributor/complaints/$complaintId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DistributorDealersIndexRoute = DistributorDealersIndexRouteImport.update({
+  id: '/distributor/dealers/',
+  path: '/distributor/dealers/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DistributorDealersDealerIdRoute =
+  DistributorDealersDealerIdRouteImport.update({
+    id: '/distributor/dealers/$dealerId',
+    path: '/distributor/dealers/$dealerId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const DistributorOrdersIndexRoute = DistributorOrdersIndexRouteImport.update({
+  id: '/distributor/orders/',
+  path: '/distributor/orders/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DistributorOrdersOrderIdRoute =
+  DistributorOrdersOrderIdRouteImport.update({
+    id: '/distributor/orders/$orderId',
+    path: '/distributor/orders/$orderId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -59,8 +168,25 @@ export interface FileRoutesByFullPath {
   '/home': typeof HomeRoute
   '/orders': typeof OrdersRoute
   '/rewards': typeof RewardsRoute
+  '/complaints/$complaintId': typeof ComplaintsComplaintIdRoute
+  '/distributor': typeof Distributor_layoutRoute
+  '/distributor/dashboard': typeof DistributorDashboardRoute
+  '/distributor/more': typeof DistributorMoreRoute
+  '/distributor/notifications': typeof DistributorNotificationsRoute
+  '/distributor/profile': typeof DistributorProfileRoute
+  '/distributor/reports': typeof DistributorReportsRoute
   '/products/$productId': typeof ProductsProductIdRoute
+  '/complaints/': typeof ComplaintsIndexRoute
+  '/distributor/': typeof DistributorIndexRoute
   '/products/': typeof ProductsIndexRoute
+  '/distributor/campaigns/$campaignId': typeof DistributorCampaignsCampaignIdRoute
+  '/distributor/complaints/$complaintId': typeof DistributorComplaintsComplaintIdRoute
+  '/distributor/dealers/$dealerId': typeof DistributorDealersDealerIdRoute
+  '/distributor/orders/$orderId': typeof DistributorOrdersOrderIdRoute
+  '/distributor/campaigns/': typeof DistributorCampaignsIndexRoute
+  '/distributor/complaints/': typeof DistributorComplaintsIndexRoute
+  '/distributor/dealers/': typeof DistributorDealersIndexRoute
+  '/distributor/orders/': typeof DistributorOrdersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -68,8 +194,24 @@ export interface FileRoutesByTo {
   '/home': typeof HomeRoute
   '/orders': typeof OrdersRoute
   '/rewards': typeof RewardsRoute
+  '/complaints/$complaintId': typeof ComplaintsComplaintIdRoute
+  '/distributor': typeof DistributorIndexRoute
+  '/distributor/dashboard': typeof DistributorDashboardRoute
+  '/distributor/more': typeof DistributorMoreRoute
+  '/distributor/notifications': typeof DistributorNotificationsRoute
+  '/distributor/profile': typeof DistributorProfileRoute
+  '/distributor/reports': typeof DistributorReportsRoute
   '/products/$productId': typeof ProductsProductIdRoute
+  '/complaints': typeof ComplaintsIndexRoute
   '/products': typeof ProductsIndexRoute
+  '/distributor/campaigns/$campaignId': typeof DistributorCampaignsCampaignIdRoute
+  '/distributor/complaints/$complaintId': typeof DistributorComplaintsComplaintIdRoute
+  '/distributor/dealers/$dealerId': typeof DistributorDealersDealerIdRoute
+  '/distributor/orders/$orderId': typeof DistributorOrdersOrderIdRoute
+  '/distributor/campaigns': typeof DistributorCampaignsIndexRoute
+  '/distributor/complaints': typeof DistributorComplaintsIndexRoute
+  '/distributor/dealers': typeof DistributorDealersIndexRoute
+  '/distributor/orders': typeof DistributorOrdersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -78,8 +220,25 @@ export interface FileRoutesById {
   '/home': typeof HomeRoute
   '/orders': typeof OrdersRoute
   '/rewards': typeof RewardsRoute
+  '/complaints/$complaintId': typeof ComplaintsComplaintIdRoute
+  '/distributor/__layout': typeof Distributor_layoutRoute
+  '/distributor/dashboard': typeof DistributorDashboardRoute
+  '/distributor/more': typeof DistributorMoreRoute
+  '/distributor/notifications': typeof DistributorNotificationsRoute
+  '/distributor/profile': typeof DistributorProfileRoute
+  '/distributor/reports': typeof DistributorReportsRoute
   '/products/$productId': typeof ProductsProductIdRoute
+  '/complaints/': typeof ComplaintsIndexRoute
+  '/distributor/': typeof DistributorIndexRoute
   '/products/': typeof ProductsIndexRoute
+  '/distributor/campaigns/$campaignId': typeof DistributorCampaignsCampaignIdRoute
+  '/distributor/complaints/$complaintId': typeof DistributorComplaintsComplaintIdRoute
+  '/distributor/dealers/$dealerId': typeof DistributorDealersDealerIdRoute
+  '/distributor/orders/$orderId': typeof DistributorOrdersOrderIdRoute
+  '/distributor/campaigns/': typeof DistributorCampaignsIndexRoute
+  '/distributor/complaints/': typeof DistributorComplaintsIndexRoute
+  '/distributor/dealers/': typeof DistributorDealersIndexRoute
+  '/distributor/orders/': typeof DistributorOrdersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -89,8 +248,25 @@ export interface FileRouteTypes {
     | '/home'
     | '/orders'
     | '/rewards'
+    | '/complaints/$complaintId'
+    | '/distributor'
+    | '/distributor/dashboard'
+    | '/distributor/more'
+    | '/distributor/notifications'
+    | '/distributor/profile'
+    | '/distributor/reports'
     | '/products/$productId'
+    | '/complaints/'
+    | '/distributor/'
     | '/products/'
+    | '/distributor/campaigns/$campaignId'
+    | '/distributor/complaints/$complaintId'
+    | '/distributor/dealers/$dealerId'
+    | '/distributor/orders/$orderId'
+    | '/distributor/campaigns/'
+    | '/distributor/complaints/'
+    | '/distributor/dealers/'
+    | '/distributor/orders/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -98,8 +274,24 @@ export interface FileRouteTypes {
     | '/home'
     | '/orders'
     | '/rewards'
+    | '/complaints/$complaintId'
+    | '/distributor'
+    | '/distributor/dashboard'
+    | '/distributor/more'
+    | '/distributor/notifications'
+    | '/distributor/profile'
+    | '/distributor/reports'
     | '/products/$productId'
+    | '/complaints'
     | '/products'
+    | '/distributor/campaigns/$campaignId'
+    | '/distributor/complaints/$complaintId'
+    | '/distributor/dealers/$dealerId'
+    | '/distributor/orders/$orderId'
+    | '/distributor/campaigns'
+    | '/distributor/complaints'
+    | '/distributor/dealers'
+    | '/distributor/orders'
   id:
     | '__root__'
     | '/'
@@ -107,8 +299,25 @@ export interface FileRouteTypes {
     | '/home'
     | '/orders'
     | '/rewards'
+    | '/complaints/$complaintId'
+    | '/distributor/__layout'
+    | '/distributor/dashboard'
+    | '/distributor/more'
+    | '/distributor/notifications'
+    | '/distributor/profile'
+    | '/distributor/reports'
     | '/products/$productId'
+    | '/complaints/'
+    | '/distributor/'
     | '/products/'
+    | '/distributor/campaigns/$campaignId'
+    | '/distributor/complaints/$complaintId'
+    | '/distributor/dealers/$dealerId'
+    | '/distributor/orders/$orderId'
+    | '/distributor/campaigns/'
+    | '/distributor/complaints/'
+    | '/distributor/dealers/'
+    | '/distributor/orders/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -117,8 +326,25 @@ export interface RootRouteChildren {
   HomeRoute: typeof HomeRoute
   OrdersRoute: typeof OrdersRoute
   RewardsRoute: typeof RewardsRoute
+  ComplaintsComplaintIdRoute: typeof ComplaintsComplaintIdRoute
+  Distributor_layoutRoute: typeof Distributor_layoutRoute
+  DistributorDashboardRoute: typeof DistributorDashboardRoute
+  DistributorMoreRoute: typeof DistributorMoreRoute
+  DistributorNotificationsRoute: typeof DistributorNotificationsRoute
+  DistributorProfileRoute: typeof DistributorProfileRoute
+  DistributorReportsRoute: typeof DistributorReportsRoute
   ProductsProductIdRoute: typeof ProductsProductIdRoute
+  ComplaintsIndexRoute: typeof ComplaintsIndexRoute
+  DistributorIndexRoute: typeof DistributorIndexRoute
   ProductsIndexRoute: typeof ProductsIndexRoute
+  DistributorCampaignsCampaignIdRoute: typeof DistributorCampaignsCampaignIdRoute
+  DistributorComplaintsComplaintIdRoute: typeof DistributorComplaintsComplaintIdRoute
+  DistributorDealersDealerIdRoute: typeof DistributorDealersDealerIdRoute
+  DistributorOrdersOrderIdRoute: typeof DistributorOrdersOrderIdRoute
+  DistributorCampaignsIndexRoute: typeof DistributorCampaignsIndexRoute
+  DistributorComplaintsIndexRoute: typeof DistributorComplaintsIndexRoute
+  DistributorDealersIndexRoute: typeof DistributorDealersIndexRoute
+  DistributorOrdersIndexRoute: typeof DistributorOrdersIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -158,6 +384,69 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RewardsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/complaints/': {
+      id: '/complaints/'
+      path: '/complaints'
+      fullPath: '/complaints/'
+      preLoaderRoute: typeof ComplaintsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/complaints/$complaintId': {
+      id: '/complaints/$complaintId'
+      path: '/complaints/$complaintId'
+      fullPath: '/complaints/$complaintId'
+      preLoaderRoute: typeof ComplaintsComplaintIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/': {
+      id: '/distributor/'
+      path: '/distributor'
+      fullPath: '/distributor/'
+      preLoaderRoute: typeof DistributorIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/__layout': {
+      id: '/distributor/__layout'
+      path: '/distributor'
+      fullPath: '/distributor'
+      preLoaderRoute: typeof Distributor_layoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/dashboard': {
+      id: '/distributor/dashboard'
+      path: '/distributor/dashboard'
+      fullPath: '/distributor/dashboard'
+      preLoaderRoute: typeof DistributorDashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/more': {
+      id: '/distributor/more'
+      path: '/distributor/more'
+      fullPath: '/distributor/more'
+      preLoaderRoute: typeof DistributorMoreRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/notifications': {
+      id: '/distributor/notifications'
+      path: '/distributor/notifications'
+      fullPath: '/distributor/notifications'
+      preLoaderRoute: typeof DistributorNotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/profile': {
+      id: '/distributor/profile'
+      path: '/distributor/profile'
+      fullPath: '/distributor/profile'
+      preLoaderRoute: typeof DistributorProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/reports': {
+      id: '/distributor/reports'
+      path: '/distributor/reports'
+      fullPath: '/distributor/reports'
+      preLoaderRoute: typeof DistributorReportsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/products/': {
       id: '/products/'
       path: '/products'
@@ -172,6 +461,62 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProductsProductIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/distributor/campaigns/': {
+      id: '/distributor/campaigns/'
+      path: '/distributor/campaigns'
+      fullPath: '/distributor/campaigns/'
+      preLoaderRoute: typeof DistributorCampaignsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/campaigns/$campaignId': {
+      id: '/distributor/campaigns/$campaignId'
+      path: '/distributor/campaigns/$campaignId'
+      fullPath: '/distributor/campaigns/$campaignId'
+      preLoaderRoute: typeof DistributorCampaignsCampaignIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/complaints/': {
+      id: '/distributor/complaints/'
+      path: '/distributor/complaints'
+      fullPath: '/distributor/complaints/'
+      preLoaderRoute: typeof DistributorComplaintsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/complaints/$complaintId': {
+      id: '/distributor/complaints/$complaintId'
+      path: '/distributor/complaints/$complaintId'
+      fullPath: '/distributor/complaints/$complaintId'
+      preLoaderRoute: typeof DistributorComplaintsComplaintIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/dealers/': {
+      id: '/distributor/dealers/'
+      path: '/distributor/dealers'
+      fullPath: '/distributor/dealers/'
+      preLoaderRoute: typeof DistributorDealersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/dealers/$dealerId': {
+      id: '/distributor/dealers/$dealerId'
+      path: '/distributor/dealers/$dealerId'
+      fullPath: '/distributor/dealers/$dealerId'
+      preLoaderRoute: typeof DistributorDealersDealerIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/orders/': {
+      id: '/distributor/orders/'
+      path: '/distributor/orders'
+      fullPath: '/distributor/orders/'
+      preLoaderRoute: typeof DistributorOrdersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/distributor/orders/$orderId': {
+      id: '/distributor/orders/$orderId'
+      path: '/distributor/orders/$orderId'
+      fullPath: '/distributor/orders/$orderId'
+      preLoaderRoute: typeof DistributorOrdersOrderIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -181,8 +526,25 @@ const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRoute,
   OrdersRoute: OrdersRoute,
   RewardsRoute: RewardsRoute,
+  ComplaintsComplaintIdRoute: ComplaintsComplaintIdRoute,
+  Distributor_layoutRoute: Distributor_layoutRoute,
+  DistributorDashboardRoute: DistributorDashboardRoute,
+  DistributorMoreRoute: DistributorMoreRoute,
+  DistributorNotificationsRoute: DistributorNotificationsRoute,
+  DistributorProfileRoute: DistributorProfileRoute,
+  DistributorReportsRoute: DistributorReportsRoute,
   ProductsProductIdRoute: ProductsProductIdRoute,
+  ComplaintsIndexRoute: ComplaintsIndexRoute,
+  DistributorIndexRoute: DistributorIndexRoute,
   ProductsIndexRoute: ProductsIndexRoute,
+  DistributorCampaignsCampaignIdRoute: DistributorCampaignsCampaignIdRoute,
+  DistributorComplaintsComplaintIdRoute: DistributorComplaintsComplaintIdRoute,
+  DistributorDealersDealerIdRoute: DistributorDealersDealerIdRoute,
+  DistributorOrdersOrderIdRoute: DistributorOrdersOrderIdRoute,
+  DistributorCampaignsIndexRoute: DistributorCampaignsIndexRoute,
+  DistributorComplaintsIndexRoute: DistributorComplaintsIndexRoute,
+  DistributorDealersIndexRoute: DistributorDealersIndexRoute,
+  DistributorOrdersIndexRoute: DistributorOrdersIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

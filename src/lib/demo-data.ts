@@ -47,21 +47,109 @@ export const products: Product[] = [
   M("Twin Max", "5 Years", ['5"', '6"', '8"'], 9400, 6300, 44, "Extra support for heavier use."),
 
   M("AquaFresh", "7 Years", ['5"', '6"', '8"'], 11200, 7500, 52, "Breathable cool-sleep foam."),
-  M("AquaFresh Plush", "7 Years", ['5"', '6"', '8"'], 12100, 8100, 56, "Plush surface, cool and airy."),
-  M("AquaFresh Serene", "7 Years", ['5"', '6"', '8"'], 12900, 8700, 60, "Quiet, calm, pressure-free sleep."),
-  M("AquaFresh Bounce", "7 Years", ['5"', '6"', '8"'], 13400, 9000, 62, "Springy feel with quick recovery."),
+  M(
+    "AquaFresh Plush",
+    "7 Years",
+    ['5"', '6"', '8"'],
+    12100,
+    8100,
+    56,
+    "Plush surface, cool and airy.",
+  ),
+  M(
+    "AquaFresh Serene",
+    "7 Years",
+    ['5"', '6"', '8"'],
+    12900,
+    8700,
+    60,
+    "Quiet, calm, pressure-free sleep.",
+  ),
+  M(
+    "AquaFresh Bounce",
+    "7 Years",
+    ['5"', '6"', '8"'],
+    13400,
+    9000,
+    62,
+    "Springy feel with quick recovery.",
+  ),
 
   M("Delight", "10 Years", ['5"', '6"', '8"'], 15200, 10200, 70, "Premium comfort for long life."),
   M("Delight Max", "10 Years", ['4"'], 12400, 8300, 58, "Slim profile, maximum support."),
-  M("Delight Cool", "10 Years", ['5"', '6"', '8"'], 16400, 11000, 76, "Cool gel layer for hot nights."),
-  M("Latexo", "10 Years", ['5"', '6"', '8"'], 18600, 12500, 86, "Natural latex bounce and breathability."),
-  M("Latexo Plush", "10 Years", ['5"', '6"', '8"'], 19900, 13400, 92, "Soft latex top with firm core."),
+  M(
+    "Delight Cool",
+    "10 Years",
+    ['5"', '6"', '8"'],
+    16400,
+    11000,
+    76,
+    "Cool gel layer for hot nights.",
+  ),
+  M(
+    "Latexo",
+    "10 Years",
+    ['5"', '6"', '8"'],
+    18600,
+    12500,
+    86,
+    "Natural latex bounce and breathability.",
+  ),
+  M(
+    "Latexo Plush",
+    "10 Years",
+    ['5"', '6"', '8"'],
+    19900,
+    13400,
+    92,
+    "Soft latex top with firm core.",
+  ),
 
-  M("Orthomatic", "12 Years", ['6"', '8"', '10"'], 22400, 15100, 104, "Orthopaedic support for back comfort."),
-  M("Posturematic", "12 Years", ['6"', '8"', '10"'], 23600, 15900, 110, "Posture-aligned zoned support."),
-  M("Theramatic", "12 Years", ['6"', '8"', '10"'], 24800, 16700, 116, "Therapeutic relief for pressure points."),
-  M("Magnamatic", "12 Years", ['6"', '8"', '10"'], 26200, 17600, 122, "Magnetic therapy comfort layer."),
-  M("Spacematic", "12 Years", ['6"', '8"', '10"'], 27800, 18700, 130, "Top of the range luxury sleep."),
+  M(
+    "Orthomatic",
+    "12 Years",
+    ['6"', '8"', '10"'],
+    22400,
+    15100,
+    104,
+    "Orthopaedic support for back comfort.",
+  ),
+  M(
+    "Posturematic",
+    "12 Years",
+    ['6"', '8"', '10"'],
+    23600,
+    15900,
+    110,
+    "Posture-aligned zoned support.",
+  ),
+  M(
+    "Theramatic",
+    "12 Years",
+    ['6"', '8"', '10"'],
+    24800,
+    16700,
+    116,
+    "Therapeutic relief for pressure points.",
+  ),
+  M(
+    "Magnamatic",
+    "12 Years",
+    ['6"', '8"', '10"'],
+    26200,
+    17600,
+    122,
+    "Magnetic therapy comfort layer.",
+  ),
+  M(
+    "Spacematic",
+    "12 Years",
+    ['6"', '8"', '10"'],
+    27800,
+    18700,
+    130,
+    "Top of the range luxury sleep.",
+  ),
 
   {
     id: "2-fold-mattress",
@@ -119,8 +207,158 @@ export const pillows: Product[] = [
 
 export const allProducts: Product[] = [...products, ...pillows];
 
-export const getProduct = (id: string) =>
-  allProducts.find((p) => p.id === id) ?? allProducts[0]!;
+export const getProduct = (id: string) => allProducts.find((p) => p.id === id) ?? allProducts[0]!;
+
+export const MATTRESS_LAYERS = [
+  {
+    id: "layer-1",
+    title: "3 & 5 Years Guarantee",
+    subgroups: [
+      { label: "3 Years", productIds: ["eco-bond"] },
+      { label: "5 Years", productIds: ["twin", "twin-plush", "twin-max"] },
+    ],
+  },
+  {
+    id: "layer-2",
+    title: "7 Years Guarantee",
+    productIds: ["aquafresh", "aquafresh-plush", "aquafresh-serene", "aquafresh-bounce"],
+  },
+  {
+    id: "layer-3",
+    title: "10 Years Guarantee",
+    productIds: ["delight", "delight-max", "delight-cool", "latexo", "latexo-plush"],
+  },
+  {
+    id: "layer-4",
+    title: "12 Years Guarantee",
+    productIds: ["orthomatic", "posturematic", "theramatic", "magnamatic", "spacematic"],
+  },
+] as const;
+
+export const salespeople = ["Amit", "Rahul", "Sameer", "Priya"] as const;
+
+export type PriceCampaign = {
+  id: string;
+  name: string;
+  productId: string;
+  discountPercent: number;
+  startAt: string;
+  endAt: string;
+  description: string;
+  terms?: string;
+  badgeLabel?: string;
+};
+
+/** Mock admin-configured price campaigns — replace with API in production. */
+export const priceCampaigns: PriceCampaign[] = [
+  {
+    id: "motw-latexo-aug",
+    name: "Mattress of the Week",
+    productId: "latexo",
+    discountPercent: 5,
+    startAt: "2026-08-11T00:00:00+05:30",
+    endAt: "2026-08-27T23:59:59+05:30",
+    description:
+      "Get an extra 5% off on Latexo — our natural latex mattress with premium bounce and breathability.",
+    terms:
+      "Valid on standard dealer orders during the campaign period. Cannot be combined with other offers.",
+    badgeLabel: "Extra 5% OFF",
+  },
+];
+
+export type Order = {
+  id: string;
+  product: string;
+  size: string;
+  thickness: string;
+  quantity: number;
+  dealer: string;
+  customer?: { name?: string; mobile?: string; address?: string; email?: string };
+  status: string;
+  placed: string;
+  amount: number;
+  step: number;
+  detail: string;
+};
+
+export const orderRecords: Order[] = [
+  {
+    id: "BR1024",
+    product: "Orthomatic",
+    size: "78 × 60",
+    thickness: '6"',
+    quantity: 2,
+    dealer: "Sharma Furnishings, Nagpur",
+    customer: { name: "Vikram Patel", mobile: "+91 98220 11223", address: "Civil Lines, Nagpur" },
+    status: "Ready to Send",
+    placed: "12 Aug 2026",
+    amount: 30200,
+    step: 3,
+    detail: '2 × 78 × 60 × 6"',
+  },
+  {
+    id: "BR1019",
+    product: "AquaFresh Plush",
+    size: "72 × 36",
+    thickness: '5"',
+    quantity: 1,
+    dealer: "Sharma Furnishings, Nagpur",
+    customer: { name: "Anita Desai", mobile: "+91 97654 88990" },
+    status: "Delivered",
+    placed: "04 Aug 2026",
+    amount: 8100,
+    step: 4,
+    detail: '1 × 72 × 36 × 5"',
+  },
+  {
+    id: "BR0998",
+    product: "Delight Cool",
+    size: "75 × 60",
+    thickness: '8"',
+    quantity: 3,
+    dealer: "Sharma Furnishings, Nagpur",
+    status: "Delivered",
+    placed: "21 Jul 2026",
+    amount: 33000,
+    step: 4,
+    detail: '3 × 75 × 60 × 8"',
+  },
+];
+
+export const getOrderById = (id: string) => {
+  const normalized = id.trim().toUpperCase().replace(/^#/, "");
+  return orderRecords.find((o) => o.id.toUpperCase() === normalized) ?? null;
+};
+
+export type ComplaintStatus = "Pending" | "Under Review" | "In Progress" | "Resolved" | "Closed";
+
+export type Complaint = {
+  id: string;
+  orderId: string;
+  description: string;
+  status: ComplaintStatus;
+  submitted: string;
+  step: number;
+};
+
+export const complaintSteps: ComplaintStatus[] = [
+  "Pending",
+  "Under Review",
+  "In Progress",
+  "Resolved",
+  "Closed",
+];
+
+export const sampleComplaints: Complaint[] = [
+  {
+    id: "CMP-10245",
+    orderId: "BR1019",
+    description: "Mattress has a slight sag on one side after delivery.",
+    status: "In Progress",
+    submitted: "14 Aug 2026",
+    step: 2,
+  },
+];
 
 export const LENGTHS = [72, 75, 78, 84];
 export const BREADTHS = [30, 36, 48, 60, 66, 72, 75, 78, 84];
@@ -180,32 +418,14 @@ export const pointsHistory = [
   { label: "Order #BR0998", value: 700, date: "21 Jul" },
 ];
 
-export const orders = [
-  {
-    id: "BR1024",
-    product: "Orthomatic",
-    detail: '2 × 78 × 60 × 6"',
-    amount: 30200,
-    placed: "12 Aug 2026",
-    step: 3,
-  },
-  {
-    id: "BR1019",
-    product: "AquaFresh Plush",
-    detail: '1 × 72 × 36 × 5"',
-    amount: 8100,
-    placed: "04 Aug 2026",
-    step: 4,
-  },
-  {
-    id: "BR0998",
-    product: "Delight Cool",
-    detail: '3 × 75 × 60 × 8"',
-    amount: 33000,
-    placed: "21 Jul 2026",
-    step: 4,
-  },
-];
+export const orders = orderRecords.map((o) => ({
+  id: o.id,
+  product: o.product,
+  detail: o.detail,
+  amount: o.amount,
+  placed: o.placed,
+  step: o.step,
+}));
 
 export const orderSteps = ["Order Placed", "Approved", "Being Made", "Ready to Send", "Delivered"];
 

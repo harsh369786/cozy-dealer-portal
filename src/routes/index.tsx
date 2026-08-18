@@ -3,6 +3,7 @@ import { useState } from "react";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import loginBg from "@/assets/login-bg.jpg";
 import { Logo } from "@/components/brand";
+import { getHomePath, login } from "@/services/auth";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -81,9 +82,7 @@ function Login() {
             </>
           ) : (
             <>
-              <p className="text-sm font-semibold">
-                Enter the 4-digit code sent to +91 {phone}
-              </p>
+              <p className="text-sm font-semibold">Enter the 4-digit code sent to +91 {phone}</p>
               <input
                 inputMode="numeric"
                 maxLength={4}
@@ -93,7 +92,10 @@ function Login() {
                 className="mt-3 h-16 w-full rounded-2xl border border-input bg-background text-center font-display text-3xl font-bold tracking-[0.6em] outline-none focus:border-ring"
               />
               <button
-                onClick={() => navigate({ to: "/home" })}
+                onClick={async () => {
+                  await login(phone);
+                  navigate({ to: getHomePath() });
+                }}
                 disabled={otp.length !== 4}
                 className="press mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl brand-gradient text-lg font-bold text-primary-foreground disabled:opacity-45"
               >
@@ -115,7 +117,9 @@ function Login() {
 
         <p className="mt-5 text-center text-sm text-muted-foreground">
           New dealer?{" "}
-          <button className="font-bold text-foreground underline underline-offset-4">Sign Up</button>
+          <button className="font-bold text-foreground underline underline-offset-4">
+            Sign Up
+          </button>
         </p>
       </div>
     </div>

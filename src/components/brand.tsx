@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import logoCream from "@/assets/logo-cream.jpg.asset.json";
+
+const LOGO_SRC = "/backrest-logo.jpeg";
 
 export function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
-  const height = { sm: "h-8", md: "h-11", lg: "h-20" }[size];
+  const height = { sm: "h-9", md: "h-12", lg: "h-24" }[size];
+  const radius = { sm: "rounded-lg", md: "rounded-xl", lg: "rounded-2xl" }[size];
   return (
     <img
-      src={logoCream.url}
+      src={LOGO_SRC}
       alt="BackRest — Sleep. Reset. Perform."
-      className={cn("w-auto rounded-lg object-contain", height)}
+      className={cn("w-auto object-contain shadow-soft", height, radius)}
     />
   );
 }
@@ -45,7 +47,15 @@ export function ProgressBar({ value, className }: { value: number; className?: s
   );
 }
 
-export function ProgressRing({ value, label, sub }: { value: number; label: string; sub?: string }) {
+export function ProgressRing({
+  value,
+  label,
+  sub,
+}: {
+  value: number;
+  label: string;
+  sub?: string;
+}) {
   const [p, setP] = useState(0);
   useEffect(() => {
     const id = setTimeout(() => setP(value), 150);

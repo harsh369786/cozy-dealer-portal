@@ -8,7 +8,10 @@ export const Route = createFileRoute("/orders")({
   head: () => ({
     meta: [
       { title: "Track Orders — BackRest Dealer App" },
-      { name: "description", content: "See every BackRest order and where it has reached, in plain language." },
+      {
+        name: "description",
+        content: "See every BackRest order and where it has reached, in plain language.",
+      },
       { property: "og:title", content: "Track Orders — BackRest Dealer App" },
       { property: "og:description", content: "A simple, visual timeline for each dealer order." },
     ],
@@ -34,7 +37,9 @@ function Orders() {
               <span
                 className={cn(
                   "rounded-full px-3 py-1.5 text-xs font-bold",
-                  o.step === 4 ? "bg-success text-success-foreground" : "bg-secondary text-foreground",
+                  o.step === 4
+                    ? "bg-success text-success-foreground"
+                    : "bg-secondary text-foreground",
                 )}
               >
                 {orderSteps[o.step]}

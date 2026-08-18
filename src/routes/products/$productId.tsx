@@ -1,9 +1,26 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { Check, ChevronDown, Gift, Info, Minus, Plus, ShieldCheck, X, MessageCircle } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Check,
+  ChevronDown,
+  Gift,
+  Info,
+  Minus,
+  Plus,
+  ShieldCheck,
+  X,
+  MessageCircle,
+} from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { CampaignBadge, CampaignPriceBlock } from "@/components/campaign-price";
 import { cn } from "@/lib/utils";
 import { Confetti, ProgressBar } from "@/components/brand";
+import {
+  getActivePriceCampaign,
+  getCampaignPrice,
+  getCampaignSavings,
+  formatCampaignDate,
+} from "@/lib/campaign-service";
 import {
   BREADTHS,
   FREE_ITEM,
@@ -11,7 +28,16 @@ import {
   dealer,
   getProduct,
   inr,
+  salespeople,
 } from "@/lib/demo-data";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export const Route = createFileRoute("/products/$productId")({
   head: () => ({
@@ -19,16 +45,25 @@ export const Route = createFileRoute("/products/$productId")({
       { title: "Build Your Order — BackRest Dealer App" },
       {
         name: "description",
-        content: "Enter size, thickness, farma and quantity, then place your BackRest order in one tap.",
+        content:
+          "Enter size, thickness, farma and quantity, then place your BackRest order in one tap.",
       },
       { property: "og:title", content: "Build Your Order — BackRest Dealer App" },
-      { property: "og:description", content: "Fast dealer ordering: size, thickness, farma, quantity, done." },
+      {
+        property: "og:description",
+        content: "Fast dealer ordering: size, thickness, farma, quantity, done.",
+      },
     ],
   }),
   component: Configurator,
 });
 
 type Farma = { tl: string; tr: string; bl: string; br: string };
+
+function whatsappUrl(phone: string, message: string) {
+  const digits = phone.replace(/\D/g, "");
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}
 
 function Configurator() {
   const { productId } = useParams({ from: "/products/$productId" });
@@ -41,13 +76,25 @@ function Configurator() {
   const [farma, setFarma] = useState(false);
   const [f, setF] = useState<Farma>({ tl: "", tr: "", bl: "", br: "" });
   const [qty, setQty] = useState(1);
+  const [placedBy, setPlacedBy] = useState<string>(salespeople[0]);
+  const [notes, setNotes] = useState("");
   const [customer, setCustomer] = useState({ name: "", address: "", mobile: "", email: "" });
   const [showCustomer, setShowCustomer] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [placed, setPlaced] = useState<string | null>(null);
 
-  const total = product.price * qty;
+  const campaign = getActivePriceCampaign(product.id);
+  const unitDealerPrice = product.price;
+  const unitCampaignPrice = campaign
+    ? getCampaignPrice(unitDealerPrice, campaign.discountPercent)
+    : null;
+  const unitPrice = unitCampaignPrice ?? unitDealerPrice;
+  const unitSavings = campaign ? getCampaignSavings(unitDealerPrice, unitCampaignPrice!) : 0;
+
+  const total = unitPrice * qty;
   const mrpTotal = product.mrp * qty;
+  const dealerTotal = unitDealerPrice * qty;
+  const savingsTotal = unitSavings * qty;
   const points = product.points * qty;
   const newPoints = dealer.points + points;
   const remaining = Math.max(0, dealer.nextRewardAt - newPoints);
@@ -56,76 +103,57 @@ function Configurator() {
   const waMessage = useMemo(() => {
     const lines = [
       `BackRest Order ${placed ?? ""}`,
+      `Status: Order Placed`,
       `Model: ${product.name} (${product.guarantee})`,
       isPillow ? `Size: ${product.fixedSize}` : `Size: ${length} × ${breadth} × ${thickness}`,
       !isPillow ? `Farma: ${farma ? "Yes" : "No"}` : "",
-      farma ? `Farma: TL ${f.tl || "-"}, TR ${f.tr || "-"}, BL ${f.bl || "-"}, BR ${f.br || "-"}` : "",
+      farma
+        ? `Farma: TL ${f.tl || "-"}, TR ${f.tr || "-"}, BL ${f.bl || "-"}, BR ${f.br || "-"}`
+        : "",
       `Quantity: ${qty}`,
       `MRP: ${inr(mrpTotal)}`,
-      `Dealer Price: ${inr(total)}`,
-      product.free ? `Free: ${qty} × (${product.free})` : "",
-      `Reward Points: ${points}`,
+      `Dealer Price: ${inr(dealerTotal)}`,
+      campaign ? `Campaign Price: ${inr(total)}` : "",
+      campaign ? `You saved: ${inr(savingsTotal)}` : "",
+      product.free ? `Free: ${qty * 2} × Fiber Pillows` : "",
+      `Reward Points Earned: ${points}`,
+      `Order Placed By: ${placedBy}`,
       customer.name ? `Customer: ${customer.name}` : "",
       customer.mobile ? `Mobile: ${customer.mobile}` : "",
+      customer.address ? `Address: ${customer.address}` : "",
+      notes ? `Special Requirements: ${notes}` : "",
     ].filter(Boolean);
     return lines.join("\n");
-  }, [placed, product, isPillow, length, breadth, thickness, farma, f, qty, mrpTotal, total, points, customer]);
+  }, [
+    placed,
+    product,
+    isPillow,
+    length,
+    breadth,
+    thickness,
+    farma,
+    f,
+    qty,
+    mrpTotal,
+    dealerTotal,
+    total,
+    savingsTotal,
+    campaign,
+    points,
+    placedBy,
+    customer,
+    notes,
+  ]);
 
-  if (placed) {
-    return (
-      <AppShell title="Order Placed">
-        <div className="relative grid min-h-[70vh] place-items-center text-center">
-          <Confetti />
-          <div className="w-full">
-            <div className="animate-pop mx-auto grid h-24 w-24 place-items-center rounded-full brand-gradient">
-              <Check className="h-12 w-12 text-primary-foreground" strokeWidth={3} />
-            </div>
-            <h2 className="animate-rise mt-6 font-display text-2xl font-bold">
-              🎉 Order Placed Successfully!
-            </h2>
-            <p className="mt-3 font-display text-xl font-bold">Order Number: {placed}</p>
-            <p className="mt-1 text-base font-bold text-primary">
-              Reward Points Earned: {points}
-            </p>
-
-            <div className="mt-6 rounded-3xl border border-border surface-gradient p-5 text-left">
-              <ProgressBar value={pct} />
-              <p className="mt-3 text-sm font-semibold">
-                {remaining > 0
-                  ? `${remaining} points to your next reward`
-                  : "Reward unlocked! Claim it in Rewards 🎁"}
-              </p>
-            </div>
-
-            <p className="mt-5 flex items-center justify-center gap-2 rounded-2xl bg-secondary px-4 py-3 text-sm font-bold text-success">
-              <MessageCircle className="h-4 w-4" /> ✓ Order details sent to your WhatsApp
-            </p>
-            <a
-              href={`https://wa.me/?text=${encodeURIComponent(waMessage)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 block text-xs font-semibold text-muted-foreground underline underline-offset-4"
-            >
-              Open WhatsApp message
-            </a>
-
-            <Link
-              to="/orders"
-              className="press mt-6 block rounded-2xl brand-gradient px-8 py-4 text-lg font-bold text-primary-foreground"
-            >
-              View Order
-            </Link>
-            <Link to="/home" className="mt-4 block text-sm font-bold text-muted-foreground">
-              Back to Home
-            </Link>
-          </div>
-        </div>
-      </AppShell>
-    );
-  }
+  useEffect(() => {
+    if (!placed) return;
+    window.open(whatsappUrl(dealer.phone, waMessage), "_blank", "noopener,noreferrer");
+  }, [placed, waMessage]);
 
   return (
     <AppShell title={product.name} back="/products">
+      {campaign && <CampaignBadge label={campaign.badgeLabel ?? "Special Offer"} />}
+
       {!isPillow && (
         <p className="animate-rise flex gap-2 rounded-2xl border border-primary/30 bg-secondary p-4 text-sm font-bold">
           <Info className="h-5 w-5 shrink-0 text-primary" />
@@ -148,7 +176,23 @@ function Configurator() {
             {product.guarantee === "Pillow" ? "Pillow" : `${product.guarantee} Guarantee`}
           </p>
           <p className="mt-1 text-sm text-muted-foreground line-through">MRP {inr(product.mrp)}</p>
-          <p className="font-display text-xl font-bold text-primary">{inr(product.price)}</p>
+          {campaign ? (
+            <>
+              <p className="text-sm text-muted-foreground line-through">
+                Dealer {inr(product.price)}
+              </p>
+              <p className="font-display text-xl font-bold text-primary">
+                {inr(unitCampaignPrice!)}
+              </p>
+            </>
+          ) : (
+            <p className="font-display text-xl font-bold text-primary">{inr(product.price)}</p>
+          )}
+          {campaign && (
+            <p className="mt-1 text-xs font-semibold text-primary">
+              Valid until {formatCampaignDate(campaign.endAt)}
+            </p>
+          )}
         </div>
       </div>
 
@@ -161,24 +205,12 @@ function Configurator() {
         <>
           <div className="mt-5">
             <p className="text-base font-bold">Length (inches)</p>
-            <ChipRow
-              options={LENGTHS}
-              value={length}
-              onChange={setLength}
-              min={30}
-              max={120}
-            />
+            <ChipRow options={LENGTHS} value={length} onChange={setLength} min={30} max={120} />
           </div>
 
           <div className="mt-5">
             <p className="text-base font-bold">Breadth (inches)</p>
-            <ChipRow
-              options={BREADTHS}
-              value={breadth}
-              onChange={setBreadth}
-              min={20}
-              max={120}
-            />
+            <ChipRow options={BREADTHS} value={breadth} onChange={setBreadth} min={20} max={120} />
           </div>
 
           <div className="mt-5">
@@ -226,9 +258,21 @@ function Configurator() {
               <p className="text-sm font-bold">Farma sizes (inches)</p>
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <FarmaField label="Top Left" value={f.tl} onChange={(v) => setF({ ...f, tl: v })} />
-                <FarmaField label="Top Right" value={f.tr} onChange={(v) => setF({ ...f, tr: v })} />
-                <FarmaField label="Bottom Left" value={f.bl} onChange={(v) => setF({ ...f, bl: v })} />
-                <FarmaField label="Bottom Right" value={f.br} onChange={(v) => setF({ ...f, br: v })} />
+                <FarmaField
+                  label="Top Right"
+                  value={f.tr}
+                  onChange={(v) => setF({ ...f, tr: v })}
+                />
+                <FarmaField
+                  label="Bottom Left"
+                  value={f.bl}
+                  onChange={(v) => setF({ ...f, bl: v })}
+                />
+                <FarmaField
+                  label="Bottom Right"
+                  value={f.br}
+                  onChange={(v) => setF({ ...f, br: v })}
+                />
               </div>
             </div>
           )}
@@ -254,7 +298,6 @@ function Configurator() {
             <Plus className="h-6 w-6" />
           </button>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">You can order just 1 piece.</p>
       </div>
 
       {product.free && (
@@ -265,9 +308,7 @@ function Configurator() {
               FREE
             </span>
             <div>
-              <p className="text-base font-bold">
-                {qty * 2} × Fiber Pillows
-              </p>
+              <p className="text-base font-bold">{qty * 2} × Fiber Pillows</p>
               <p className="text-xs text-muted-foreground">
                 Included with this mattress · worth {inr(FREE_ITEM.value * qty)}
               </p>
@@ -277,17 +318,31 @@ function Configurator() {
       )}
 
       <div className="mt-5 rounded-3xl border border-border surface-gradient p-5">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">MRP</span>
-          <span className="text-muted-foreground line-through">{inr(mrpTotal)}</span>
-        </div>
-        <div className="mt-2 flex items-end justify-between">
-          <span className="text-base font-bold">Dealer Price</span>
-          <span className="font-display text-3xl font-bold text-primary">{inr(total)}</span>
-        </div>
+        <CampaignPriceBlock
+          mrp={product.mrp}
+          dealerPrice={product.price}
+          campaignPrice={unitCampaignPrice ?? undefined}
+          qty={qty}
+        />
         <p className="mt-3 rounded-2xl bg-card/70 px-4 py-3 text-sm font-bold">
           You'll earn {points} reward points 🎁
         </p>
+      </div>
+
+      <div className="mt-5">
+        <p className="text-base font-bold">Order Placed By</p>
+        <Select value={placedBy} onValueChange={setPlacedBy}>
+          <SelectTrigger className="mt-3 h-14 rounded-2xl text-base font-semibold">
+            <SelectValue placeholder="Select Salesperson" />
+          </SelectTrigger>
+          <SelectContent>
+            {salespeople.map((name) => (
+              <SelectItem key={name} value={name} className="text-base">
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="mt-5 rounded-3xl border border-border bg-card">
@@ -296,18 +351,51 @@ function Configurator() {
           className="press flex w-full items-center justify-between px-4 py-4"
         >
           <span className="text-base font-bold">
-            Customer Details <span className="text-xs font-semibold text-muted-foreground">Optional</span>
+            Customer Details{" "}
+            <span className="text-xs font-semibold text-muted-foreground">Optional</span>
           </span>
-          <ChevronDown className={cn("h-5 w-5 transition-transform", showCustomer && "rotate-180")} />
+          <ChevronDown
+            className={cn("h-5 w-5 transition-transform", showCustomer && "rotate-180")}
+          />
         </button>
         {showCustomer && (
           <div className="animate-rise space-y-3 px-4 pb-4">
-            <Field label="Customer Name" value={customer.name} onChange={(v) => setCustomer({ ...customer, name: v })} />
-            <Field label="Address" value={customer.address} onChange={(v) => setCustomer({ ...customer, address: v })} />
-            <Field label="Mobile" value={customer.mobile} onChange={(v) => setCustomer({ ...customer, mobile: v })} inputMode="numeric" />
-            <Field label="Email" value={customer.email} onChange={(v) => setCustomer({ ...customer, email: v })} />
+            <Field
+              label="Customer Name"
+              value={customer.name}
+              onChange={(v) => setCustomer({ ...customer, name: v })}
+            />
+            <Field
+              label="Address"
+              value={customer.address}
+              onChange={(v) => setCustomer({ ...customer, address: v })}
+            />
+            <Field
+              label="Mobile"
+              value={customer.mobile}
+              onChange={(v) => setCustomer({ ...customer, mobile: v })}
+              inputMode="numeric"
+            />
+            <Field
+              label="Email"
+              value={customer.email}
+              onChange={(v) => setCustomer({ ...customer, email: v })}
+            />
           </div>
         )}
+      </div>
+
+      <div className="mt-5">
+        <p className="text-base font-bold">
+          Special Requirements / Notes{" "}
+          <span className="text-xs font-semibold text-muted-foreground">Optional</span>
+        </p>
+        <Textarea
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          placeholder="Add any special requirements for this order…"
+          className="mt-3 min-h-28 rounded-2xl border-input text-base"
+        />
       </div>
 
       <button
@@ -322,14 +410,21 @@ function Configurator() {
           <div className="animate-rise max-h-[88vh] w-full max-w-[430px] overflow-y-auto rounded-t-3xl border border-border bg-card p-5 md:max-w-[520px]">
             <div className="flex items-center justify-between">
               <h3 className="font-display text-xl font-bold">Confirm Your Order</h3>
-              <button onClick={() => setConfirm(false)} aria-label="Close" className="press grid h-10 w-10 place-items-center rounded-full bg-secondary">
+              <button
+                onClick={() => setConfirm(false)}
+                aria-label="Close"
+                className="press grid h-10 w-10 place-items-center rounded-full bg-secondary"
+              >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <div className="mt-4 divide-y divide-border rounded-2xl border border-border">
               <Line label="Model" value={product.name} />
-              <Line label="Guarantee" value={product.guarantee === "Pillow" ? "Pillow" : product.guarantee} />
+              <Line
+                label="Guarantee"
+                value={product.guarantee === "Pillow" ? "Pillow" : product.guarantee}
+              />
               {isPillow ? (
                 <Line label="Size" value={product.fixedSize!} />
               ) : (
@@ -348,9 +443,26 @@ function Configurator() {
               )}
               <Line label="Quantity" value={String(qty)} />
               <Line label="MRP" value={inr(mrpTotal)} muted />
-              <Line label="Dealer Price" value={inr(total)} strong />
+              <Line
+                label="Dealer Price"
+                value={inr(dealerTotal)}
+                muted={!!campaign}
+                strong={!campaign}
+              />
+              {campaign && (
+                <>
+                  <Line label="Campaign Price" value={inr(total)} strong />
+                  <Line label="You save" value={inr(savingsTotal)} strong />
+                </>
+              )}
               {product.free && <Line label="Free items" value={`${qty * 2} × Fiber Pillows`} />}
               <Line label="Reward points" value={`+${points}`} strong />
+              <Line
+                label="Points remaining"
+                value={String(Math.max(0, dealer.nextRewardAt - newPoints))}
+              />
+              <Line label="Order Placed By" value={placedBy} />
+              {notes && <Line label="Special Requirements" value={notes} />}
               {customer.name && <Line label="Customer" value={customer.name} />}
               {customer.mobile && <Line label="Mobile" value={customer.mobile} />}
               {customer.address && <Line label="Address" value={customer.address} />}
@@ -379,6 +491,60 @@ function Configurator() {
                 Place Order
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {placed && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 p-5 backdrop-blur-sm">
+          <div className="animate-pop relative w-full max-w-[430px] overflow-hidden rounded-3xl border border-border bg-card p-6 text-center shadow-lift md:max-w-[520px]">
+            <Confetti />
+            <div className="mx-auto grid h-20 w-20 place-items-center rounded-full brand-gradient">
+              <Check className="h-10 w-10 text-primary-foreground" strokeWidth={3} />
+            </div>
+            <h2 className="animate-rise mt-5 font-display text-2xl font-bold">
+              🎉 Order Placed Successfully!
+            </h2>
+            <p className="mt-3 font-display text-xl font-bold">Order Number: {placed}</p>
+            <p className="mt-2 text-base font-bold text-primary">Reward Points Earned: {points}</p>
+
+            {campaign && savingsTotal > 0 && (
+              <div className="mt-4 rounded-2xl border border-primary/30 bg-secondary px-4 py-3">
+                <p className="text-sm font-bold text-primary">Campaign Discount Applied</p>
+                <p className="mt-1 font-display text-xl font-bold">You saved {inr(savingsTotal)}</p>
+              </div>
+            )}
+
+            <div className="mt-5 rounded-2xl border border-border surface-gradient p-4 text-left">
+              <ProgressBar value={pct} />
+              <p className="mt-3 text-sm font-semibold">
+                {remaining > 0
+                  ? `Points remaining for your next reward: ${remaining}`
+                  : "Reward unlocked! Claim it in Rewards 🎁"}
+              </p>
+            </div>
+
+            <p className="mt-4 flex items-center justify-center gap-2 rounded-2xl bg-secondary px-4 py-3 text-sm font-bold text-success">
+              <MessageCircle className="h-4 w-4" /> ✓ Order details sent on WhatsApp
+            </p>
+            <a
+              href={whatsappUrl(dealer.phone, waMessage)}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 block text-xs font-semibold text-muted-foreground underline underline-offset-4"
+            >
+              Open WhatsApp again
+            </a>
+
+            <Link
+              to="/orders"
+              className="press mt-5 block rounded-2xl brand-gradient px-8 py-4 text-lg font-bold text-primary-foreground"
+            >
+              View Order
+            </Link>
+            <Link to="/home" className="mt-3 block text-sm font-bold text-muted-foreground">
+              Back to Home
+            </Link>
           </div>
         </div>
       )}

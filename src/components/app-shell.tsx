@@ -28,7 +28,10 @@ export function AppShell({
       <div className="mx-auto w-full max-w-[430px] pb-28 md:max-w-[520px]">
         <header className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b border-border/60 bg-background/90 px-5 py-3 backdrop-blur">
           {back ? (
-            <Link to={back} className="press -ml-2 flex items-center gap-1 py-1 pr-2 text-base font-semibold">
+            <Link
+              to={back}
+              className="press -ml-2 flex items-center gap-1 py-1 pr-2 text-base font-semibold"
+            >
               <ChevronLeft className="h-6 w-6" />
               {title}
             </Link>

@@ -196,3 +196,19 @@
     animation: shimmer 2.4s ease-in-out infinite;
   }
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-pop,
+  .shimmer-line::after {
+    animation: none !important;
+  }
+
+  .press {
+    transition: none;
+  }
+
+  .animate-pulse {
+    animation: none !important;
+  }
+}

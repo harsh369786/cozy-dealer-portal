@@ -3,7 +3,7 @@ import { useState } from "react";
 import { ShieldCheck, Gift } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { cn } from "@/lib/utils";
-import { inr, pillows, products, type Product } from "@/lib/demo-data";
+import { inr, pillows, products, MATTRESS_LAYERS, type Product } from "@/lib/demo-data";
 
 export const Route = createFileRoute("/products/")({
   head: () => ({
@@ -11,10 +11,14 @@ export const Route = createFileRoute("/products/")({
       { title: "Choose a Model — BackRest Dealer App" },
       {
         name: "description",
-        content: "Tap a mattress or pillow model to start an order — guarantee, thickness, dealer price and reward points on every card.",
+        content:
+          "Tap a mattress or pillow model to start an order — guarantee, thickness, dealer price and reward points on every card.",
       },
       { property: "og:title", content: "Choose a Model — BackRest Dealer App" },
-      { property: "og:description", content: "Quick tap ordering for BackRest mattresses and pillows." },
+      {
+        property: "og:description",
+        content: "Quick tap ordering for BackRest mattresses and pillows.",
+      },
     ],
   }),
   component: Catalogue,
@@ -22,15 +26,12 @@ export const Route = createFileRoute("/products/")({
 
 const tabs = ["Mattresses", "Foldable", "Pillows"] as const;
 
+const productById = new Map(products.map((p) => [p.id, p]));
+
 function Catalogue() {
   const [tab, setTab] = useState<(typeof tabs)[number]>("Mattresses");
 
-  const list = tab === "Pillows" ? pillows : products.filter((p) => p.category === tab);
-
-  const groups = Array.from(new Set(list.map((p) => p.guarantee))).map((g) => ({
-    guarantee: g,
-    items: list.filter((p) => p.guarantee === g),
-  }));
+  const foldable = products.filter((p) => p.category === "Foldable");
 
   return (
     <AppShell title="Choose a Model">
@@ -55,21 +56,71 @@ function Catalogue() {
         ))}
       </div>
 
-      {groups.map((g) => (
-        <section key={g.guarantee} className="mt-6">
+      {tab === "Mattresses" &&
+        MATTRESS_LAYERS.map((layer) => (
+          <section
+            key={layer.id}
+            className="mt-6 overflow-hidden rounded-3xl border border-border bg-card/50 p-4 shadow-soft"
+          >
+            <h2 className="mb-4 flex items-center gap-2 font-display text-base font-bold text-primary">
+              <ShieldCheck className="h-5 w-5" />
+              {layer.title}
+            </h2>
+
+            {"subgroups" in layer ? (
+              <div className="space-y-5">
+                {layer.subgroups.map((sg) => (
+                  <div key={sg.label}>
+                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+                      {sg.label}
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      {sg.productIds.map((id, i) => {
+                        const p = productById.get(id);
+                        return p ? <ModelCard key={id} product={p} delay={i * 40} /> : null;
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                {layer.productIds.map((id, i) => {
+                  const p = productById.get(id);
+                  return p ? <ModelCard key={id} product={p} delay={i * 40} /> : null;
+                })}
+              </div>
+            )}
+          </section>
+        ))}
+
+      {tab === "Foldable" && (
+        <section className="mt-6">
           <h2 className="mb-3 flex items-center gap-2 font-display text-base font-bold">
             <ShieldCheck className="h-4 w-4 text-primary" />
-            {g.guarantee === "Pillow" || g.guarantee === "Foldable"
-              ? g.guarantee
-              : `${g.guarantee} Guarantee`}
+            Foldable
           </h2>
           <div className="grid grid-cols-2 gap-3">
-            {g.items.map((p, i) => (
+            {foldable.map((p, i) => (
               <ModelCard key={p.id} product={p} delay={i * 50} />
             ))}
           </div>
         </section>
-      ))}
+      )}
+
+      {tab === "Pillows" && (
+        <section className="mt-6">
+          <h2 className="mb-3 flex items-center gap-2 font-display text-base font-bold">
+            <ShieldCheck className="h-4 w-4 text-primary" />
+            Pillows
+          </h2>
+          <div className="grid grid-cols-2 gap-3">
+            {pillows.map((p, i) => (
+              <ModelCard key={p.id} product={p} delay={i * 50} />
+            ))}
+          </div>
+        </section>
+      )}
     </AppShell>
   );
 }

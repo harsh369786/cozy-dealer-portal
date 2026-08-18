@@ -4,15 +4,21 @@ import { toast } from "sonner";
 import { AppShell, Section } from "@/components/app-shell";
 import { Confetti, CountUp, ProgressBar, ProgressRing } from "@/components/brand";
 import { cn } from "@/lib/utils";
-import { dealer, pointsHistory, rewards } from "@/lib/demo-data";
+import { dealer, pointsHistory, rewardHistory, rewards } from "@/lib/demo-data";
 
 export const Route = createFileRoute("/rewards")({
   head: () => ({
     meta: [
       { title: "Rewards — BackRest Dealer App" },
-      { name: "description", content: "Track your points, claim rewards and see your points history." },
+      {
+        name: "description",
+        content: "Track your points, claim rewards and see your points history.",
+      },
       { property: "og:title", content: "Rewards — BackRest Dealer App" },
-      { property: "og:description", content: "Earn points on every order and redeem them for gifts." },
+      {
+        property: "og:description",
+        content: "Earn points on every order and redeem them for gifts.",
+      },
     ],
   }),
   component: Rewards,
@@ -99,6 +105,40 @@ function Rewards() {
                 {h.value > 0 ? "+" : ""}
                 {h.value.toLocaleString("en-IN")}
               </span>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      <Section title="Reward History">
+        <div className="space-y-3">
+          {rewardHistory.map((claim) => (
+            <div
+              key={claim.id}
+              className="rounded-3xl border border-border bg-card p-4 shadow-soft"
+            >
+              <div className="flex items-start gap-3">
+                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-secondary text-xl">
+                  {claim.emoji}
+                </span>
+                <div className="flex-1">
+                  <p className="text-base font-bold">{claim.name}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Claimed: {claim.claimed}</p>
+                  <p
+                    className={cn(
+                      "mt-2 text-sm font-bold",
+                      claim.status === "Delivered" ? "text-success" : "text-muted-foreground",
+                    )}
+                  >
+                    Status: {claim.status === "Delivered" ? "✅ Delivered" : "⏳ Pending"}
+                  </p>
+                  {claim.status === "Delivered" && claim.delivered && (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Delivery Date: {claim.delivered}
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           ))}
         </div>
