@@ -1,5 +1,6 @@
 import type { DistributorOrder } from "@/lib/mock/distributor/types";
-import { DISTRIBUTOR_ID, seedOrders } from "@/lib/mock/distributor/data";
+import { DISTRIBUTOR_ID, dealers, seedOrders } from "@/lib/mock/distributor/data";
+import { enrichDealer } from "@/services/dealers";
 import { getRole } from "./auth";
 
 const STORAGE_KEY = "backrest-distributor-orders";
@@ -23,7 +24,22 @@ function saveOrders(orders: DistributorOrder[]) {
 }
 
 function scoped(orders: DistributorOrder[]) {
-  return orders.filter((o) => o.distributorId === DISTRIBUTOR_ID);
+  return orders.filter((o) => o.distributorId === DISTRIBUTOR_ID).map(enrichOrder);
+}
+
+function enrichOrder(order: DistributorOrder): DistributorOrder {
+  const dealer = dealers.find((d) => d.id === order.dealerId);
+  const enrichedDealer = dealer ? enrichDealer(dealer) : null;
+  const dealerAddress =
+    order.dealerAddress ??
+    enrichedDealer?.address ??
+    (enrichedDealer ? `${enrichedDealer.name}, ${enrichedDealer.location}` : undefined);
+  return {
+    ...order,
+    storeName: order.storeName ?? enrichedDealer?.name ?? order.dealerName,
+    contactName: order.contactName ?? enrichedDealer?.contactName,
+    ...(dealerAddress ? { dealerAddress } : {}),
+  };
 }
 
 function nowLabel() {
@@ -84,7 +100,7 @@ export async function approveOrder(id: string): Promise<DistributorOrder> {
   };
   orders[idx] = approved;
   saveOrders(orders);
-  return approved;
+  return enrichOrder(approved);
 }
 
 export async function rejectOrder(id: string, reason: string): Promise<DistributorOrder> {
@@ -109,7 +125,7 @@ export async function rejectOrder(id: string, reason: string): Promise<Distribut
   };
   orders[idx] = rejected;
   saveOrders(orders);
-  return rejected;
+  return enrichOrder(rejected);
 }
 
 function delay(ms = 280) {

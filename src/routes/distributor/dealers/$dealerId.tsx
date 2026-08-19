@@ -7,7 +7,7 @@ import { OrderCard } from "@/components/shared/order-card";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { inr } from "@/lib/demo-data";
-import { getDealerById } from "@/services/dealers";
+import { getDealerById, getDealerRewardClaims } from "@/services/dealers";
 import { getOrdersByDealer } from "@/services/orders";
 import { getComplaintsByDealer } from "@/services/complaints";
 import { cn } from "@/lib/utils";
@@ -16,16 +16,18 @@ export const Route = createFileRoute("/distributor/dealers/$dealerId")({
   component: DealerDetailPage,
 });
 
-const tabs = ["Overview", "Orders", "Complaints", "Rewards", "Activity"] as const;
+const tabs = ["Overview", "Performance", "Orders", "Complaints", "Rewards", "Activity"] as const;
 type Tab = (typeof tabs)[number];
 
 function DealerDetailPage() {
   const { dealerId } = Route.useParams();
   const [tab, setTab] = useState<Tab>("Overview");
+  const [rewardsTab, setRewardsTab] = useState<"pending" | "delivered">("pending");
 
   const dealerQuery = useAsyncData(() => getDealerById(dealerId), [dealerId]);
   const ordersQuery = useAsyncData(() => getOrdersByDealer(dealerId), [dealerId]);
   const complaintsQuery = useAsyncData(() => getComplaintsByDealer(dealerId), [dealerId]);
+  const rewardsQuery = useAsyncData(() => getDealerRewardClaims(dealerId), [dealerId]);
 
   const loading = dealerQuery.loading;
   const dealer = dealerQuery.data;
@@ -59,9 +61,15 @@ function DealerDetailPage() {
         <p className="mt-1 flex items-center gap-1 text-sm">
           <Mail className="h-4 w-4 text-muted-foreground" /> {dealer.email}
         </p>
+        {dealer.gstNumber && (
+          <p className="mt-3 rounded-2xl border border-border bg-secondary/50 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">GST: </span>
+            <span className="font-bold">{dealer.gstNumber}</span>
+          </p>
+        )}
       </div>
 
-      <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+      <div className="scrollbar-none mt-4 flex snap-x gap-2 overflow-x-auto scroll-smooth-touch pb-1">
         {tabs.map((t) => (
           <button
             key={t}
@@ -111,6 +119,49 @@ function DealerDetailPage() {
           </div>
         )}
 
+        {tab === "Performance" && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <p className="text-xs text-muted-foreground">Total orders</p>
+                <p className="font-display text-lg font-bold">{dealer.orderCount}</p>
+              </div>
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <p className="text-xs text-muted-foreground">Order value</p>
+                <p className="font-display text-lg font-bold">{inr(dealer.totalSales)}</p>
+              </div>
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <p className="text-xs text-muted-foreground">Reward points</p>
+                <p className="font-display text-lg font-bold text-primary">
+                  {dealer.rewardPoints.toLocaleString("en-IN")}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-border bg-card p-4">
+                <p className="text-xs text-muted-foreground">Last order</p>
+                <p className="font-display text-sm font-bold">{dealer.lastOrderDate}</p>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-border bg-card p-4">
+              <p className="font-display font-bold">Monthly performance</p>
+              <div className="mt-3 space-y-2">
+                {dealer.monthlyPerformance?.map((row) => (
+                  <div
+                    key={row.month}
+                    className="flex items-center justify-between rounded-2xl bg-secondary/60 px-3 py-2.5 text-sm"
+                  >
+                    <span className="font-semibold">{row.month}</span>
+                    <div className="text-right">
+                      <p className="font-bold">{row.orders} orders</p>
+                      <p className="text-xs text-muted-foreground">{inr(row.orderValue)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {tab === "Orders" && (
           <div className="space-y-3">
             {ordersQuery.loading && <PageSkeleton />}
@@ -149,14 +200,71 @@ function DealerDetailPage() {
         )}
 
         {tab === "Rewards" && (
-          <div className="rounded-3xl border border-border bg-card p-6 text-center">
-            <p className="font-display text-3xl font-bold">
-              {dealer.rewardPoints.toLocaleString("en-IN")}
-            </p>
-            <p className="mt-1 text-sm text-muted-foreground">Total reward points earned</p>
-            <p className="mt-4 text-sm text-muted-foreground">
-              Lifetime sales: {inr(dealer.totalSales)}
-            </p>
+          <div className="space-y-4">
+            <div className="rounded-3xl border border-border bg-card p-5 text-center">
+              <p className="font-display text-3xl font-bold text-primary">
+                {dealer.rewardPoints.toLocaleString("en-IN")}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">Total reward points earned</p>
+            </div>
+
+            <div className="flex gap-2 rounded-2xl bg-secondary p-1">
+              {(["pending", "delivered"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setRewardsTab(t)}
+                  className={cn(
+                    "press flex-1 rounded-xl py-2.5 text-sm font-bold capitalize",
+                    rewardsTab === t ? "bg-card shadow-soft" : "text-muted-foreground",
+                  )}
+                >
+                  {t === "pending" ? "Pending" : "Delivered"}
+                </button>
+              ))}
+            </div>
+
+            {rewardsQuery.loading && <PageSkeleton rows={2} />}
+            {!rewardsQuery.loading &&
+              (rewardsQuery.data?.filter((c) => c.status === rewardsTab).length ?? 0) === 0 && (
+                <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+                  No {rewardsTab} reward claims for this dealer.
+                </p>
+              )}
+            <div className="space-y-3">
+              {rewardsQuery.data
+                ?.filter((c) => c.status === rewardsTab)
+                .map((claim) => (
+                  <div
+                    key={claim.id}
+                    className="rounded-2xl border border-border bg-card p-4 shadow-soft"
+                  >
+                    <div className="flex items-start gap-3">
+                      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-secondary text-xl">
+                        {claim.emoji}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold">{claim.name}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {claim.points.toLocaleString("en-IN")} points · Claimed {claim.claimedAt}
+                        </p>
+                        <p
+                          className={cn(
+                            "mt-1 text-sm font-semibold",
+                            claim.status === "delivered" ? "text-success" : "text-amber-700",
+                          )}
+                        >
+                          {claim.status === "delivered" ? "Delivered" : "Pending delivery"}
+                        </p>
+                        {claim.deliveredAt && (
+                          <p className="text-xs text-muted-foreground">
+                            Delivered {claim.deliveredAt}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
           </div>
         )}
 

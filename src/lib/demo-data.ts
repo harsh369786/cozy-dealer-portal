@@ -429,7 +429,20 @@ export const orders = orderRecords.map((o) => ({
 
 export const orderSteps = ["Order Placed", "Approved", "Being Made", "Ready to Send", "Delivered"];
 
-export const campaigns = [
+export type SellCampaign = {
+  id: string;
+  title: string;
+  emoji: string;
+  goal: string;
+  reward: string;
+  done: number;
+  target: number;
+  starts: string;
+  ends: string;
+  status: "active" | "upcoming" | "expired";
+};
+
+export const campaigns: SellCampaign[] = [
   {
     id: "monsoon",
     title: "MONSOON MATTRESS BONANZA",
@@ -438,7 +451,9 @@ export const campaigns = [
     reward: "5,000 Bonus Points",
     done: 12,
     target: 20,
+    starts: "01 Aug 2026",
     ends: "30 Sep 2026",
+    status: "active",
   },
   {
     id: "sell-more",
@@ -448,7 +463,9 @@ export const campaigns = [
     reward: "1,500 Bonus Points",
     done: 6,
     target: 10,
+    starts: "01 Aug 2026",
     ends: "15 Sep 2026",
+    status: "active",
   },
   {
     id: "pillow-push",
@@ -458,8 +475,48 @@ export const campaigns = [
     reward: "2,000 Bonus Points",
     done: 38,
     target: 50,
-    ends: "22 Aug 2026",
+    starts: "20 Aug 2026",
+    ends: "27 Aug 2026",
+    status: "upcoming",
+  },
+  {
+    id: "summer-clearance",
+    title: "SUMMER CLEARANCE",
+    emoji: "☀️",
+    goal: "Sell 15 Delight Cool Mattresses",
+    reward: "3,000 Bonus Points",
+    done: 15,
+    target: 15,
+    starts: "01 Jun 2026",
+    ends: "31 Jul 2026",
+    status: "expired",
+  },
+  {
+    id: "festive-prebook",
+    title: "FESTIVE PRE-BOOK",
+    emoji: "🎁",
+    goal: "Pre-book 25 Spacematic Mattresses",
+    reward: "Early bird pricing",
+    done: 0,
+    target: 25,
+    starts: "01 Sep 2026",
+    ends: "15 Oct 2026",
+    status: "upcoming",
   },
 ];
 
 export const inr = (n: number) => "₹" + n.toLocaleString("en-IN");
+
+export const inrCompact = (n: number) => {
+  if (n >= 10000000) return `₹${(n / 10000000).toFixed(1)} Cr`;
+  if (n >= 100000) return `₹${(n / 100000).toFixed(1)} L`;
+  if (n >= 1000) return `₹${(n / 1000).toFixed(1)} K`;
+  return inr(n);
+};
+
+export const compactNumber = (n: number) => {
+  if (n >= 10000000) return `${(n / 10000000).toFixed(1)} Cr`;
+  if (n >= 100000) return `${(n / 100000).toFixed(1)} L`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)} K`;
+  return n.toLocaleString("en-IN");
+};

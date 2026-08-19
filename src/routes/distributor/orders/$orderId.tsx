@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { CheckCircle2, XCircle } from "lucide-react";
+import { CheckCircle2, MapPin, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { DistributorShell } from "@/components/distributor-shell";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -113,6 +113,15 @@ function OrderDetailPage() {
               <p className="text-muted-foreground">Total</p>
               <p className="font-bold">{inr(order.totalValue)}</p>
             </div>
+            {order.dealerAddress && (
+              <div className="col-span-2">
+                <p className="text-muted-foreground">Dealer address</p>
+                <p className="mt-0.5 flex items-start gap-1.5 font-semibold">
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                  <span>{order.dealerAddress}</span>
+                </p>
+              </div>
+            )}
             {order.customerName && (
               <div className="col-span-2">
                 <p className="text-muted-foreground">Customer</p>

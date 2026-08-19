@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { CalendarDays, MessageSquareWarning } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CalendarDays } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { CampaignPriceBlock } from "@/components/campaign-price";
 import { ProgressBar } from "@/components/brand";
@@ -11,6 +12,7 @@ import {
   getCampaignPrice,
 } from "@/lib/campaign-service";
 import { campaigns, getProduct, inr } from "@/lib/demo-data";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/campaigns")({
   head: () => ({
@@ -30,31 +32,44 @@ export const Route = createFileRoute("/campaigns")({
   component: Campaigns,
 });
 
+type CampaignTab = "active" | "upcoming" | "expired";
+
+const campaignTabs: { id: CampaignTab; label: string }[] = [
+  { id: "active", label: "Active" },
+  { id: "upcoming", label: "Upcoming" },
+  { id: "expired", label: "Expired" },
+];
+
 function Campaigns() {
   const { switchRole } = useSession();
-  const priceCampaign = getActivePriceCampaign("latexo");
+  const [tab, setTab] = useState<CampaignTab>("active");
+  const priceCampaign = tab === "active" ? getActivePriceCampaign("latexo") : null;
   const latexo = getProduct("latexo");
   const campaignPrice = priceCampaign
     ? getCampaignPrice(latexo.price, priceCampaign.discountPercent)
     : null;
 
+  const sellCampaigns = useMemo(() => campaigns.filter((c) => c.status === tab), [tab]);
+
   return (
     <AppShell title="Campaigns">
-      <Link
-        to="/complaints"
-        className="press mb-4 flex items-center gap-3 rounded-2xl border border-border bg-card p-4 shadow-soft"
-      >
-        <span className="grid h-11 w-11 place-items-center rounded-xl bg-secondary">
-          <MessageSquareWarning className="h-5 w-5 text-primary" />
-        </span>
-        <div className="flex-1">
-          <p className="font-display text-base font-bold">Complaints</p>
-          <p className="text-xs text-muted-foreground">Report an issue with an order</p>
-        </div>
-      </Link>
+      <div className="flex gap-2 rounded-2xl bg-secondary p-1">
+        {campaignTabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={cn(
+              "press flex-1 rounded-xl py-2.5 text-sm font-bold",
+              tab === t.id ? "bg-card shadow-soft" : "text-muted-foreground",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
       {priceCampaign && campaignPrice && (
-        <section className="animate-rise overflow-hidden rounded-3xl border border-primary/30 bg-card shadow-lift">
+        <section className="animate-rise mt-5 overflow-hidden rounded-3xl border border-primary/30 bg-card shadow-lift">
           <div className="brand-gradient px-5 py-6 text-primary-foreground">
             <p className="text-3xl">🔥</p>
             <p className="mt-2 font-display text-xl font-bold">{priceCampaign.name}</p>
@@ -85,43 +100,55 @@ function Campaigns() {
       )}
 
       <h2 className="mb-3 mt-8 font-display text-lg font-bold">Sell & Earn Campaigns</h2>
-      <div className="space-y-4">
-        {campaigns.map((c, i) => {
-          const pct = (c.done / c.target) * 100;
-          return (
-            <div
-              key={c.id}
-              className="animate-rise overflow-hidden rounded-3xl border border-border bg-card shadow-soft"
-              style={{ animationDelay: `${i * 70}ms` }}
-            >
-              <div className="brand-gradient px-5 py-6 text-primary-foreground">
-                <p className="text-3xl">{c.emoji}</p>
-                <p className="mt-2 font-display text-xl font-bold leading-snug">{c.title}</p>
-                <p className="mt-1 text-sm font-semibold opacity-90">{c.goal}</p>
-              </div>
-              <div className="p-5">
-                <p className="font-display text-2xl font-bold text-primary">Earn {c.reward}</p>
-                <ProgressBar value={pct} className="mt-4" />
-                <div className="mt-2 flex items-center justify-between text-sm font-semibold">
-                  <span>
-                    {c.done} / {c.target}
-                  </span>
-                  <span className="text-muted-foreground">{c.target - c.done} more to go!</span>
+      {sellCampaigns.length === 0 ? (
+        <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+          No {tab} sell campaigns right now.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          {sellCampaigns.map((c, i) => {
+            const pct = (c.done / c.target) * 100;
+            return (
+              <div
+                key={c.id}
+                className="animate-rise overflow-hidden rounded-3xl border border-border bg-card shadow-soft"
+                style={{ animationDelay: `${i * 70}ms` }}
+              >
+                <div className="brand-gradient px-5 py-6 text-primary-foreground">
+                  <p className="text-3xl">{c.emoji}</p>
+                  <p className="mt-2 font-display text-xl font-bold leading-snug">{c.title}</p>
+                  <p className="mt-1 text-sm font-semibold opacity-90">{c.goal}</p>
                 </div>
-                <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-                  <CalendarDays className="h-4 w-4" /> Ends {c.ends}
-                </p>
-                <Link
-                  to="/products"
-                  className="press mt-4 block rounded-2xl border border-border bg-secondary py-3.5 text-center text-base font-bold"
-                >
-                  Start Selling
-                </Link>
+                <div className="p-5">
+                  <p className="font-display text-2xl font-bold text-primary">Earn {c.reward}</p>
+                  {tab === "active" && (
+                    <>
+                      <ProgressBar value={pct} className="mt-4" />
+                      <div className="mt-2 flex items-center justify-between text-sm font-semibold">
+                        <span>
+                          {c.done} / {c.target}
+                        </span>
+                        <span className="text-muted-foreground">{c.target - c.done} more to go!</span>
+                      </div>
+                    </>
+                  )}
+                  <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+                    <CalendarDays className="h-4 w-4" /> {c.starts} – {c.ends}
+                  </p>
+                  {tab !== "expired" && (
+                    <Link
+                      to="/products"
+                      className="press mt-4 block rounded-2xl border border-border bg-secondary py-3.5 text-center text-base font-bold"
+                    >
+                      {tab === "upcoming" ? "View Products" : "Start Selling"}
+                    </Link>
+                  )}
+                </div>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="mt-8 rounded-3xl border border-dashed border-primary/40 bg-secondary/40 p-5">
         <p className="font-display font-bold">Switch role (demo)</p>

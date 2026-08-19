@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ChevronRight, MapPin } from "lucide-react";
+import { ChevronRight, Gift, MapPin } from "lucide-react";
 import type { DistributorDealer } from "@/lib/mock/distributor/types";
 import { inr } from "@/lib/demo-data";
 import { cn } from "@/lib/utils";
@@ -14,6 +14,9 @@ export function DealerCard({ dealer }: { dealer: DistributorDealer }) {
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="truncate font-display font-bold">{dealer.name}</p>
+          {dealer.contactName && (
+            <p className="truncate text-sm text-muted-foreground">{dealer.contactName}</p>
+          )}
           <p className="text-xs font-semibold text-muted-foreground">{dealer.code}</p>
         </div>
         <span
@@ -29,14 +32,21 @@ export function DealerCard({ dealer }: { dealer: DistributorDealer }) {
         <MapPin className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate">{dealer.location}</span>
       </p>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+      <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
         <div>
           <p className="text-xs text-muted-foreground">This month</p>
           <p className="font-bold">{inr(dealer.monthSales)}</p>
         </div>
         <div>
-          <p className="text-xs text-muted-foreground">Pending orders</p>
+          <p className="text-xs text-muted-foreground">Pending</p>
           <p className="font-bold">{dealer.pendingOrders}</p>
+        </div>
+        <div>
+          <p className="text-xs text-muted-foreground">Points</p>
+          <p className="flex items-center gap-0.5 font-bold text-primary">
+            <Gift className="h-3.5 w-3.5" />
+            {dealer.rewardPoints.toLocaleString("en-IN")}
+          </p>
         </div>
       </div>
       <div className="mt-2 flex items-center justify-end text-xs font-semibold text-primary">

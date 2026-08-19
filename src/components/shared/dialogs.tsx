@@ -56,7 +56,7 @@ export function RejectOrderDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto rounded-3xl sm:max-w-md">
+      <DialogContent className="scrollbar-none max-h-[90vh] overflow-y-auto scroll-smooth-touch rounded-3xl sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Reject Order</DialogTitle>
           <DialogDescription>

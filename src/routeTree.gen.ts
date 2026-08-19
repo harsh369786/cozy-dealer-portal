@@ -15,6 +15,7 @@ import { Route as DistributorRouteRouteImport } from './routes/distributor/route
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as OrdersRouteImport } from './routes/orders'
 import { Route as RewardsRouteImport } from './routes/rewards'
+import { Route as SignupRouteImport } from './routes/signup'
 import { Route as ComplaintsIndexRouteImport } from './routes/complaints/index'
 import { Route as ComplaintsComplaintIdRouteImport } from './routes/complaints/$complaintId'
 import { Route as DistributorIndexRouteImport } from './routes/distributor/index'
@@ -62,6 +63,11 @@ const OrdersRoute = OrdersRouteImport.update({
 const RewardsRoute = RewardsRouteImport.update({
   id: '/rewards',
   path: '/rewards',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SignupRoute = SignupRouteImport.update({
+  id: '/signup',
+  path: '/signup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ComplaintsIndexRoute = ComplaintsIndexRouteImport.update({
@@ -169,6 +175,7 @@ export interface FileRoutesByFullPath {
   '/home': typeof HomeRoute
   '/orders': typeof OrdersRoute
   '/rewards': typeof RewardsRoute
+  '/signup': typeof SignupRoute
   '/complaints/$complaintId': typeof ComplaintsComplaintIdRoute
   '/distributor/dashboard': typeof DistributorDashboardRoute
   '/distributor/more': typeof DistributorMoreRoute
@@ -194,6 +201,7 @@ export interface FileRoutesByTo {
   '/home': typeof HomeRoute
   '/orders': typeof OrdersRoute
   '/rewards': typeof RewardsRoute
+  '/signup': typeof SignupRoute
   '/complaints/$complaintId': typeof ComplaintsComplaintIdRoute
   '/distributor/dashboard': typeof DistributorDashboardRoute
   '/distributor/more': typeof DistributorMoreRoute
@@ -221,6 +229,7 @@ export interface FileRoutesById {
   '/home': typeof HomeRoute
   '/orders': typeof OrdersRoute
   '/rewards': typeof RewardsRoute
+  '/signup': typeof SignupRoute
   '/complaints/$complaintId': typeof ComplaintsComplaintIdRoute
   '/distributor/dashboard': typeof DistributorDashboardRoute
   '/distributor/more': typeof DistributorMoreRoute
@@ -249,6 +258,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/orders'
     | '/rewards'
+    | '/signup'
     | '/complaints/$complaintId'
     | '/distributor/dashboard'
     | '/distributor/more'
@@ -274,6 +284,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/orders'
     | '/rewards'
+    | '/signup'
     | '/complaints/$complaintId'
     | '/distributor/dashboard'
     | '/distributor/more'
@@ -300,6 +311,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/orders'
     | '/rewards'
+    | '/signup'
     | '/complaints/$complaintId'
     | '/distributor/dashboard'
     | '/distributor/more'
@@ -327,6 +339,7 @@ export interface RootRouteChildren {
   HomeRoute: typeof HomeRoute
   OrdersRoute: typeof OrdersRoute
   RewardsRoute: typeof RewardsRoute
+  SignupRoute: typeof SignupRoute
   ComplaintsComplaintIdRoute: typeof ComplaintsComplaintIdRoute
   ProductsProductIdRoute: typeof ProductsProductIdRoute
   ComplaintsIndexRoute: typeof ComplaintsIndexRoute
@@ -375,6 +388,13 @@ declare module '@tanstack/react-router' {
       path: '/rewards'
       fullPath: '/rewards'
       preLoaderRoute: typeof RewardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/signup': {
+      id: '/signup'
+      path: '/signup'
+      fullPath: '/signup'
+      preLoaderRoute: typeof SignupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/complaints/': {
@@ -550,6 +570,7 @@ const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRoute,
   OrdersRoute: OrdersRoute,
   RewardsRoute: RewardsRoute,
+  SignupRoute: SignupRoute,
   ComplaintsComplaintIdRoute: ComplaintsComplaintIdRoute,
   ProductsProductIdRoute: ProductsProductIdRoute,
   ComplaintsIndexRoute: ComplaintsIndexRoute,

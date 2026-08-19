@@ -7,7 +7,6 @@ import {
   Megaphone,
   ChevronRight,
   Bell,
-  MessageSquareWarning,
 } from "lucide-react";
 import { AppShell, Section } from "@/components/app-shell";
 import { CampaignPopup } from "@/components/campaign-popup";
@@ -50,7 +49,6 @@ const quick = [
   { to: "/orders", label: "My Orders", icon: Package },
   { to: "/rewards", label: "Rewards", icon: Gift },
   { to: "/campaigns", label: "Campaigns", icon: Megaphone },
-  { to: "/complaints", label: "Complaints", icon: MessageSquareWarning },
 ] as const;
 
 function HomePage() {
@@ -182,7 +180,7 @@ function HomePage() {
           </Link>
         }
       >
-        <div className="-mx-5 flex snap-x gap-3 overflow-x-auto px-5 pb-2">
+        <div className="scrollbar-none -mx-5 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth-touch px-5 pb-2">
           {products.slice(0, 3).map((p) => (
             <Link
               key={p.id}

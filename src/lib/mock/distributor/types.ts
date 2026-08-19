@@ -27,14 +27,34 @@ export type TimelineEvent = {
   note?: string;
 };
 
+export type DealerMonthlyPerformance = {
+  month: string;
+  orders: number;
+  orderValue: number;
+};
+
+export type DealerRewardClaim = {
+  id: string;
+  dealerId: string;
+  name: string;
+  emoji: string;
+  points: number;
+  claimedAt: string;
+  status: "pending" | "delivered";
+  deliveredAt?: string;
+};
+
 export type DistributorDealer = {
   id: string;
   distributorId: string;
   code: string;
   name: string;
+  contactName?: string;
   location: string;
+  address?: string;
   phone: string;
   email: string;
+  gstNumber?: string;
   totalSales: number;
   monthSales: number;
   prevMonthSales: number;
@@ -44,6 +64,7 @@ export type DistributorDealer = {
   rewardPoints: number;
   salesGrowth: number;
   lastOrderDate: string;
+  monthlyPerformance?: DealerMonthlyPerformance[];
   active: boolean;
 };
 
@@ -68,6 +89,9 @@ export type DistributorOrder = {
   dealerId: string;
   dealerName: string;
   dealerCode: string;
+  storeName?: string;
+  contactName?: string;
+  dealerAddress?: string;
   status: OrderStatus;
   placedAt: string;
   approvedAt?: string;

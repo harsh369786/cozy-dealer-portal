@@ -11,7 +11,7 @@ const COMPLAINTS_KEY = "backrest_complaints";
 
 export type AppNotification = {
   id: string;
-  type: "campaign";
+  type: "campaign" | "complaint";
   title: string;
   body: string;
   link: string;
@@ -134,6 +134,19 @@ export function getStoredComplaints(): StoredComplaint[] {
 export function saveComplaint(complaint: StoredComplaint) {
   const list = getStoredComplaints();
   writeJson(COMPLAINTS_KEY, [complaint, ...list]);
+}
+
+export function addComplaintNotification(complaint: StoredComplaint) {
+  const notif: AppNotification = {
+    id: `notif-${complaint.id}`,
+    type: "complaint",
+    title: "Help request submitted",
+    body: `Order #${complaint.orderId} · Reference ${complaint.id}`,
+    link: `/complaints/${complaint.id}`,
+    createdAt: new Date().toISOString(),
+    read: false,
+  };
+  writeJson(NOTIFICATIONS_KEY, [notif, ...getNotifications()]);
 }
 
 export function generateComplaintId() {

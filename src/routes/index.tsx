@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import loginBg from "@/assets/login-bg.jpg";
@@ -117,9 +117,12 @@ function Login() {
 
         <p className="mt-5 text-center text-sm text-muted-foreground">
           New dealer?{" "}
-          <button className="font-bold text-foreground underline underline-offset-4">
+          <Link
+            to="/signup"
+            className="font-bold text-foreground underline underline-offset-4"
+          >
             Sign Up
-          </button>
+          </Link>
         </p>
       </div>
     </div>

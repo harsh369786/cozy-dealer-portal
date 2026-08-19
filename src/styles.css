@@ -81,6 +81,16 @@
 
   html {
     -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+    overflow-x: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  html::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
   }
 
   body {
@@ -89,6 +99,42 @@
     font-family: var(--font-sans);
     font-size: 16px;
     -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+  /* Hide scrollbars on all scrollable regions while keeping scroll */
+  :where(
+    [class*="overflow-auto"],
+    [class*="overflow-x-auto"],
+    [class*="overflow-y-auto"],
+    [class*="overflow-scroll"],
+    [data-radix-scroll-area-viewport]
+  ) {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  :where(
+    [class*="overflow-auto"],
+    [class*="overflow-x-auto"],
+    [class*="overflow-y-auto"],
+    [class*="overflow-scroll"],
+    [data-radix-scroll-area-viewport]
+  )::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
   }
 
   h1,
@@ -98,6 +144,24 @@
     font-family: var(--font-display);
     letter-spacing: -0.02em;
   }
+}
+
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+
+  &::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+}
+
+@utility scroll-smooth-touch {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
 }
 
 @utility brand-gradient {
@@ -198,6 +262,19 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  :where(
+    [class*="overflow-auto"],
+    [class*="overflow-x-auto"],
+    [class*="overflow-y-auto"],
+    [class*="overflow-scroll"]
+  ) {
+    scroll-behavior: auto;
+  }
+
   .animate-rise,
   .animate-pop,
   .shimmer-line::after {

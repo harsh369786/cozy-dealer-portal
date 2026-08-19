@@ -36,10 +36,10 @@ function TrackComplaint() {
 
   if (!complaint) {
     return (
-      <AppShell title="Complaint" back="/complaints">
+      <AppShell title="Complaint" back="/orders">
         <p className="text-center text-muted-foreground">Complaint not found.</p>
-        <Link to="/complaints" className="press mt-4 block text-center font-bold text-primary">
-          Back to Complaints
+        <Link to="/orders" className="press mt-4 block text-center font-bold text-primary">
+          Back to Orders
         </Link>
       </AppShell>
     );
@@ -48,7 +48,7 @@ function TrackComplaint() {
   const order = getOrderById(complaint.orderId);
 
   return (
-    <AppShell title={`Complaint #${complaint.id}`} back="/complaints">
+    <AppShell title={`Complaint #${complaint.id}`} back="/orders">
       <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
         <p className="font-display text-lg font-bold">Complaint #{complaint.id}</p>
         <p className="mt-1 text-sm text-muted-foreground">Submitted {complaint.submitted}</p>

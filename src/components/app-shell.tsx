@@ -24,7 +24,7 @@ export function AppShell({
   const path = useRouterState({ select: (s) => s.location.pathname });
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen overflow-x-hidden bg-background">
       <div className="mx-auto w-full max-w-[430px] pb-28 md:max-w-[520px]">
         <header className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b border-border/60 bg-background/90 px-5 py-3 backdrop-blur">
           {back ? (

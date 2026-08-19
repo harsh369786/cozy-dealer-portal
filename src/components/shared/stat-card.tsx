@@ -7,12 +7,14 @@ export function StatCard({
   sub,
   icon: Icon,
   className,
+  valueTitle,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   icon?: React.ComponentType<{ className?: string }>;
   className?: string;
+  valueTitle?: string;
 }) {
   return (
     <div
@@ -22,10 +24,17 @@ export function StatCard({
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-muted-foreground">{label}</p>
-          <p className="mt-1 truncate font-display text-xl font-bold">{value}</p>
-          {sub && <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>}
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold leading-snug text-muted-foreground">{label}</p>
+          <p
+            className="mt-1 font-display text-base font-bold leading-none tabular-nums whitespace-nowrap sm:text-lg"
+            title={valueTitle}
+          >
+            {value}
+          </p>
+          {sub && (
+            <p className="mt-1 text-[11px] leading-snug text-muted-foreground sm:text-xs">{sub}</p>
+          )}
         </div>
         {Icon && (
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-secondary">

@@ -15,7 +15,7 @@ import { OrderCard } from "@/components/shared/order-card";
 import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useSession } from "@/hooks/use-session";
-import { inr } from "@/lib/demo-data";
+import { compactNumber, inr, inrCompact } from "@/lib/demo-data";
 import type { MonthlySales } from "@/lib/mock/distributor/types";
 import { getPendingOrders } from "@/services/orders";
 import { getDashboardStats, getMonthlySales } from "@/services/reports";
@@ -108,7 +108,8 @@ function DashboardPage() {
         <StatCard label="Orders This Month" value={stats.ordersThisMonth} icon={ShoppingBag} />
         <StatCard
           label="Monthly Sales"
-          value={inr(stats.monthlySales)}
+          value={inrCompact(stats.monthlySales)}
+          valueTitle={inr(stats.monthlySales)}
           sub={`${stats.salesGrowth >= 0 ? "+" : ""}${stats.salesGrowth}% vs last month`}
           icon={TrendingUp}
         />
@@ -116,7 +117,8 @@ function DashboardPage() {
         <StatCard label="Open Complaints" value={stats.openComplaints} icon={AlertTriangle} />
         <StatCard
           label="Reward Points"
-          value={stats.rewardPointsGenerated.toLocaleString("en-IN")}
+          value={compactNumber(stats.rewardPointsGenerated)}
+          valueTitle={stats.rewardPointsGenerated.toLocaleString("en-IN")}
           icon={Gift}
         />
         <StatCard label="Active Dealers" value={stats.activeDealers} icon={Store} />

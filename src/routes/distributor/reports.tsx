@@ -26,25 +26,20 @@ export const Route = createFileRoute("/distributor/reports")({
   component: ReportsPage,
 });
 
-const lineConfig = { sales: { label: "Sales", color: "hsl(32 60% 50%)" } };
-const barConfig = { units: { label: "Units", color: "hsl(32 60% 50%)" } };
+const lineConfig = { sales: { label: "Sales", color: "#B45309" } };
+const ordersBarConfig = { orders: { label: "Orders", color: "#0369A1" } };
+const unitsBarConfig = { units: { label: "Units", color: "#15803D" } };
 const pieConfig = {
-  Latexo: { label: "Latexo", color: "hsl(32 60% 50%)" },
-  Orthomatic: { label: "Orthomatic", color: "hsl(28 55% 45%)" },
-  "Delight Cool": { label: "Delight Cool", color: "hsl(36 50% 55%)" },
-  "AquaFresh Plush": { label: "AquaFresh", color: "hsl(24 45% 60%)" },
-  "Twin Plush": { label: "Twin Plush", color: "hsl(40 40% 65%)" },
+  Latexo: { label: "Latexo", color: "#B45309" },
+  Orthomatic: { label: "Orthomatic", color: "#0369A1" },
+  "Delight Cool": { label: "Delight Cool", color: "#15803D" },
+  "AquaFresh Plush": { label: "AquaFresh", color: "#7C3AED" },
+  "Twin Plush": { label: "Twin Plush", color: "#BE123C" },
 };
 
-const PIE_COLORS = [
-  "hsl(32 60% 50%)",
-  "hsl(28 55% 45%)",
-  "hsl(36 50% 55%)",
-  "hsl(24 45% 60%)",
-  "hsl(40 40% 65%)",
-];
+const PIE_COLORS = ["#B45309", "#0369A1", "#15803D", "#7C3AED", "#BE123C"];
 
-const labelStyle = { fontSize: 11, fontWeight: 600, fill: "oklch(0.52 0.03 62)" };
+const labelStyle = { fontSize: 11, fontWeight: 600, fill: "#3D3429" };
 
 function MonthlySalesLegend({ sales }: { sales: MonthlySales[] }) {
   return (
@@ -129,7 +124,7 @@ function ReportsPage() {
           </div>
           <ChartContainer config={lineConfig} className="aspect-auto h-44 w-full md:h-48">
             <LineChart data={sales} margin={{ left: 0, right: 8, top: 8, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8DFD0" />
               <XAxis dataKey="month" tickLine={false} axisLine={false} />
               <YAxis
                 tickLine={false}
@@ -151,15 +146,15 @@ function ReportsPage() {
           <MonthlySalesLegend sales={sales} />
         </div>
 
-        <ChartCard title="Orders by Month" description="Order volume" config={barConfig}>
+        <ChartCard title="Orders by Month" description="Order volume" config={ordersBarConfig}>
           <BarChart data={sales} margin={{ left: 0, right: 8, top: 24, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8DFD0" />
             <XAxis dataKey="month" tickLine={false} axisLine={false} />
             <YAxis tickLine={false} axisLine={false} width={28} />
             <ChartTooltip content={<ChartTooltipContent />} />
             <Bar
               dataKey="orders"
-              fill="var(--color-units)"
+              fill="var(--color-orders)"
               radius={[6, 6, 0, 0]}
               animationDuration={reducedMotion ? 0 : 800}
             >
@@ -198,7 +193,7 @@ function ReportsPage() {
         <ChartCard
           title="Units Sold"
           description="By product"
-          config={barConfig}
+          config={unitsBarConfig}
           className="lg:col-span-2"
         >
           <BarChart
@@ -206,7 +201,7 @@ function ReportsPage() {
             layout="vertical"
             margin={{ left: 8, right: 40, top: 8, bottom: 0 }}
           >
-            <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E8DFD0" />
             <XAxis type="number" tickLine={false} axisLine={false} />
             <YAxis
               type="category"

@@ -50,7 +50,7 @@ function NotificationsPage() {
   return (
     <DistributorShell title="Notifications" back="/distributor/dashboard" showBell={false}>
       <div className="mb-4 flex items-center justify-between gap-2">
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="scrollbar-none flex gap-2 overflow-x-auto scroll-smooth-touch pb-1">
           {filters.map((f) => (
             <button
               key={f.id}

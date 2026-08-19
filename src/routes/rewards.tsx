@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Gift } from "lucide-react";
 import { AppShell, Section } from "@/components/app-shell";
 import { Confetti, CountUp, ProgressBar, ProgressRing } from "@/components/brand";
 import { cn } from "@/lib/utils";
@@ -26,20 +27,59 @@ export const Route = createFileRoute("/rewards")({
 
 function Rewards() {
   const [celebrate, setCelebrate] = useState(false);
-  const pct = Math.round((dealer.points / dealer.nextRewardAt) * 100);
-  const remaining = dealer.nextRewardAt - dealer.points;
+  const [historyTab, setHistoryTab] = useState<"pending" | "delivered">("pending");
+
+  const nextReward = rewards.find((r) => r.points > dealer.points) ?? rewards[rewards.length - 1]!;
+  const pct = Math.min(100, Math.round((dealer.points / nextReward.points) * 100));
+  const remaining = Math.max(0, nextReward.points - dealer.points);
+
+  const pendingRewards = useMemo(
+    () => rewardHistory.filter((c) => c.status === "Pending"),
+    [],
+  );
+  const deliveredRewards = useMemo(
+    () => rewardHistory.filter((c) => c.status === "Delivered"),
+    [],
+  );
+  const historyItems = historyTab === "pending" ? pendingRewards : deliveredRewards;
 
   return (
     <AppShell title="Your Rewards">
-      <div className="relative grid place-items-center rounded-3xl border border-border surface-gradient py-6 shadow-lift">
+      <div className="relative overflow-hidden rounded-3xl border border-primary/30 surface-gradient py-6 shadow-lift">
         {celebrate && <Confetti />}
-        <ProgressRing value={pct} label={`${pct}%`} sub="to next reward" />
-        <p className="font-display text-4xl font-bold">
-          <CountUp value={dealer.points} /> <span className="text-lg">Points</span>
-        </p>
-        <p className="mt-2 px-6 text-center text-base">
-          <span className="font-bold">{remaining} points</span> to unlock your next reward 🎁
-        </p>
+        <div className="grid place-items-center">
+          <ProgressRing value={pct} label={`${pct}%`} sub="to next reward" />
+          <p className="font-display text-4xl font-bold">
+            <CountUp value={dealer.points} /> <span className="text-lg">Points</span>
+          </p>
+        </div>
+
+        <div className="mx-5 mt-5 rounded-2xl border border-border bg-card/80 p-4">
+          <div className="flex items-center gap-3">
+            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-secondary text-2xl">
+              {nextReward.emoji}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold uppercase tracking-wide text-primary">Next reward</p>
+              <p className="font-display text-base font-bold">{nextReward.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {nextReward.points.toLocaleString("en-IN")} points
+              </p>
+            </div>
+            <Gift className="h-5 w-5 shrink-0 text-primary" />
+          </div>
+          <ProgressBar value={pct} className="mt-4 h-3" />
+          <p className="mt-3 text-center text-sm font-semibold">
+            {remaining > 0 ? (
+              <>
+                <span className="font-display text-lg font-bold text-primary">{remaining}</span>{" "}
+                points to unlock your {nextReward.name} 🎁
+              </>
+            ) : (
+              "You've unlocked your next reward — redeem it below!"
+            )}
+          </p>
+        </div>
       </div>
 
       <Section title="Rewards You Can Claim">
@@ -111,37 +151,58 @@ function Rewards() {
       </Section>
 
       <Section title="Reward History">
-        <div className="space-y-3">
-          {rewardHistory.map((claim) => (
-            <div
-              key={claim.id}
-              className="rounded-3xl border border-border bg-card p-4 shadow-soft"
+        <div className="mb-3 flex gap-2 rounded-2xl bg-secondary p-1">
+          {(["pending", "delivered"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setHistoryTab(tab)}
+              className={cn(
+                "press flex-1 rounded-xl py-2.5 text-sm font-bold capitalize",
+                historyTab === tab ? "bg-card shadow-soft" : "text-muted-foreground",
+              )}
             >
-              <div className="flex items-start gap-3">
-                <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-secondary text-xl">
-                  {claim.emoji}
-                </span>
-                <div className="flex-1">
-                  <p className="text-base font-bold">{claim.name}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Claimed: {claim.claimed}</p>
-                  <p
-                    className={cn(
-                      "mt-2 text-sm font-bold",
-                      claim.status === "Delivered" ? "text-success" : "text-muted-foreground",
-                    )}
-                  >
-                    Status: {claim.status === "Delivered" ? "✅ Delivered" : "⏳ Pending"}
-                  </p>
-                  {claim.status === "Delivered" && claim.delivered && (
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      Delivery Date: {claim.delivered}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
+              {tab === "pending" ? "Pending Rewards" : "Delivered Rewards"}
+            </button>
           ))}
         </div>
+
+        {historyItems.length === 0 ? (
+          <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+            No {historyTab} rewards yet.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {historyItems.map((claim) => (
+              <div
+                key={claim.id}
+                className="rounded-3xl border border-border bg-card p-4 shadow-soft"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-secondary text-xl">
+                    {claim.emoji}
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-base font-bold">{claim.name}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Claimed: {claim.claimed}</p>
+                    <p
+                      className={cn(
+                        "mt-2 text-sm font-bold",
+                        claim.status === "Delivered" ? "text-success" : "text-amber-700",
+                      )}
+                    >
+                      Status: {claim.status === "Delivered" ? "✅ Delivered" : "⏳ Pending"}
+                    </p>
+                    {claim.status === "Delivered" && claim.delivered && (
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        Delivery Date: {claim.delivered}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Section>
     </AppShell>
   );

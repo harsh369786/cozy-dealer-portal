@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { ShieldCheck, Gift } from "lucide-react";
+import { ChevronRight, ShieldCheck } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { cn } from "@/lib/utils";
-import { inr, pillows, products, MATTRESS_LAYERS, type Product } from "@/lib/demo-data";
+import { pillows, products, MATTRESS_LAYERS, type Product } from "@/lib/demo-data";
 
 export const Route = createFileRoute("/products/")({
   head: () => ({
@@ -36,19 +36,19 @@ function Catalogue() {
   return (
     <AppShell title="Choose a Model">
       <p className="text-sm text-muted-foreground">
-        Tap any model to start your order. No searching needed.
+        Tap a model name to see details and place your order.
       </p>
 
-      <div className="-mx-5 mt-4 flex gap-2 overflow-x-auto px-5 pb-1">
+      <div className="mt-4 flex gap-2 rounded-2xl bg-secondary/80 p-1">
         {tabs.map((c) => (
           <button
             key={c}
             onClick={() => setTab(c)}
             className={cn(
-              "press shrink-0 rounded-full border px-5 py-2.5 text-sm font-bold",
+              "press flex-1 rounded-xl py-2.5 text-sm font-bold transition-colors",
               tab === c
-                ? "border-transparent brand-gradient text-primary-foreground"
-                : "border-border bg-card text-foreground",
+                ? "border border-foreground/20 bg-card text-foreground shadow-soft"
+                : "border border-transparent text-muted-foreground",
             )}
           >
             {c}
@@ -56,68 +56,70 @@ function Catalogue() {
         ))}
       </div>
 
-      {tab === "Mattresses" &&
-        MATTRESS_LAYERS.map((layer) => (
-          <section
-            key={layer.id}
-            className="mt-6 overflow-hidden rounded-3xl border border-border bg-card/50 p-4 shadow-soft"
-          >
-            <h2 className="mb-4 flex items-center gap-2 font-display text-base font-bold text-primary">
-              <ShieldCheck className="h-5 w-5" />
-              {layer.title}
-            </h2>
+      {tab === "Mattresses" && (
+        <div className="mt-5 space-y-4">
+          {MATTRESS_LAYERS.map((layer, layerIdx) => (
+            <section
+              key={layer.id}
+              className="animate-rise overflow-hidden rounded-3xl border border-border bg-secondary/40 p-4"
+              style={{ animationDelay: `${layerIdx * 60}ms` }}
+            >
+              <h2 className="flex items-center gap-2 font-display text-base font-bold text-foreground">
+                <ShieldCheck className="h-5 w-5 text-primary" strokeWidth={2.25} />
+                {layer.title}
+              </h2>
 
-            {"subgroups" in layer ? (
-              <div className="space-y-5">
-                {layer.subgroups.map((sg) => (
-                  <div key={sg.label}>
-                    <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                      {sg.label}
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {sg.productIds.map((id, i) => {
-                        const p = productById.get(id);
-                        return p ? <ModelCard key={id} product={p} delay={i * 40} /> : null;
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-3">
-                {layer.productIds.map((id, i) => {
-                  const p = productById.get(id);
-                  return p ? <ModelCard key={id} product={p} delay={i * 40} /> : null;
-                })}
-              </div>
-            )}
-          </section>
-        ))}
+              {"subgroups" in layer ? (
+                <div className="mt-4 space-y-4">
+                  {layer.subgroups.map((sg) => {
+                    const items = sg.productIds
+                      .map((id) => productById.get(id))
+                      .filter((p): p is Product => Boolean(p));
+                    if (!items.length) return null;
+                    return (
+                      <div key={sg.label}>
+                        <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                          {sg.label}
+                        </p>
+                        <ProductList products={items} />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-4">
+                  <ProductList
+                    products={layer.productIds
+                      .map((id) => productById.get(id))
+                      .filter((p): p is Product => Boolean(p))}
+                  />
+                </div>
+              )}
+            </section>
+          ))}
+        </div>
+      )}
 
       {tab === "Foldable" && (
-        <section className="mt-6">
-          <h2 className="mb-3 flex items-center gap-2 font-display text-base font-bold">
-            <ShieldCheck className="h-4 w-4 text-primary" />
-            Foldable
+        <section className="animate-rise mt-5 overflow-hidden rounded-3xl border border-border bg-secondary/40 p-4">
+          <h2 className="flex items-center gap-2 font-display text-base font-bold">
+            <ShieldCheck className="h-5 w-5 text-primary" strokeWidth={2.25} />
+            Foldable Mattresses
           </h2>
-          <div className="grid grid-cols-2 gap-3">
-            {foldable.map((p, i) => (
-              <ModelCard key={p.id} product={p} delay={i * 50} />
-            ))}
+          <div className="mt-4">
+            <ProductList products={foldable} />
           </div>
         </section>
       )}
 
       {tab === "Pillows" && (
-        <section className="mt-6">
-          <h2 className="mb-3 flex items-center gap-2 font-display text-base font-bold">
-            <ShieldCheck className="h-4 w-4 text-primary" />
+        <section className="animate-rise mt-5 overflow-hidden rounded-3xl border border-border bg-secondary/40 p-4">
+          <h2 className="flex items-center gap-2 font-display text-base font-bold">
+            <ShieldCheck className="h-5 w-5 text-primary" strokeWidth={2.25} />
             Pillows
           </h2>
-          <div className="grid grid-cols-2 gap-3">
-            {pillows.map((p, i) => (
-              <ModelCard key={p.id} product={p} delay={i * 50} />
-            ))}
+          <div className="mt-4">
+            <ProductList products={pillows} />
           </div>
         </section>
       )}
@@ -125,44 +127,32 @@ function Catalogue() {
   );
 }
 
-function ModelCard({ product: p, delay }: { product: Product; delay: number }) {
+function ProductList({ products: items }: { products: Product[] }) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-border/80 bg-card shadow-soft">
+      {items.map((p, i) => (
+        <div key={p.id} className={cn(i > 0 && "border-t border-border/70")}>
+          <ProductRow product={p} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProductRow({ product: p }: { product: Product }) {
   return (
     <Link
       to="/products/$productId"
       params={{ productId: p.id }}
-      style={{ animationDelay: `${delay}ms` }}
-      className="press animate-rise flex flex-col overflow-hidden rounded-3xl border border-border bg-card shadow-soft"
+      className="press flex min-w-0 items-center justify-between gap-3 px-4 py-3.5"
     >
-      <div className="relative">
-        <img
-          src={p.image}
-          alt={p.name}
-          loading="lazy"
-          width={800}
-          height={800}
-          className="h-24 w-full object-cover"
-        />
-        <span className="absolute left-2 top-2 rounded-full bg-background/90 px-2 py-0.5 text-[10px] font-bold">
-          {p.guarantee === "Pillow" ? "Pillow" : p.guarantee}
-        </span>
-      </div>
-      <div className="flex flex-1 flex-col p-3">
-        <p className="font-display text-sm font-bold leading-tight">{p.name}</p>
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          {p.thicknesses.length ? p.thicknesses.join(" · ") : p.fixedSize}
-        </p>
-        <p className="mt-2 text-[11px] text-muted-foreground line-through">MRP {inr(p.mrp)}</p>
-        <p className="font-display text-lg font-bold text-primary">{inr(p.price)}</p>
-        <p className="text-[11px] font-semibold">Earn {p.points} points</p>
-        {p.free && (
-          <p className="mt-2 flex items-center gap-1 rounded-lg bg-secondary px-2 py-1 text-[10px] font-bold">
-            <Gift className="h-3 w-3 text-primary" /> FREE {p.free}
-          </p>
-        )}
-        <span className="press mt-3 block rounded-xl brand-gradient py-2 text-center text-xs font-bold text-primary-foreground">
-          Select
-        </span>
-      </div>
+      <p className="min-w-0 flex-1 font-display text-[15px] font-bold leading-snug text-foreground">
+        {p.name}
+      </p>
+      <span className="flex shrink-0 items-center gap-0.5 rounded-xl border border-border bg-background px-3 py-1.5 text-xs font-bold text-foreground">
+        Select
+        <ChevronRight className="h-3.5 w-3.5" strokeWidth={2.5} />
+      </span>
     </Link>
   );
 }

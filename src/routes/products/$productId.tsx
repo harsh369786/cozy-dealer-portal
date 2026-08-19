@@ -22,15 +22,15 @@ import {
   formatCampaignDate,
 } from "@/lib/campaign-service";
 import {
-  BREADTHS,
   FREE_ITEM,
-  LENGTHS,
   dealer,
   getProduct,
   inr,
   salespeople,
 } from "@/lib/demo-data";
+import { formatSizeLabel, mapToNearestStandardSize } from "@/lib/mattress-size";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -58,7 +58,16 @@ export const Route = createFileRoute("/products/$productId")({
   component: Configurator,
 });
 
-type Farma = { tl: string; tr: string; bl: string; br: string };
+type PermaCorners = { tl: boolean; tr: boolean; bl: boolean; br: boolean };
+
+function selectedCornerLabels(corners: PermaCorners) {
+  const labels: string[] = [];
+  if (corners.tl) labels.push("Top Left");
+  if (corners.tr) labels.push("Top Right");
+  if (corners.bl) labels.push("Bottom Left");
+  if (corners.br) labels.push("Bottom Right");
+  return labels;
+}
 
 function whatsappUrl(phone: string, message: string) {
   const digits = phone.replace(/\D/g, "");
@@ -69,12 +78,29 @@ function Configurator() {
   const { productId } = useParams({ from: "/products/$productId" });
   const product = getProduct(productId);
   const isPillow = product.category === "Pillows";
+  const isFoldable = product.category === "Foldable";
+  const isMattress = !isPillow && !isFoldable;
 
-  const [length, setLength] = useState<number>(LENGTHS[2]!);
-  const [breadth, setBreadth] = useState<number>(BREADTHS[3]!);
-  const [thickness, setThickness] = useState(product.thicknesses[0] ?? "");
-  const [farma, setFarma] = useState(false);
-  const [f, setF] = useState<Farma>({ tl: "", tr: "", bl: "", br: "" });
+  const [lengthInput, setLengthInput] = useState("72");
+  const [breadthInput, setBreadthInput] = useState("60");
+  const length = Number(lengthInput) || 0;
+  const breadth = Number(breadthInput) || 0;
+  const mapped = useMemo(
+    () => (isMattress ? mapToNearestStandardSize(length, breadth) : null),
+    [isMattress, length, breadth],
+  );
+  const standardLength = mapped?.standardLength ?? length;
+  const standardBreadth = mapped?.standardBreadth ?? breadth;
+
+  const [thickness, setThickness] = useState("");
+  const [perma, setPerma] = useState(false);
+  const [permaCorners, setPermaCorners] = useState<PermaCorners>({
+    tl: false,
+    tr: false,
+    bl: false,
+    br: false,
+  });
+  const [permaNotes, setPermaNotes] = useState("");
   const [qty, setQty] = useState(1);
   const [placedBy, setPlacedBy] = useState<string>(salespeople[0]);
   const [notes, setNotes] = useState("");
@@ -100,16 +126,28 @@ function Configurator() {
   const remaining = Math.max(0, dealer.nextRewardAt - newPoints);
   const pct = Math.min(100, (newPoints / dealer.nextRewardAt) * 100);
 
+  const showPrice = isPillow || Boolean(thickness);
+
+  const sizeLabel = isPillow
+    ? product.fixedSize!
+    : formatSizeLabel(standardLength, standardBreadth, thickness || undefined);
+
   const waMessage = useMemo(() => {
+    const cornerLabels = selectedCornerLabels(permaCorners);
     const lines = [
       `BackRest Order ${placed ?? ""}`,
       `Status: Order Placed`,
       `Model: ${product.name} (${product.guarantee})`,
-      isPillow ? `Size: ${product.fixedSize}` : `Size: ${length} × ${breadth} × ${thickness}`,
-      !isPillow ? `Farma: ${farma ? "Yes" : "No"}` : "",
-      farma
-        ? `Farma: TL ${f.tl || "-"}, TR ${f.tr || "-"}, BL ${f.bl || "-"}, BR ${f.br || "-"}`
+      isPillow
+        ? `Size: ${product.fixedSize}`
+        : `Requested: ${length}" × ${breadth}" × ${thickness}`,
+      isMattress && mapped
+        ? `Standard size: ${mapped.standardLength}" × ${mapped.standardBreadth}" × ${thickness}`
         : "",
+      isFoldable ? `Size: ${product.fixedSize} × ${thickness}` : "",
+      isMattress ? `Perma: ${perma ? "Yes" : "No"}` : "",
+      perma && cornerLabels.length > 0 ? `Perma corners: ${cornerLabels.join(", ")}` : "",
+      perma && permaNotes ? `Perma notes: ${permaNotes}` : "",
       `Quantity: ${qty}`,
       `MRP: ${inr(mrpTotal)}`,
       `Dealer Price: ${inr(dealerTotal)}`,
@@ -128,11 +166,15 @@ function Configurator() {
     placed,
     product,
     isPillow,
+    isMattress,
+    isFoldable,
     length,
     breadth,
+    mapped,
     thickness,
-    farma,
-    f,
+    perma,
+    permaCorners,
+    permaNotes,
     qty,
     mrpTotal,
     dealerTotal,
@@ -176,17 +218,21 @@ function Configurator() {
             {product.guarantee === "Pillow" ? "Pillow" : `${product.guarantee} Guarantee`}
           </p>
           <p className="mt-1 text-sm text-muted-foreground line-through">MRP {inr(product.mrp)}</p>
-          {campaign ? (
-            <>
-              <p className="text-sm text-muted-foreground line-through">
-                Dealer {inr(product.price)}
-              </p>
-              <p className="font-display text-xl font-bold text-primary">
-                {inr(unitCampaignPrice!)}
-              </p>
-            </>
+          {showPrice ? (
+            campaign ? (
+              <>
+                <p className="text-sm text-muted-foreground line-through">
+                  Dealer {inr(product.price)}
+                </p>
+                <p className="font-display text-xl font-bold text-primary">
+                  {inr(unitCampaignPrice!)}
+                </p>
+              </>
+            ) : (
+              <p className="font-display text-xl font-bold text-primary">{inr(product.price)}</p>
+            )
           ) : (
-            <p className="font-display text-xl font-bold text-primary">{inr(product.price)}</p>
+            <p className="text-sm font-semibold text-muted-foreground">Select thickness for price</p>
           )}
           {campaign && (
             <p className="mt-1 text-xs font-semibold text-primary">
@@ -201,27 +247,80 @@ function Configurator() {
           <p className="text-base font-bold">Size</p>
           <p className="mt-1 font-display text-2xl font-bold">{product.fixedSize}</p>
         </div>
-      ) : (
+      ) : isFoldable ? (
         <>
-          <div className="mt-5">
-            <p className="text-base font-bold">Length (inches)</p>
-            <ChipRow options={LENGTHS} value={length} onChange={setLength} min={30} max={120} />
+          <div className="mt-5 rounded-3xl border border-border bg-card p-4">
+            <p className="text-base font-bold">Size</p>
+            <p className="mt-1 font-display text-2xl font-bold">{product.fixedSize}</p>
           </div>
-
-          <div className="mt-5">
-            <p className="text-base font-bold">Breadth (inches)</p>
-            <ChipRow options={BREADTHS} value={breadth} onChange={setBreadth} min={20} max={120} />
-          </div>
-
           <div className="mt-5">
             <p className="text-base font-bold">Thickness</p>
-            <div className="mt-3 flex gap-3">
+            <div className="mt-3 flex flex-wrap gap-3">
               {product.thicknesses.map((t) => (
                 <button
                   key={t}
                   onClick={() => setThickness(t)}
                   className={cn(
-                    "press flex-1 rounded-2xl border py-4 text-base font-bold",
+                    "press min-w-[4.5rem] flex-1 rounded-2xl border py-4 text-base font-bold",
+                    thickness === t
+                      ? "border-transparent brand-gradient text-primary-foreground"
+                      : "border-border bg-card",
+                  )}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-base font-bold">Length (inches)</p>
+              <input
+                inputMode="numeric"
+                value={lengthInput}
+                onChange={(e) => setLengthInput(e.target.value.replace(/[^\d]/g, ""))}
+                placeholder="e.g. 71"
+                className="mt-2 h-14 w-full rounded-2xl border border-input bg-card px-4 text-center text-lg font-bold outline-none focus:border-ring"
+              />
+            </div>
+            <div>
+              <p className="text-base font-bold">Width (inches)</p>
+              <input
+                inputMode="numeric"
+                value={breadthInput}
+                onChange={(e) => setBreadthInput(e.target.value.replace(/[^\d]/g, ""))}
+                placeholder="e.g. 59"
+                className="mt-2 h-14 w-full rounded-2xl border border-input bg-card px-4 text-center text-lg font-bold outline-none focus:border-ring"
+              />
+            </div>
+          </div>
+
+          {mapped && length > 0 && breadth > 0 && (
+            <div className="mt-3 rounded-2xl border border-primary/30 bg-secondary/60 px-4 py-3 text-sm">
+              <p className="font-semibold text-muted-foreground">Maps to standard size</p>
+              <p className="mt-1 font-display text-lg font-bold">
+                {mapped.standardLength}" × {mapped.standardBreadth}"
+              </p>
+              {(mapped.standardLength !== length || mapped.standardBreadth !== breadth) && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Your entry {length}" × {breadth}" rounds to the nearest standard.
+                </p>
+              )}
+            </div>
+          )}
+
+          <div className="mt-5">
+            <p className="text-base font-bold">Thickness</p>
+            <div className="mt-3 flex flex-wrap gap-3">
+              {product.thicknesses.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setThickness(t)}
+                  className={cn(
+                    "press min-w-[4.5rem] flex-1 rounded-2xl border py-4 text-base font-bold",
                     thickness === t
                       ? "border-transparent brand-gradient text-primary-foreground"
                       : "border-border bg-card",
@@ -234,15 +333,15 @@ function Configurator() {
           </div>
 
           <div className="mt-5">
-            <p className="text-base font-bold">Farma</p>
+            <p className="text-base font-bold">Perma</p>
             <div className="mt-3 grid grid-cols-2 gap-3">
               {[true, false].map((v) => (
                 <button
                   key={String(v)}
-                  onClick={() => setFarma(v)}
+                  onClick={() => setPerma(v)}
                   className={cn(
                     "press rounded-2xl border py-4 text-base font-bold",
-                    farma === v
+                    perma === v
                       ? "border-transparent brand-gradient text-primary-foreground"
                       : "border-border bg-card",
                   )}
@@ -253,25 +352,39 @@ function Configurator() {
             </div>
           </div>
 
-          {farma && (
-            <div className="animate-rise mt-4 rounded-3xl border border-border bg-card p-4">
-              <p className="text-sm font-bold">Farma sizes (inches)</p>
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <FarmaField label="Top Left" value={f.tl} onChange={(v) => setF({ ...f, tl: v })} />
-                <FarmaField
-                  label="Top Right"
-                  value={f.tr}
-                  onChange={(v) => setF({ ...f, tr: v })}
-                />
-                <FarmaField
-                  label="Bottom Left"
-                  value={f.bl}
-                  onChange={(v) => setF({ ...f, bl: v })}
-                />
-                <FarmaField
-                  label="Bottom Right"
-                  value={f.br}
-                  onChange={(v) => setF({ ...f, br: v })}
+          {perma && (
+            <div className="animate-rise mt-4 space-y-4 rounded-3xl border border-border bg-card p-4">
+              <p className="text-sm font-bold">Select corners for Perma</p>
+              <div className="grid grid-cols-2 gap-3">
+                {(
+                  [
+                    ["tl", "Top Left"],
+                    ["tr", "Top Right"],
+                    ["bl", "Bottom Left"],
+                    ["br", "Bottom Right"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label
+                    key={key}
+                    className="flex cursor-pointer items-center gap-3 rounded-2xl border border-border bg-secondary/40 px-3 py-3"
+                  >
+                    <Checkbox
+                      checked={permaCorners[key]}
+                      onCheckedChange={(checked) =>
+                        setPermaCorners((prev) => ({ ...prev, [key]: checked === true }))
+                      }
+                    />
+                    <span className="text-sm font-semibold">{label}</span>
+                  </label>
+                ))}
+              </div>
+              <div>
+                <p className="text-sm font-bold">Perma notes</p>
+                <Textarea
+                  value={permaNotes}
+                  onChange={(e) => setPermaNotes(e.target.value)}
+                  placeholder="Special instructions for Perma corners…"
+                  className="mt-2 min-h-24 rounded-2xl text-base"
                 />
               </div>
             </div>
@@ -317,17 +430,24 @@ function Configurator() {
         </div>
       )}
 
-      <div className="mt-5 rounded-3xl border border-border surface-gradient p-5">
-        <CampaignPriceBlock
-          mrp={product.mrp}
-          dealerPrice={product.price}
-          campaignPrice={unitCampaignPrice ?? undefined}
-          qty={qty}
-        />
-        <p className="mt-3 rounded-2xl bg-card/70 px-4 py-3 text-sm font-bold">
-          You'll earn {points} reward points 🎁
+      {showPrice ? (
+        <div className="mt-5 rounded-3xl border border-border surface-gradient p-5">
+          <CampaignPriceBlock
+            mrp={product.mrp}
+            dealerPrice={product.price}
+            campaignPrice={unitCampaignPrice ?? undefined}
+            qty={qty}
+          />
+          <p className="mt-2 text-center text-sm font-semibold text-muted-foreground">{sizeLabel}</p>
+          <p className="mt-3 rounded-2xl bg-card/70 px-4 py-3 text-sm font-bold">
+            You'll earn {points} reward points 🎁
+          </p>
+        </div>
+      ) : (
+        <p className="mt-5 rounded-2xl border border-dashed border-border bg-secondary/40 px-4 py-4 text-center text-sm font-semibold text-muted-foreground">
+          Select thickness to see price
         </p>
-      </div>
+      )}
 
       <div className="mt-5">
         <p className="text-base font-bold">Order Placed By</p>
@@ -400,14 +520,18 @@ function Configurator() {
 
       <button
         onClick={() => setConfirm(true)}
-        className="press mt-6 h-16 w-full rounded-2xl brand-gradient text-lg font-bold text-primary-foreground"
+        disabled={!showPrice}
+        className={cn(
+          "press mt-6 h-16 w-full rounded-2xl text-lg font-bold text-primary-foreground",
+          showPrice ? "brand-gradient" : "bg-muted text-muted-foreground",
+        )}
       >
         Review Order
       </button>
 
       {confirm && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/50 p-0 backdrop-blur-sm">
-          <div className="animate-rise max-h-[88vh] w-full max-w-[430px] overflow-y-auto rounded-t-3xl border border-border bg-card p-5 md:max-w-[520px]">
+          <div className="scrollbar-none animate-rise max-h-[88vh] w-full max-w-[430px] overflow-y-auto scroll-smooth-touch rounded-t-3xl border border-border bg-card p-5 md:max-w-[520px]">
             <div className="flex items-center justify-between">
               <h3 className="font-display text-xl font-bold">Confirm Your Order</h3>
               <button
@@ -427,18 +551,23 @@ function Configurator() {
               />
               {isPillow ? (
                 <Line label="Size" value={product.fixedSize!} />
+              ) : isFoldable ? (
+                <>
+                  <Line label="Size" value={product.fixedSize!} />
+                  <Line label="Thickness" value={thickness} />
+                </>
               ) : (
                 <>
-                  <Line label="Length" value={`${length}"`} />
-                  <Line label="Breadth" value={`${breadth}"`} />
-                  <Line label="Thickness" value={thickness} />
-                  <Line label="Farma" value={farma ? "Yes" : "No"} />
-                  {farma && (
+                  <Line label="Requested" value={`${length}" × ${breadth}"`} />
+                  <Line label="Standard size" value={sizeLabel} />
+                  <Line label="Perma" value={perma ? "Yes" : "No"} />
+                  {perma && selectedCornerLabels(permaCorners).length > 0 && (
                     <Line
-                      label="Farma sizes"
-                      value={`TL ${f.tl || "-"} · TR ${f.tr || "-"} · BL ${f.bl || "-"} · BR ${f.br || "-"}`}
+                      label="Perma corners"
+                      value={selectedCornerLabels(permaCorners).join(", ")}
                     />
                   )}
+                  {perma && permaNotes && <Line label="Perma notes" value={permaNotes} />}
                 </>
               )}
               <Line label="Quantity" value={String(qty)} />
@@ -549,78 +678,6 @@ function Configurator() {
         </div>
       )}
     </AppShell>
-  );
-}
-
-function ChipRow({
-  options,
-  value,
-  onChange,
-  min,
-  max,
-}: {
-  options: number[];
-  value: number;
-  onChange: (n: number) => void;
-  min: number;
-  max: number;
-}) {
-  const custom = !options.includes(value);
-  return (
-    <>
-      <div className="-mx-5 mt-3 flex gap-2 overflow-x-auto px-5 pb-1">
-        {options.map((o) => (
-          <button
-            key={o}
-            onClick={() => onChange(o)}
-            className={cn(
-              "press h-14 w-14 shrink-0 rounded-2xl border text-base font-bold",
-              value === o
-                ? "border-transparent brand-gradient text-primary-foreground"
-                : "border-border bg-card",
-            )}
-          >
-            {o}
-          </button>
-        ))}
-      </div>
-      <div className="mt-2 flex items-center gap-2">
-        <span className="text-xs text-muted-foreground">Other size</span>
-        <input
-          inputMode="numeric"
-          value={custom ? value : ""}
-          placeholder="—"
-          onChange={(e) => {
-            const n = Number(e.target.value.replace(/\D/g, ""));
-            if (n >= min && n <= max) onChange(n);
-          }}
-          className="h-11 w-20 rounded-xl border border-input bg-card text-center text-base font-bold outline-none focus:border-ring"
-        />
-      </div>
-    </>
-  );
-}
-
-function FarmaField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <label className="block">
-      <span className="text-xs font-semibold text-muted-foreground">{label}</span>
-      <input
-        inputMode="numeric"
-        value={value}
-        placeholder='e.g. 6"'
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-1 h-14 w-full rounded-2xl border border-input bg-background px-3 text-base font-bold outline-none focus:border-ring"
-      />
-    </label>
   );
 }
 
