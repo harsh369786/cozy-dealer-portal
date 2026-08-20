@@ -1,20 +1,15 @@
 import type { CampaignStatus, ComplaintStatus, OrderStatus } from "@/lib/mock/distributor/types";
+import { ORDER_STATUS_LABELS } from "@/components/shared/order-timeline";
 import { cn } from "@/lib/utils";
 
 const orderStyles: Record<OrderStatus, string> = {
-  pending_approval: "bg-amber-100 text-amber-900",
+  order_placed: "bg-amber-100 text-amber-900",
   approved: "bg-emerald-100 text-emerald-900",
   rejected: "bg-red-100 text-red-900",
-  in_production: "bg-blue-100 text-blue-900",
+  cancelled: "bg-red-100 text-red-900",
+  in_making: "bg-blue-100 text-blue-900",
+  out_for_delivery: "bg-violet-100 text-violet-900",
   delivered: "bg-secondary text-secondary-foreground",
-};
-
-const orderLabels: Record<OrderStatus, string> = {
-  pending_approval: "Pending Approval",
-  approved: "Approved",
-  rejected: "Rejected",
-  in_production: "In Production",
-  delivered: "Delivered",
 };
 
 const complaintStyles: Record<ComplaintStatus, string> = {
@@ -52,7 +47,7 @@ export function StatusBadge(props: StatusBadgeProps) {
   let label: string;
   let style: string;
   if (props.kind === "order") {
-    label = orderLabels[props.status];
+    label = ORDER_STATUS_LABELS[props.status];
     style = orderStyles[props.status];
   } else if (props.kind === "complaint") {
     label = complaintLabels[props.status];

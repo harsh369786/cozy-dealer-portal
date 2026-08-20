@@ -35,7 +35,7 @@ export function OrderCard({ order }: { order: DistributorOrder }) {
           <span className="line-clamp-2">{order.dealerAddress}</span>
         </p>
       )}
-      {order.status === "pending_approval" && order.pendingHours > 0 && (
+      {order.status === "order_placed" && order.pendingHours > 0 && (
         <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-amber-700">
           <Clock className="h-3.5 w-3.5" />
           Pending {order.pendingHours}h

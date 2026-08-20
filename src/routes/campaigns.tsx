@@ -1,11 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, ChevronRight, MessageSquareWarning, User } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { CampaignPriceBlock } from "@/components/campaign-price";
 import { ProgressBar } from "@/components/brand";
-import { Button } from "@/components/ui/button";
-import { useSession } from "@/hooks/use-session";
+import { requireRoles } from "@/lib/auth-guard";
 import {
   formatCampaignDate,
   getActivePriceCampaign,
@@ -15,6 +14,7 @@ import { campaigns, getProduct, inr } from "@/lib/demo-data";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/campaigns")({
+  beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
       { title: "Campaigns — BackRest Dealer App" },
@@ -41,7 +41,6 @@ const campaignTabs: { id: CampaignTab; label: string }[] = [
 ];
 
 function Campaigns() {
-  const { switchRole } = useSession();
   const [tab, setTab] = useState<CampaignTab>("active");
   const priceCampaign = tab === "active" ? getActivePriceCampaign("latexo") : null;
   const latexo = getProduct("latexo");
@@ -150,18 +149,34 @@ function Campaigns() {
         </div>
       )}
 
-      <div className="mt-8 rounded-3xl border border-dashed border-primary/40 bg-secondary/40 p-5">
-        <p className="font-display font-bold">Switch role (demo)</p>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Preview the distributor portal. In production, admin assigns your role.
-        </p>
-        <Button
-          className="mt-4 w-full rounded-2xl"
-          variant="outline"
-          onClick={() => switchRole("distributor")}
+      <div className="mt-8 space-y-2">
+        <p className="font-display font-bold">More</p>
+        <Link
+          to="/complaints"
+          className="press flex items-center gap-4 rounded-3xl border border-border bg-card p-4 shadow-soft"
         >
-          Switch to Distributor view
-        </Button>
+          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-secondary">
+            <MessageSquareWarning className="h-5 w-5 text-primary" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">Help Requests</p>
+            <p className="text-sm text-muted-foreground">Track complaints & support</p>
+          </div>
+          <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+        </Link>
+        <Link
+          to="/profile"
+          className="press flex items-center gap-4 rounded-3xl border border-border bg-card p-4 shadow-soft"
+        >
+          <span className="grid h-11 w-11 place-items-center rounded-2xl bg-secondary">
+            <User className="h-5 w-5 text-primary" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-semibold">My Profile</p>
+            <p className="text-sm text-muted-foreground">Account details & sign out</p>
+          </div>
+          <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+        </Link>
       </div>
     </AppShell>
   );

@@ -1,21 +1,25 @@
 import type { DistributorCampaign } from "@/lib/mock/distributor/types";
-import { DISTRIBUTOR_ID, seedCampaigns } from "@/lib/mock/distributor/data";
+import { api } from "@/lib/api-client";
 
-export async function getCampaigns(simulateError = false): Promise<DistributorCampaign[]> {
-  await delay();
+export async function getCampaigns(
+  simulateError = false,
+  tab?: string,
+): Promise<DistributorCampaign[]> {
   if (simulateError) throw new Error("Failed to load campaigns");
-  return seedCampaigns.filter((c) => c.distributorId === DISTRIBUTOR_ID);
+  const q = tab ? `?tab=${encodeURIComponent(tab)}` : "";
+  return api.get<DistributorCampaign[]>(`/api/v1/distributor/campaigns${q}`);
 }
 
 export async function getCampaignById(
   id: string,
   simulateError = false,
 ): Promise<DistributorCampaign | null> {
-  await delay();
   if (simulateError) throw new Error("Failed to load campaign");
-  return seedCampaigns.find((c) => c.id === id && c.distributorId === DISTRIBUTOR_ID) ?? null;
+  const all = await getCampaigns();
+  return all.find((c) => c.id === id) ?? null;
 }
 
-function delay(ms = 280) {
-  return new Promise((r) => setTimeout(r, ms));
+export async function getSellCampaigns(tab?: string) {
+  const q = tab ? `?tab=${encodeURIComponent(tab)}` : "";
+  return api.get(`/api/v1/campaigns${q}`);
 }

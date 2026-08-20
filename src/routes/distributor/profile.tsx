@@ -3,6 +3,8 @@ import { DistributorShell } from "@/components/distributor-shell";
 import { useSession } from "@/hooks/use-session";
 import { DISTRIBUTOR_ID, distributors } from "@/lib/mock/distributor/data";
 import { Badge } from "@/components/ui/badge";
+import { logout } from "@/services/auth";
+import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 
 export const Route = createFileRoute("/distributor/profile")({
@@ -10,8 +12,9 @@ export const Route = createFileRoute("/distributor/profile")({
 });
 
 function ProfilePage() {
-  const { user, role, switchRole } = useSession();
+  const { user, role } = useSession();
   const dist = distributors[DISTRIBUTOR_ID];
+  const navigate = useNavigate();
 
   return (
     <DistributorShell title="Profile" back="/distributor/more" showBell={false}>
@@ -23,20 +26,16 @@ function ProfilePage() {
           <p className="mt-2 text-sm text-muted-foreground">Region: {dist?.region}</p>
         </div>
 
-        <div className="rounded-3xl border border-dashed border-primary/40 bg-secondary/40 p-5">
-          <p className="font-display font-bold">Switch role (demo)</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            In production, your role is assigned by admin. Use this toggle to preview the dealer
-            experience during development.
-          </p>
-          <Button
-            className="mt-4 w-full rounded-2xl"
-            variant="outline"
-            onClick={() => switchRole("dealer")}
-          >
-            Switch to Dealer view
-          </Button>
-        </div>
+        <Button
+          variant="outline"
+          className="w-full rounded-2xl"
+          onClick={async () => {
+            await logout();
+            navigate({ to: "/" });
+          }}
+        >
+          Sign out
+        </Button>
       </div>
     </DistributorShell>
   );

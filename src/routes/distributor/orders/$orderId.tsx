@@ -90,7 +90,7 @@ function OrderDetailPage() {
     );
   }
 
-  const isPending = order.status === "pending_approval";
+  const isPending = order.status === "order_placed";
 
   return (
     <DistributorShell title={`#${order.id}`} back="/distributor/orders" showBell={false}>

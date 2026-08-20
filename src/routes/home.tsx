@@ -18,18 +18,18 @@ import {
   getActivePriceCampaign,
   getCampaignPrice,
 } from "@/lib/campaign-service";
+import { requireRoles } from "@/lib/auth-guard";
 import { campaigns, dealer, getProduct, inr, products } from "@/lib/demo-data";
+import { markCampaignSeen } from "@/lib/notifications";
 import {
-  getNotifications,
-  getUnseenActiveCampaign,
+  getDealerNotifications,
   markNotificationRead,
-  seedCampaignNotifications,
-  whatsappUrl,
-  dealer as dealerContact,
-} from "@/lib/notifications";
+  type AppNotification,
+} from "@/services/dealer-notifications";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/home")({
+  beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
       { title: "Dealer Home — BackRest" },
@@ -63,13 +63,13 @@ function HomePage() {
 
   const [popupCampaign, setPopupCampaign] = useState<PriceCampaign | null>(null);
   const [showNotifs, setShowNotifs] = useState(false);
-  const [notifs, setNotifs] = useState<ReturnType<typeof getNotifications>>([]);
+  const [notifs, setNotifs] = useState<AppNotification[]>([]);
   const unread = notifs.filter((n) => !n.read).length;
 
   useEffect(() => {
-    seedCampaignNotifications();
-    setNotifs(getNotifications());
-    setPopupCampaign(getUnseenActiveCampaign());
+    getDealerNotifications().then(setNotifs).catch(() => setNotifs([]));
+    const campaign = getActivePriceCampaign("latexo");
+    if (campaign) setPopupCampaign(campaign);
   }, []);
 
   return (
@@ -109,25 +109,15 @@ function HomePage() {
               <div className="mt-2 flex flex-wrap gap-2">
                 <Link
                   to={n.link}
-                  onClick={() => {
-                    markNotificationRead(n.id);
-                    setNotifs(getNotifications());
+                  onClick={async () => {
+                    await markNotificationRead(n.id);
+                    setNotifs((prev) => prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)));
                     setShowNotifs(false);
                   }}
                   className="text-xs font-bold text-primary"
                 >
                   Open
                 </Link>
-                {n.whatsappMessage && (
-                  <a
-                    href={whatsappUrl(dealerContact.phone, n.whatsappMessage)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs font-bold text-muted-foreground underline"
-                  >
-                    Send via WhatsApp
-                  </a>
-                )}
               </div>
             </div>
           ))}

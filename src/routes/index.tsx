@@ -1,9 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { toast } from "sonner";
 import { ArrowRight, ShieldCheck } from "lucide-react";
+import { ApiError } from "@/lib/api-client";
 import loginBg from "@/assets/login-bg.jpg";
 import { Logo } from "@/components/brand";
-import { getHomePath, login } from "@/services/auth";
+import { getHomePath, requestOtp, verifyOtp } from "@/services/auth";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -29,6 +31,34 @@ function Login() {
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleRequestOtp() {
+    setLoading(true);
+    try {
+      await requestOtp(phone);
+      setStep("otp");
+      toast.success("OTP sent", {
+        description: "Dev OTP: 123456. Try dealer 9876543210, admin 9999999999.",
+      });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Could not send OTP");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerifyOtp() {
+    setLoading(true);
+    try {
+      const user = await verifyOtp(phone, otp);
+      navigate({ to: getHomePath(user.role) });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Invalid OTP");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-background">
@@ -73,33 +103,30 @@ function Login() {
                 />
               </div>
               <button
-                onClick={() => setStep("otp")}
-                disabled={phone.length !== 10}
+                onClick={handleRequestOtp}
+                disabled={phone.length !== 10 || loading}
                 className="press mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl brand-gradient text-lg font-bold text-primary-foreground disabled:opacity-45"
               >
-                Continue with Mobile Number <ArrowRight className="h-5 w-5" />
+                {loading ? "Sending…" : "Continue with Mobile Number"} <ArrowRight className="h-5 w-5" />
               </button>
             </>
           ) : (
             <>
-              <p className="text-sm font-semibold">Enter the 4-digit code sent to +91 {phone}</p>
+              <p className="text-sm font-semibold">Enter the 6-digit code sent to +91 {phone}</p>
               <input
                 inputMode="numeric"
-                maxLength={4}
+                maxLength={6}
                 value={otp}
                 onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-                placeholder="0000"
-                className="mt-3 h-16 w-full rounded-2xl border border-input bg-background text-center font-display text-3xl font-bold tracking-[0.6em] outline-none focus:border-ring"
+                placeholder="000000"
+                className="mt-3 h-16 w-full rounded-2xl border border-input bg-background text-center font-display text-3xl font-bold tracking-[0.4em] outline-none focus:border-ring"
               />
               <button
-                onClick={async () => {
-                  await login(phone);
-                  navigate({ to: getHomePath() });
-                }}
-                disabled={otp.length !== 4}
+                onClick={handleVerifyOtp}
+                disabled={otp.length !== 6 || loading}
                 className="press mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl brand-gradient text-lg font-bold text-primary-foreground disabled:opacity-45"
               >
-                Verify & Continue <ArrowRight className="h-5 w-5" />
+                {loading ? "Verifying…" : "Verify & Continue"} <ArrowRight className="h-5 w-5" />
               </button>
               <button
                 onClick={() => setStep("phone")}

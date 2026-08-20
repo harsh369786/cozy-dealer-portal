@@ -1,92 +1,35 @@
 import type { SessionUser, UserRole } from "@/lib/mock/distributor/types";
-import { DISTRIBUTOR_ID, distributors } from "@/lib/mock/distributor/data";
+import { api } from "@/lib/api-client";
 
-const ROLE_KEY = "backrest-role";
-const SESSION_KEY = "backrest-session";
-
-const DEFAULT_USER: SessionUser = {
-  id: "user-001",
-  name: "Rajesh Sharma",
-  phone: "+91 98765 43210",
-  role: "dealer",
-};
-
-function readRole(): UserRole {
-  if (typeof window === "undefined") return "dealer";
-  const stored = sessionStorage.getItem(ROLE_KEY) as UserRole | null;
-  return stored ?? "dealer";
+export function getHomePath(role: UserRole): string {
+  if (role === "master_admin" || role === "admin_staff") return "/admin";
+  if (role === "distributor") return "/distributor/dashboard";
+  if (role === "sales_executive") return "/distributor/dealers";
+  return "/home";
 }
 
-function readSession(): SessionUser | null {
-  if (typeof window === "undefined") return null;
-  const raw = sessionStorage.getItem(SESSION_KEY);
-  if (!raw) return null;
+export async function requestOtp(phone: string): Promise<void> {
+  await api.post("/api/v1/auth/otp/request", { phone });
+}
+
+export async function verifyOtp(phone: string, code: string): Promise<SessionUser> {
+  const res = await api.post<{ user: SessionUser }>("/api/v1/auth/otp/verify", { phone, code });
+  return res.user;
+}
+
+export async function getCurrentUser(): Promise<SessionUser | null> {
   try {
-    return JSON.parse(raw) as SessionUser;
+    const res = await api.get<{ user: SessionUser }>("/api/v1/auth/me");
+    return res.user;
   } catch {
     return null;
   }
 }
 
-export function getRole(): UserRole {
-  return readRole();
-}
-
-export function getCurrentUser(): SessionUser | null {
-  return readSession();
+export async function logout(): Promise<void> {
+  await api.post("/api/v1/auth/logout");
 }
 
 export function isLoggedIn(): boolean {
-  return readSession() !== null;
-}
-
-export async function login(phone: string): Promise<SessionUser> {
-  await delay();
-  const role = readRole();
-  const dist = distributors[DISTRIBUTOR_ID];
-  const user: SessionUser =
-    role === "distributor"
-      ? {
-          id: DISTRIBUTOR_ID,
-          name: dist!.name,
-          phone: dist!.phone,
-          role: "distributor",
-          distributorId: DISTRIBUTOR_ID,
-        }
-      : { ...DEFAULT_USER, phone: `+91 ${phone}` };
-
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(user));
-  return user;
-}
-
-export function switchRoleDemo(role: UserRole): void {
-  sessionStorage.setItem(ROLE_KEY, role);
-  const existing = readSession();
-  const dist = distributors[DISTRIBUTOR_ID];
-  const updated: SessionUser =
-    role === "distributor"
-      ? {
-          id: DISTRIBUTOR_ID,
-          name: dist!.name,
-          phone: dist!.phone,
-          role: "distributor",
-          distributorId: DISTRIBUTOR_ID,
-        }
-      : existing
-        ? { ...DEFAULT_USER, phone: existing.phone }
-        : { ...DEFAULT_USER };
-  sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated));
-}
-
-export function logout(): void {
-  sessionStorage.removeItem(SESSION_KEY);
-}
-
-export function getHomePath(role?: UserRole): string {
-  const r = role ?? readRole();
-  return r === "distributor" ? "/distributor/dashboard" : "/home";
-}
-
-function delay(ms = 280) {
-  return new Promise((r) => setTimeout(r, ms));
+  return false;
 }

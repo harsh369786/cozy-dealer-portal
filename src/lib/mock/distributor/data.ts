@@ -1,5 +1,6 @@
 import type {
   DashboardStats,
+  DealerMonthlyPerformance,
   DealerRewardClaim,
   DistributorCampaign,
   DistributorComplaint,
@@ -7,10 +8,44 @@ import type {
   DistributorNotification,
   DistributorOrder,
   MonthlySales,
+  ProductMonthlyTrend,
   ProductSales,
 } from "./types";
 
 export const DISTRIBUTOR_ID = "dist-nagpur-01";
+export const DISTRIBUTOR_PUNE_ID = "dist-pune-02";
+export const DISTRIBUTOR_HYD_ID = "dist-hyd-03";
+
+export const SALES_EXEC_NAGPUR = "usr-se";
+export const SALES_EXEC_NAGPUR_2 = "usr-se-nagpur-2";
+export const SALES_EXEC_PUNE = "usr-se-pune";
+export const SALES_EXEC_HYD = "usr-se-hyd";
+
+function buildMonthlyPerformance(
+  augSales: number,
+  julSales: number,
+  augOrders: number,
+  growthPct: number,
+): DealerMonthlyPerformance[] {
+  const months = ["Mar", "Apr", "May", "Jun", "Jul", "Aug"];
+  const trend = growthPct / 100;
+  const values = months.map((month, i) => {
+    const stepsFromAug = 5 - i;
+    const factor = 1 - trend * (stepsFromAug / 5) * 0.8;
+    const sales =
+      month === "Aug"
+        ? augSales
+        : month === "Jul"
+          ? julSales
+          : Math.round(augSales * factor * (0.88 + i * 0.025));
+    const orders =
+      month === "Aug"
+        ? augOrders
+        : Math.max(1, Math.round(augOrders * (sales / augSales) * 0.95));
+    return { month, orders, orderValue: sales };
+  });
+  return values;
+}
 
 export const distributors: Record<string, { name: string; region: string; phone: string }> = {
   [DISTRIBUTOR_ID]: {
@@ -18,12 +53,23 @@ export const distributors: Record<string, { name: string; region: string; phone:
     region: "Maharashtra Central",
     phone: "+91 98230 44120",
   },
+  [DISTRIBUTOR_PUNE_ID]: {
+    name: "Sanjay Pawar",
+    region: "Western Maharashtra",
+    phone: "+91 98220 88990",
+  },
+  [DISTRIBUTOR_HYD_ID]: {
+    name: "Lakshmi Rao",
+    region: "South India",
+    phone: "+91 98490 11223",
+  },
 };
 
 export const dealers: DistributorDealer[] = [
   {
     id: "dlr-sharma",
     distributorId: DISTRIBUTOR_ID,
+    salesExecutiveId: SALES_EXEC_NAGPUR,
     code: "BR-NGP-014",
     name: "Sharma Furnishings",
     location: "Sitabuldi, Nagpur",
@@ -39,11 +85,13 @@ export const dealers: DistributorDealer[] = [
     rewardPoints: 24500,
     salesGrowth: 14,
     lastOrderDate: "18 Aug 2026",
+    monthlyPerformance: buildMonthlyPerformance(128400, 112600, 28, 14),
     active: true,
   },
   {
     id: "dlr-patil",
     distributorId: DISTRIBUTOR_ID,
+    salesExecutiveId: SALES_EXEC_NAGPUR,
     code: "BR-NGP-022",
     name: "Patil Mattress Gallery",
     location: "Dharampeth, Nagpur",
@@ -59,11 +107,13 @@ export const dealers: DistributorDealer[] = [
     rewardPoints: 18200,
     salesGrowth: 6,
     lastOrderDate: "17 Aug 2026",
+    monthlyPerformance: buildMonthlyPerformance(94200, 88900, 22, 6),
     active: true,
   },
   {
     id: "dlr-kulkarni",
-    distributorId: DISTRIBUTOR_ID,
+    distributorId: DISTRIBUTOR_PUNE_ID,
+    salesExecutiveId: SALES_EXEC_PUNE,
     code: "BR-PUN-008",
     name: "Kulkarni Sleep Studio",
     location: "FC Road, Pune",
@@ -79,11 +129,13 @@ export const dealers: DistributorDealer[] = [
     rewardPoints: 42100,
     salesGrowth: 13,
     lastOrderDate: "18 Aug 2026",
+    monthlyPerformance: buildMonthlyPerformance(198500, 176200, 34, 13),
     active: true,
   },
   {
     id: "dlr-reddy",
-    distributorId: DISTRIBUTOR_ID,
+    distributorId: DISTRIBUTOR_HYD_ID,
+    salesExecutiveId: SALES_EXEC_HYD,
     code: "BR-HYD-031",
     name: "Reddy Home Comfort",
     location: "Banjara Hills, Hyderabad",
@@ -98,11 +150,13 @@ export const dealers: DistributorDealer[] = [
     rewardPoints: 31400,
     salesGrowth: 5,
     lastOrderDate: "16 Aug 2026",
+    monthlyPerformance: buildMonthlyPerformance(156200, 148900, 26, 5),
     active: true,
   },
   {
     id: "dlr-menon",
-    distributorId: DISTRIBUTOR_ID,
+    distributorId: DISTRIBUTOR_HYD_ID,
+    salesExecutiveId: SALES_EXEC_HYD,
     code: "BR-COK-005",
     name: "Menon Bedding House",
     location: "MG Road, Kochi",
@@ -117,11 +171,13 @@ export const dealers: DistributorDealer[] = [
     rewardPoints: 15600,
     salesGrowth: -6,
     lastOrderDate: "15 Aug 2026",
+    monthlyPerformance: buildMonthlyPerformance(76800, 82100, 14, -6),
     active: true,
   },
   {
     id: "dlr-gupta",
-    distributorId: DISTRIBUTOR_ID,
+    distributorId: DISTRIBUTOR_PUNE_ID,
+    salesExecutiveId: SALES_EXEC_PUNE,
     code: "BR-IND-019",
     name: "Gupta Mattress Mart",
     location: "Vijay Nagar, Indore",
@@ -136,11 +192,13 @@ export const dealers: DistributorDealer[] = [
     rewardPoints: 22800,
     salesGrowth: 14,
     lastOrderDate: "14 Aug 2026",
+    monthlyPerformance: buildMonthlyPerformance(112300, 98400, 20, 14),
     active: true,
   },
   {
     id: "dlr-singh",
     distributorId: DISTRIBUTOR_ID,
+    salesExecutiveId: SALES_EXEC_NAGPUR,
     code: "BR-BPL-012",
     name: "Singh Sleep Solutions",
     location: "MP Nagar, Bhopal",
@@ -155,11 +213,13 @@ export const dealers: DistributorDealer[] = [
     rewardPoints: 12400,
     salesGrowth: -12,
     lastOrderDate: "13 Aug 2026",
+    monthlyPerformance: buildMonthlyPerformance(62400, 71200, 12, -12),
     active: true,
   },
   {
     id: "dlr-desai",
-    distributorId: DISTRIBUTOR_ID,
+    distributorId: DISTRIBUTOR_PUNE_ID,
+    salesExecutiveId: SALES_EXEC_PUNE,
     code: "BR-AHD-027",
     name: "Desai Furnishing World",
     location: "Navrangpura, Ahmedabad",
@@ -174,11 +234,13 @@ export const dealers: DistributorDealer[] = [
     rewardPoints: 26700,
     salesGrowth: 11,
     lastOrderDate: "18 Aug 2026",
+    monthlyPerformance: buildMonthlyPerformance(134600, 121800, 24, 11),
     active: true,
   },
   {
     id: "dlr-iyer",
     distributorId: DISTRIBUTOR_ID,
+    salesExecutiveId: SALES_EXEC_NAGPUR_2,
     code: "BR-CBE-003",
     name: "Iyer Comfort Zone",
     location: "RS Puram, Coimbatore",
@@ -193,11 +255,13 @@ export const dealers: DistributorDealer[] = [
     rewardPoints: 9800,
     salesGrowth: -5,
     lastOrderDate: "12 Aug 2026",
+    monthlyPerformance: buildMonthlyPerformance(54200, 56800, 8, -5),
     active: false,
   },
   {
     id: "dlr-chavan",
     distributorId: DISTRIBUTOR_ID,
+    salesExecutiveId: SALES_EXEC_NAGPUR,
     code: "BR-NAS-016",
     name: "Chavan Home Décor",
     location: "College Road, Nashik",
@@ -212,6 +276,7 @@ export const dealers: DistributorDealer[] = [
     rewardPoints: 18900,
     salesGrowth: 12,
     lastOrderDate: "17 Aug 2026",
+    monthlyPerformance: buildMonthlyPerformance(88600, 79200, 18, 12),
     active: true,
   },
 ];
@@ -246,7 +311,7 @@ export const seedOrders: DistributorOrder[] = [
     dealerId: "dlr-patil",
     dealerName: "Patil Mattress Gallery",
     dealerCode: "BR-NGP-022",
-    status: "pending_approval",
+    status: "order_placed",
     placedAt: "18 Aug 2026, 10:32 AM",
     customerName: "Amit Joshi",
     totalItems: 2,
@@ -267,7 +332,7 @@ export const seedOrders: DistributorOrder[] = [
     dealerId: "dlr-desai",
     dealerName: "Desai Furnishing World",
     dealerCode: "BR-AHD-027",
-    status: "pending_approval",
+    status: "order_placed",
     placedAt: "18 Aug 2026, 9:15 AM",
     customerName: "Priya Shah",
     totalItems: 3,
@@ -288,7 +353,7 @@ export const seedOrders: DistributorOrder[] = [
     dealerId: "dlr-sharma",
     dealerName: "Sharma Furnishings",
     dealerCode: "BR-NGP-014",
-    status: "pending_approval",
+    status: "order_placed",
     placedAt: "17 Aug 2026, 6:48 PM",
     totalItems: 1,
     totalValue: 30200,
@@ -305,7 +370,7 @@ export const seedOrders: DistributorOrder[] = [
     dealerId: "dlr-kulkarni",
     dealerName: "Kulkarni Sleep Studio",
     dealerCode: "BR-PUN-008",
-    status: "pending_approval",
+    status: "order_placed",
     placedAt: "17 Aug 2026, 4:20 PM",
     customerName: "Rahul Kadam",
     totalItems: 1,
@@ -323,7 +388,7 @@ export const seedOrders: DistributorOrder[] = [
     dealerId: "dlr-singh",
     dealerName: "Singh Sleep Solutions",
     dealerCode: "BR-BPL-012",
-    status: "pending_approval",
+    status: "order_placed",
     placedAt: "17 Aug 2026, 2:10 PM",
     totalItems: 2,
     totalValue: 24600,
@@ -340,7 +405,7 @@ export const seedOrders: DistributorOrder[] = [
     dealerId: "dlr-chavan",
     dealerName: "Chavan Home Décor",
     dealerCode: "BR-NAS-016",
-    status: "pending_approval",
+    status: "order_placed",
     placedAt: "17 Aug 2026, 11:00 AM",
     totalItems: 1,
     totalValue: 15100,
@@ -357,7 +422,7 @@ export const seedOrders: DistributorOrder[] = [
     dealerId: "dlr-menon",
     dealerName: "Menon Bedding House",
     dealerCode: "BR-COK-005",
-    status: "pending_approval",
+    status: "order_placed",
     placedAt: "16 Aug 2026, 5:30 PM",
     totalItems: 1,
     totalValue: 12500,
@@ -1015,7 +1080,7 @@ export const monthlySales: MonthlySales[] = [
   { month: "May", sales: 745000, orders: 168 },
   { month: "Jun", sales: 812000, orders: 182 },
   { month: "Jul", sales: 889000, orders: 198 },
-  { month: "Aug", sales: 956800, orders: 214 },
+  { month: "Aug", sales: 956800, orders: 214, priorYearSales: 812000 },
 ];
 
 export const productSales: ProductSales[] = [
@@ -1026,9 +1091,42 @@ export const productSales: ProductSales[] = [
   { product: "Twin Plush", sales: 124000, units: 32 },
 ];
 
+export const productMonthlyTrends: ProductMonthlyTrend[] = [
+  { month: "Mar", product: "Latexo", sales: 42000, units: 4 },
+  { month: "Apr", product: "Latexo", sales: 48000, units: 4 },
+  { month: "May", product: "Latexo", sales: 52000, units: 5 },
+  { month: "Jun", product: "Latexo", sales: 56000, units: 5 },
+  { month: "Jul", product: "Latexo", sales: 62000, units: 5 },
+  { month: "Aug", product: "Latexo", sales: 72000, units: 6 },
+  { month: "Mar", product: "Orthomatic", sales: 38000, units: 3 },
+  { month: "Apr", product: "Orthomatic", sales: 40000, units: 3 },
+  { month: "May", product: "Orthomatic", sales: 42000, units: 3 },
+  { month: "Jun", product: "Orthomatic", sales: 44000, units: 3 },
+  { month: "Jul", product: "Orthomatic", sales: 46000, units: 3 },
+  { month: "Aug", product: "Orthomatic", sales: 48000, units: 4 },
+  { month: "Mar", product: "Delight Cool", sales: 28000, units: 3 },
+  { month: "Apr", product: "Delight Cool", sales: 30000, units: 3 },
+  { month: "May", product: "Delight Cool", sales: 32000, units: 4 },
+  { month: "Jun", product: "Delight Cool", sales: 34000, units: 4 },
+  { month: "Jul", product: "Delight Cool", sales: 36000, units: 4 },
+  { month: "Aug", product: "Delight Cool", sales: 38000, units: 4 },
+  { month: "Mar", product: "AquaFresh Plush", sales: 22000, units: 4 },
+  { month: "Apr", product: "AquaFresh Plush", sales: 24000, units: 5 },
+  { month: "May", product: "AquaFresh Plush", sales: 25000, units: 5 },
+  { month: "Jun", product: "AquaFresh Plush", sales: 26000, units: 5 },
+  { month: "Jul", product: "AquaFresh Plush", sales: 27000, units: 5 },
+  { month: "Aug", product: "AquaFresh Plush", sales: 28000, units: 5 },
+  { month: "Mar", product: "Twin Plush", sales: 18000, units: 5 },
+  { month: "Apr", product: "Twin Plush", sales: 19000, units: 5 },
+  { month: "May", product: "Twin Plush", sales: 20000, units: 5 },
+  { month: "Jun", product: "Twin Plush", sales: 21000, units: 5 },
+  { month: "Jul", product: "Twin Plush", sales: 22000, units: 5 },
+  { month: "Aug", product: "Twin Plush", sales: 20000, units: 4 },
+];
+
 export function computeDashboardStats(): DashboardStats {
   const active = dealers.filter((d) => d.active);
-  const pending = seedOrders.filter((o) => o.status === "pending_approval").length;
+  const pending = seedOrders.filter((o) => o.status === "order_placed").length;
   const monthSales = dealers.reduce((s, d) => s + d.monthSales, 0);
   const prevMonth = dealers.reduce((s, d) => s + d.prevMonthSales, 0);
   return {

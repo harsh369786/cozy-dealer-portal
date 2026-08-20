@@ -1,24 +1,17 @@
 import type { DashboardStats, MonthlySales, ProductSales } from "@/lib/mock/distributor/types";
-import { computeDashboardStats, monthlySales, productSales } from "@/lib/mock/distributor/data";
+import { api } from "@/lib/api-client";
 
 export async function getDashboardStats(simulateError = false): Promise<DashboardStats> {
-  await delay();
   if (simulateError) throw new Error("Failed to load dashboard");
-  return computeDashboardStats();
+  return api.get<DashboardStats>("/api/v1/reports/dashboard");
 }
 
 export async function getMonthlySales(simulateError = false): Promise<MonthlySales[]> {
-  await delay();
   if (simulateError) throw new Error("Failed to load sales data");
-  return monthlySales;
+  return api.get<MonthlySales[]>("/api/v1/reports/monthly-sales");
 }
 
 export async function getProductSales(simulateError = false): Promise<ProductSales[]> {
-  await delay();
   if (simulateError) throw new Error("Failed to load product sales");
-  return productSales;
-}
-
-function delay(ms = 280) {
-  return new Promise((r) => setTimeout(r, ms));
+  return api.get<ProductSales[]>("/api/v1/reports/product-sales");
 }

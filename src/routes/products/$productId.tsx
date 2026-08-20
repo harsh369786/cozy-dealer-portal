@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   Check,
   ChevronDown,
@@ -26,8 +27,10 @@ import {
   dealer,
   getProduct,
   inr,
-  salespeople,
 } from "@/lib/demo-data";
+import { requireRoles } from "@/lib/auth-guard";
+import { createDealerOrder } from "@/services/orders";
+import { getProductDetail, getSalespeople } from "@/services/catalog";
 import { formatSizeLabel, mapToNearestStandardSize } from "@/lib/mattress-size";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -40,6 +43,7 @@ import {
 } from "@/components/ui/select";
 
 export const Route = createFileRoute("/products/$productId")({
+  beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
       { title: "Build Your Order — BackRest Dealer App" },
@@ -69,10 +73,6 @@ function selectedCornerLabels(corners: PermaCorners) {
   return labels;
 }
 
-function whatsappUrl(phone: string, message: string) {
-  const digits = phone.replace(/\D/g, "");
-  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
-}
 
 function Configurator() {
   const { productId } = useParams({ from: "/products/$productId" });
@@ -102,12 +102,24 @@ function Configurator() {
   });
   const [permaNotes, setPermaNotes] = useState("");
   const [qty, setQty] = useState(1);
-  const [placedBy, setPlacedBy] = useState<string>(salespeople[0]);
+  const [placedBy, setPlacedBy] = useState<string>("");
+  const [salespeople, setSalespeople] = useState<string[]>([]);
+  const [placing, setPlacing] = useState(false);
   const [notes, setNotes] = useState("");
   const [customer, setCustomer] = useState({ name: "", address: "", mobile: "", email: "" });
   const [showCustomer, setShowCustomer] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [placed, setPlaced] = useState<string | null>(null);
+
+  useEffect(() => {
+    getSalespeople()
+      .then((list) => {
+        setSalespeople(list.map((s) => s.name));
+        if (list[0]) setPlacedBy(list[0].name);
+      })
+      .catch(() => setSalespeople([]));
+    getProductDetail(productId).catch(() => undefined);
+  }, [productId]);
 
   const campaign = getActivePriceCampaign(product.id);
   const unitDealerPrice = product.price;
@@ -132,65 +144,35 @@ function Configurator() {
     ? product.fixedSize!
     : formatSizeLabel(standardLength, standardBreadth, thickness || undefined);
 
-  const waMessage = useMemo(() => {
-    const cornerLabels = selectedCornerLabels(permaCorners);
-    const lines = [
-      `BackRest Order ${placed ?? ""}`,
-      `Status: Order Placed`,
-      `Model: ${product.name} (${product.guarantee})`,
-      isPillow
-        ? `Size: ${product.fixedSize}`
-        : `Requested: ${length}" × ${breadth}" × ${thickness}`,
-      isMattress && mapped
-        ? `Standard size: ${mapped.standardLength}" × ${mapped.standardBreadth}" × ${thickness}`
-        : "",
-      isFoldable ? `Size: ${product.fixedSize} × ${thickness}` : "",
-      isMattress ? `Perma: ${perma ? "Yes" : "No"}` : "",
-      perma && cornerLabels.length > 0 ? `Perma corners: ${cornerLabels.join(", ")}` : "",
-      perma && permaNotes ? `Perma notes: ${permaNotes}` : "",
-      `Quantity: ${qty}`,
-      `MRP: ${inr(mrpTotal)}`,
-      `Dealer Price: ${inr(dealerTotal)}`,
-      campaign ? `Campaign Price: ${inr(total)}` : "",
-      campaign ? `You saved: ${inr(savingsTotal)}` : "",
-      product.free ? `Free: ${qty * 2} × Fiber Pillows` : "",
-      `Reward Points Earned: ${points}`,
-      `Order Placed By: ${placedBy}`,
-      customer.name ? `Customer: ${customer.name}` : "",
-      customer.mobile ? `Mobile: ${customer.mobile}` : "",
-      customer.address ? `Address: ${customer.address}` : "",
-      notes ? `Special Requirements: ${notes}` : "",
-    ].filter(Boolean);
-    return lines.join("\n");
-  }, [
-    placed,
-    product,
-    isPillow,
-    isMattress,
-    isFoldable,
-    length,
-    breadth,
-    mapped,
-    thickness,
-    perma,
-    permaCorners,
-    permaNotes,
-    qty,
-    mrpTotal,
-    dealerTotal,
-    total,
-    savingsTotal,
-    campaign,
-    points,
-    placedBy,
-    customer,
-    notes,
-  ]);
-
-  useEffect(() => {
-    if (!placed) return;
-    window.open(whatsappUrl(dealer.phone, waMessage), "_blank", "noopener,noreferrer");
-  }, [placed, waMessage]);
+  const placeOrder = async () => {
+    setPlacing(true);
+    try {
+      const cornerLabels = selectedCornerLabels(permaCorners);
+      const order = await createDealerOrder({
+        productId: product.id,
+        quantity: qty,
+        thickness: thickness || undefined,
+        sizeRequested: isMattress ? `${length}" × ${breadth}"` : undefined,
+        sizeStandard: isMattress && mapped ? `${mapped.standardLength}" × ${mapped.standardBreadth}"` : undefined,
+        perma: isMattress ? perma : undefined,
+        permaCorners: perma && cornerLabels.length ? JSON.stringify(permaCorners) : undefined,
+        permaNotes: perma ? permaNotes : undefined,
+        customerName: customer.name || undefined,
+        customerPhone: customer.mobile || undefined,
+        customerAddress: customer.address || undefined,
+        customerEmail: customer.email || undefined,
+        notes: notes || undefined,
+      });
+      setPlaced(order.id);
+      toast.success("Order placed", {
+        description: "Confirmation will be sent via WhatsApp.",
+      });
+    } catch {
+      toast.error("Could not place order");
+    } finally {
+      setPlacing(false);
+    }
+  };
 
   return (
     <AppShell title={product.name} back="/products">
@@ -217,13 +199,11 @@ function Configurator() {
             <ShieldCheck className="h-3.5 w-3.5 text-primary" />
             {product.guarantee === "Pillow" ? "Pillow" : `${product.guarantee} Guarantee`}
           </p>
-          <p className="mt-1 text-sm text-muted-foreground line-through">MRP {inr(product.mrp)}</p>
+          <p className="mt-1 text-sm text-muted-foreground">MRP {inr(product.mrp)}</p>
           {showPrice ? (
             campaign ? (
               <>
-                <p className="text-sm text-muted-foreground line-through">
-                  Dealer {inr(product.price)}
-                </p>
+                <p className="text-sm text-muted-foreground">Dealer {inr(product.price)}</p>
                 <p className="font-display text-xl font-bold text-primary">
                   {inr(unitCampaignPrice!)}
                 </p>
@@ -571,11 +551,10 @@ function Configurator() {
                 </>
               )}
               <Line label="Quantity" value={String(qty)} />
-              <Line label="MRP" value={inr(mrpTotal)} muted />
+              <Line label="MRP" value={inr(mrpTotal)} />
               <Line
                 label="Dealer Price"
                 value={inr(dealerTotal)}
-                muted={!!campaign}
                 strong={!campaign}
               />
               {campaign && (
@@ -611,13 +590,14 @@ function Configurator() {
                 Cancel
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   setConfirm(false);
-                  setPlaced("BR-" + Math.floor(100000 + Math.random() * 899999));
+                  await placeOrder();
                 }}
-                className="press h-14 flex-[1.4] rounded-2xl brand-gradient text-base font-bold text-primary-foreground"
+                disabled={placing}
+                className="press h-14 flex-[1.4] rounded-2xl brand-gradient text-base font-bold text-primary-foreground disabled:opacity-50"
               >
-                Place Order
+                {placing ? "Placing…" : "Place Order"}
               </button>
             </div>
           </div>
@@ -654,16 +634,8 @@ function Configurator() {
             </div>
 
             <p className="mt-4 flex items-center justify-center gap-2 rounded-2xl bg-secondary px-4 py-3 text-sm font-bold text-success">
-              <MessageCircle className="h-4 w-4" /> ✓ Order details sent on WhatsApp
+              <MessageCircle className="h-4 w-4" /> ✓ Confirmation sent via WhatsApp
             </p>
-            <a
-              href={whatsappUrl(dealer.phone, waMessage)}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-2 block text-xs font-semibold text-muted-foreground underline underline-offset-4"
-            >
-              Open WhatsApp again
-            </a>
 
             <Link
               to="/orders"

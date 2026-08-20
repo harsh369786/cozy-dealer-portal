@@ -427,7 +427,13 @@ export const orders = orderRecords.map((o) => ({
   step: o.step,
 }));
 
-export const orderSteps = ["Order Placed", "Approved", "Being Made", "Ready to Send", "Delivered"];
+export const orderSteps = [
+  "Order Placed",
+  "Approved",
+  "In Making",
+  "Out for Delivery",
+  "Delivered",
+];
 
 export type SellCampaign = {
   id: string;

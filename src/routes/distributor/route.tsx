@@ -1,11 +1,9 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { getRole } from "@/services/auth";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { requireRoles } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/distributor")({
-  beforeLoad: () => {
-    if (typeof window !== "undefined" && getRole() !== "distributor") {
-      throw redirect({ to: "/home" });
-    }
+  beforeLoad: async () => {
+    await requireRoles(["distributor", "master_admin", "admin_staff", "sales_executive"]);
   },
   component: () => <Outlet />,
 });

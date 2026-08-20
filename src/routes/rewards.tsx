@@ -1,13 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Gift } from "lucide-react";
 import { AppShell, Section } from "@/components/app-shell";
 import { Confetti, CountUp, ProgressBar, ProgressRing } from "@/components/brand";
 import { cn } from "@/lib/utils";
-import { dealer, pointsHistory, rewardHistory, rewards } from "@/lib/demo-data";
+import { requireRoles } from "@/lib/auth-guard";
+import { rewards as rewardCatalog } from "@/lib/demo-data";
+import {
+  getRewardBalance,
+  getRewardClaims,
+  getRewardLedger,
+  redeemReward,
+} from "@/services/rewards";
 
 export const Route = createFileRoute("/rewards")({
+  beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
       { title: "Rewards — BackRest Dealer App" },
@@ -28,7 +36,20 @@ export const Route = createFileRoute("/rewards")({
 function Rewards() {
   const [celebrate, setCelebrate] = useState(false);
   const [historyTab, setHistoryTab] = useState<"pending" | "delivered">("pending");
+  const [balance, setBalance] = useState({ balance: 0, nextRewardAt: 3000 });
+  const [rewardHistory, setRewardHistory] = useState<
+    Array<{ id: string; name: string; emoji: string; claimed: string; status: string; delivered?: string }>
+  >([]);
+  const [pointsHistory, setPointsHistory] = useState<Array<{ label: string; value: number; date: string }>>([]);
 
+  useEffect(() => {
+    getRewardBalance().then(setBalance).catch(() => undefined);
+    getRewardClaims().then(setRewardHistory).catch(() => undefined);
+    getRewardLedger().then(setPointsHistory).catch(() => undefined);
+  }, []);
+
+  const rewards = rewardCatalog;
+  const dealer = { points: balance.balance, nextRewardAt: balance.nextRewardAt };
   const nextReward = rewards.find((r) => r.points > dealer.points) ?? rewards[rewards.length - 1]!;
   const pct = Math.min(100, Math.round((dealer.points / nextReward.points) * 100));
   const remaining = Math.max(0, nextReward.points - dealer.points);
@@ -101,10 +122,18 @@ function Rewards() {
                   </div>
                   <button
                     disabled={!can}
-                    onClick={() => {
-                      setCelebrate(true);
-                      toast.success(`${r.name} claimed! We'll ship it to your shop.`);
-                      setTimeout(() => setCelebrate(false), 2200);
+                    onClick={async () => {
+                      try {
+                        await redeemReward(r.id);
+                        setCelebrate(true);
+                        toast.success(`${r.name} claimed! We'll ship it to your shop.`);
+                        const [bal, claims] = await Promise.all([getRewardBalance(), getRewardClaims()]);
+                        setBalance(bal);
+                        setRewardHistory(claims);
+                        setTimeout(() => setCelebrate(false), 2200);
+                      } catch {
+                        toast.error("Could not redeem reward");
+                      }
                     }}
                     className={cn(
                       "press rounded-xl px-5 py-3 text-sm font-bold",

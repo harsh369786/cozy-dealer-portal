@@ -2,7 +2,13 @@ export type UserRole =
   "dealer" | "distributor" | "sales_executive" | "admin_staff" | "master_admin";
 
 export type OrderStatus =
-  "pending_approval" | "approved" | "rejected" | "in_production" | "delivered";
+  | "order_placed"
+  | "approved"
+  | "in_making"
+  | "out_for_delivery"
+  | "delivered"
+  | "rejected"
+  | "cancelled";
 
 export type ComplaintStatus = "pending" | "in_progress" | "resolved" | "rejected";
 
@@ -24,6 +30,8 @@ export type NotificationType =
 export type TimelineEvent = {
   label: string;
   at: string;
+  status?: string;
+  updatedBy?: string;
   note?: string;
 };
 
@@ -47,6 +55,7 @@ export type DealerRewardClaim = {
 export type DistributorDealer = {
   id: string;
   distributorId: string;
+  salesExecutiveId: string;
   code: string;
   name: string;
   contactName?: string;
@@ -86,6 +95,7 @@ export type DistributorOrderItem = {
 export type DistributorOrder = {
   id: string;
   distributorId: string;
+  distributorName?: string;
   dealerId: string;
   dealerName: string;
   dealerCode: string;
@@ -146,9 +156,21 @@ export type DistributorNotification = {
   isReminder?: boolean;
 };
 
-export type MonthlySales = { month: string; sales: number; orders: number };
+export type MonthlySales = {
+  month: string;
+  sales: number;
+  orders: number;
+  priorYearSales?: number;
+};
 
 export type ProductSales = { product: string; sales: number; units: number };
+
+export type ProductMonthlyTrend = {
+  month: string;
+  product: string;
+  sales: number;
+  units: number;
+};
 
 export type DashboardStats = {
   totalDealers: number;
@@ -162,10 +184,36 @@ export type DashboardStats = {
   prevMonthSales: number;
 };
 
+export type Permission =
+  | "orders:read"
+  | "orders:create"
+  | "orders:approve"
+  | "orders:reject"
+  | "dealers:read"
+  | "catalog:read"
+  | "catalog:write"
+  | "campaigns:read"
+  | "campaigns:write"
+  | "rewards:read"
+  | "rewards:redeem"
+  | "complaints:read"
+  | "complaints:create"
+  | "complaints:update"
+  | "notifications:read"
+  | "reports:read"
+  | "users:read"
+  | "users:write"
+  | "settings:read"
+  | "settings:write"
+  | "audit:read"
+  | "signup:review";
+
 export type SessionUser = {
   id: string;
   name: string;
   phone: string;
   role: UserRole;
   distributorId?: string;
+  dealerId?: string;
+  permissions?: Permission[];
 };

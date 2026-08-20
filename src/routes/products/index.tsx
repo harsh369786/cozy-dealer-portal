@@ -3,9 +3,11 @@ import { useState } from "react";
 import { ChevronRight, ShieldCheck } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { cn } from "@/lib/utils";
+import { requireRoles } from "@/lib/auth-guard";
 import { pillows, products, MATTRESS_LAYERS, type Product } from "@/lib/demo-data";
 
 export const Route = createFileRoute("/products/")({
+  beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
       { title: "Choose a Model — BackRest Dealer App" },

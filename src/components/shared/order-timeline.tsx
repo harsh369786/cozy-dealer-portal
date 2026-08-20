@@ -1,3 +1,4 @@
+import type { OrderStatus } from "@/lib/mock/distributor/types";
 import { Check } from "lucide-react";
 import type { TimelineEvent } from "@/lib/mock/distributor/types";
 import { cn } from "@/lib/utils";
@@ -7,8 +8,13 @@ export function OrderTimeline({ events }: { events: TimelineEvent[] }) {
     <ol className="space-y-0">
       {events.map((event, i) => {
         const isLast = i === events.length - 1;
-        const rejected = event.label === "Rejected";
-        const approved = event.label === "Approved";
+        const rejected =
+          event.status === "rejected" ||
+          event.status === "cancelled" ||
+          event.label === "Rejected" ||
+          event.label === "Cancelled";
+        const approved = event.status === "approved" || event.label === "Approved";
+        const delivered = event.status === "delivered" || event.label === "Delivered";
         return (
           <li key={`${event.label}-${i}`} className="flex gap-3">
             <div className="flex flex-col items-center">
@@ -17,7 +23,7 @@ export function OrderTimeline({ events }: { events: TimelineEvent[] }) {
                   "grid h-8 w-8 place-items-center rounded-full border-2",
                   rejected
                     ? "border-destructive bg-destructive/10 text-destructive"
-                    : approved
+                    : approved || delivered
                       ? "border-success bg-success/10 text-success"
                       : "border-primary bg-secondary text-primary",
                 )}
@@ -28,6 +34,9 @@ export function OrderTimeline({ events }: { events: TimelineEvent[] }) {
             </div>
             <div className="pb-5 pt-1">
               <p className="font-semibold">{event.label}</p>
+              {event.updatedBy && (
+                <p className="text-sm text-muted-foreground">Updated by {event.updatedBy}</p>
+              )}
               <p className="text-sm text-muted-foreground">{event.at}</p>
               {event.note && <p className="mt-1 text-sm text-destructive">{event.note}</p>}
             </div>
@@ -37,3 +46,13 @@ export function OrderTimeline({ events }: { events: TimelineEvent[] }) {
     </ol>
   );
 }
+
+export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  order_placed: "Order Placed",
+  approved: "Approved",
+  in_making: "In Making",
+  out_for_delivery: "Out for Delivery",
+  delivered: "Delivered",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+};

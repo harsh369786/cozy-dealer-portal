@@ -1,19 +1,22 @@
 import type { DistributorComplaint } from "@/lib/mock/distributor/types";
-import { DISTRIBUTOR_ID, seedComplaints } from "@/lib/mock/distributor/data";
+import { api } from "@/lib/api-client";
 
 export async function getComplaints(simulateError = false): Promise<DistributorComplaint[]> {
-  await delay();
   if (simulateError) throw new Error("Failed to load complaints");
-  return seedComplaints.filter((c) => c.distributorId === DISTRIBUTOR_ID);
+  return api.get<DistributorComplaint[]>("/api/v1/complaints");
 }
 
 export async function getComplaintById(
   id: string,
   simulateError = false,
 ): Promise<DistributorComplaint | null> {
-  await delay();
   if (simulateError) throw new Error("Failed to load complaint");
-  return seedComplaints.find((c) => c.id === id && c.distributorId === DISTRIBUTOR_ID) ?? null;
+  try {
+    const all = await getComplaints();
+    return all.find((c) => c.id === id) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function getComplaintsByDealer(dealerId: string): Promise<DistributorComplaint[]> {
@@ -21,6 +24,10 @@ export async function getComplaintsByDealer(dealerId: string): Promise<Distribut
   return all.filter((c) => c.dealerId === dealerId);
 }
 
-function delay(ms = 280) {
-  return new Promise((r) => setTimeout(r, ms));
+export async function submitComplaint(input: {
+  orderId: string;
+  description: string;
+  category?: string;
+}) {
+  return api.post<{ id: string }>("/api/v1/complaints", input);
 }

@@ -1,32 +1,37 @@
 import type { DistributorNotification, NotificationCategory } from "@/lib/mock/distributor/types";
-import { DISTRIBUTOR_ID, seedNotifications } from "@/lib/mock/distributor/data";
+import { api } from "@/lib/api-client";
 
-const STORAGE_KEY = "backrest-distributor-notifications";
+type ApiNotification = {
+  id: string;
+  category: NotificationCategory;
+  type: string;
+  title: string;
+  body: string;
+  link: string;
+  createdAt: string;
+  read: boolean;
+  isReminder?: boolean;
+};
 
-function loadNotifications(): DistributorNotification[] {
-  if (typeof window === "undefined") return [...seedNotifications];
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(seedNotifications));
-    return [...seedNotifications];
-  }
-  try {
-    return JSON.parse(raw) as DistributorNotification[];
-  } catch {
-    return [...seedNotifications];
-  }
-}
-
-function saveNotifications(notifications: DistributorNotification[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(notifications));
+function mapNotification(n: ApiNotification): DistributorNotification {
+  return {
+    id: n.id,
+    distributorId: "",
+    category: n.category,
+    type: n.type as DistributorNotification["type"],
+    title: n.title,
+    body: n.body,
+    link: n.link,
+    createdAt: n.createdAt,
+    read: n.read,
+    isReminder: n.isReminder,
+  };
 }
 
 export async function getNotifications(simulateError = false): Promise<DistributorNotification[]> {
-  await delay();
   if (simulateError) throw new Error("Failed to load notifications");
-  return loadNotifications()
-    .filter((n) => n.distributorId === DISTRIBUTOR_ID)
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  const list = await api.get<ApiNotification[]>("/api/v1/notifications");
+  return list.map(mapNotification);
 }
 
 export async function getUnreadCount(): Promise<number> {
@@ -35,21 +40,11 @@ export async function getUnreadCount(): Promise<number> {
 }
 
 export async function markNotificationRead(id: string): Promise<void> {
-  await delay(150);
-  const all = loadNotifications();
-  const idx = all.findIndex((n) => n.id === id);
-  if (idx !== -1) {
-    all[idx] = { ...all[idx]!, read: true };
-    saveNotifications(all);
-  }
+  await api.patch(`/api/v1/notifications/${id}/read`);
 }
 
 export async function markAllRead(): Promise<void> {
-  await delay(200);
-  const all = loadNotifications().map((n) =>
-    n.distributorId === DISTRIBUTOR_ID ? { ...n, read: true } : n,
-  );
-  saveNotifications(all);
+  await api.post("/api/v1/notifications/read-all");
 }
 
 export async function getNotificationsByCategory(
@@ -58,8 +53,4 @@ export async function getNotificationsByCategory(
   const all = await getNotifications();
   if (category === "all") return all;
   return all.filter((n) => n.category === category);
-}
-
-function delay(ms = 280) {
-  return new Promise((r) => setTimeout(r, ms));
 }

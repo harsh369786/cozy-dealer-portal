@@ -1,13 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
-import { Check, HelpCircle } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { OrderHelpPanel } from "@/components/shared/order-help-panel";
+import { requireRoles } from "@/lib/auth-guard";
 import { cn } from "@/lib/utils";
-import { inr, orderRecords, orderSteps } from "@/lib/demo-data";
-import { getStoredComplaints } from "@/lib/notifications";
+import { inr, orderSteps } from "@/lib/demo-data";
+import { getDealerOrders, type DealerOrderListItem } from "@/services/orders";
+import { useEffect, useState } from "react";
 
 export const Route = createFileRoute("/orders")({
+  beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
       { title: "Track Orders — BackRest Dealer App" },
@@ -24,122 +26,84 @@ export const Route = createFileRoute("/orders")({
 
 function Orders() {
   const [helpOrderId, setHelpOrderId] = useState<string | null>(null);
-  const [recentComplaints, setRecentComplaints] = useState(() => getStoredComplaints().slice(0, 3));
+  const [orderRecords, setOrderRecords] = useState<DealerOrderListItem[]>([]);
+
+  useEffect(() => {
+    getDealerOrders().then(setOrderRecords).catch(() => setOrderRecords([]));
+  }, []);
 
   return (
     <AppShell title="My Orders">
-      <div className="space-y-4">
+      <div className="mb-4 flex items-center justify-between">
+        <p className="text-sm text-muted-foreground">Tap an order for full details</p>
+        <Link to="/complaints" className="text-sm font-bold text-primary">
+          Help requests
+        </Link>
+      </div>
+
+      <div className="space-y-3">
+        {orderRecords.length === 0 && (
+          <p className="rounded-3xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+            No orders yet. Place your first order from Products.
+          </p>
+        )}
+
         {orderRecords.map((o, i) => {
           const helpOpen = helpOrderId === o.id;
           return (
             <div
               key={o.id}
-              className="animate-rise rounded-3xl border border-border bg-card p-5 shadow-soft"
+              className="animate-rise rounded-3xl border border-border bg-card shadow-soft"
               style={{ animationDelay: `${i * 70}ms` }}
             >
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="font-display text-lg font-bold">Order #{o.id}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Placed {o.placed}</p>
+              <Link
+                to="/orders/$orderId"
+                params={{ orderId: o.id }}
+                className="press block p-5"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-display text-lg font-bold">Order #{o.id}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Placed {o.placed}</p>
+                    <p className="mt-3 text-base font-bold">{o.product}</p>
+                    <p className="text-sm text-muted-foreground">{o.detail}</p>
+                    <p className="mt-2 font-display text-xl font-bold">{inr(o.amount)}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <span
+                      className={cn(
+                        "rounded-full px-3 py-1.5 text-xs font-bold",
+                        o.step === 4
+                          ? "bg-success text-success-foreground"
+                          : "bg-secondary text-foreground",
+                      )}
+                    >
+                      {orderSteps[o.step]}
+                    </span>
+                    <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                  </div>
                 </div>
-                <span
+              </Link>
+
+              <div className="border-t border-border px-5 pb-5 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setHelpOrderId(helpOpen ? null : o.id)}
                   className={cn(
-                    "rounded-full px-3 py-1.5 text-xs font-bold",
-                    o.step === 4
-                      ? "bg-success text-success-foreground"
-                      : "bg-secondary text-foreground",
+                    "press flex h-11 w-full items-center justify-center rounded-2xl text-sm font-bold",
+                    helpOpen
+                      ? "border border-primary bg-secondary text-primary"
+                      : "border border-border bg-background text-foreground",
                   )}
                 >
-                  {orderSteps[o.step]}
-                </span>
+                  {helpOpen ? "Close Help" : "Need Help?"}
+                </button>
+                {helpOpen && <OrderHelpPanel order={o} />}
               </div>
-
-              <div className="mt-4 rounded-2xl bg-secondary/60 px-4 py-3">
-                <p className="text-base font-bold">{o.product}</p>
-                <p className="text-sm text-muted-foreground">{o.detail}</p>
-                <p className="mt-1 font-display text-xl font-bold">{inr(o.amount)}</p>
-              </div>
-
-              <p className="mt-5 text-sm font-bold">Order Timeline</p>
-              <ol className="mt-3">
-                {orderSteps.map((s, idx) => {
-                  const done = idx < o.step;
-                  const current = idx === o.step;
-                  return (
-                    <li key={s} className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        <span
-                          className={cn(
-                            "grid h-7 w-7 place-items-center rounded-full border-2 text-xs font-bold",
-                            done && "border-transparent brand-gradient text-primary-foreground",
-                            current && "border-primary text-primary",
-                            !done && !current && "border-border text-muted-foreground",
-                          )}
-                        >
-                          {done ? <Check className="h-4 w-4" strokeWidth={3} /> : current ? "●" : ""}
-                        </span>
-                        {idx < orderSteps.length - 1 && (
-                          <span className={cn("w-0.5 flex-1", done ? "bg-primary" : "bg-border")} />
-                        )}
-                      </div>
-                      <span
-                        className={cn(
-                          "pb-5 text-base",
-                          done || current ? "font-bold" : "text-muted-foreground",
-                        )}
-                      >
-                        {s}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ol>
-
-              <button
-                type="button"
-                onClick={() => setHelpOrderId(helpOpen ? null : o.id)}
-                className={cn(
-                  "press flex h-12 w-full items-center justify-center gap-2 rounded-2xl text-base font-bold",
-                  helpOpen
-                    ? "border border-primary bg-secondary text-primary"
-                    : "border border-border bg-card text-foreground",
-                )}
-              >
-                <HelpCircle className="h-5 w-5" />
-                {helpOpen ? "Close Help" : "Need Help?"}
-              </button>
-
-              {helpOpen && (
-                <OrderHelpPanel
-                  order={o}
-                  onSubmitted={() => setRecentComplaints(getStoredComplaints().slice(0, 3))}
-                />
-              )}
             </div>
           );
         })}
       </div>
-
-      {recentComplaints.length > 0 && (
-        <div className="mt-8">
-          <p className="mb-3 font-display text-base font-bold">Your Help Requests</p>
-          <div className="space-y-2">
-            {recentComplaints.map((c) => (
-              <Link
-                key={c.id}
-                to="/complaints/$complaintId"
-                params={{ complaintId: c.id }}
-                className="press block rounded-2xl border border-border bg-card px-4 py-3"
-              >
-                <p className="font-bold">{c.id}</p>
-                <p className="text-xs text-muted-foreground">
-                  Order {c.orderId} · {c.status}
-                </p>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
     </AppShell>
   );
 }

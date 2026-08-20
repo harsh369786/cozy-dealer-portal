@@ -2,14 +2,9 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
-import type { Order } from "@/lib/demo-data";
+import type { DealerOrderListItem } from "@/services/orders";
 import { inr } from "@/lib/demo-data";
-import {
-  addComplaintNotification,
-  generateComplaintId,
-  saveComplaint,
-  type StoredComplaint,
-} from "@/lib/notifications";
+import { submitComplaint } from "@/services/complaints";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
@@ -26,46 +21,40 @@ export function OrderHelpPanel({
   order,
   onSubmitted,
 }: {
-  order: Order;
-  onSubmitted?: (complaint: StoredComplaint) => void;
+  order: DealerOrderListItem;
+  onSubmitted?: (complaintId: string) => void;
 }) {
   const [description, setDescription] = useState("");
-  const [submitted, setSubmitted] = useState<StoredComplaint | null>(null);
+  const [submittedId, setSubmittedId] = useState<string | null>(null);
 
-  const submit = () => {
+  const submit = async () => {
     if (!description.trim()) return;
-    const complaint: StoredComplaint = {
-      id: generateComplaintId(),
-      orderId: order.id,
-      description: description.trim(),
-      status: "Pending",
-      submitted: new Date().toLocaleDateString("en-IN", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      }),
-      step: 0,
-    };
-    saveComplaint(complaint);
-    addComplaintNotification(complaint);
-    toast.success("Help request submitted", {
-      description: `Reference ${complaint.id} — we'll get back to you soon.`,
-    });
-    setSubmitted(complaint);
-    onSubmitted?.(complaint);
+    try {
+      const res = await submitComplaint({
+        orderId: order.id,
+        description: description.trim(),
+      });
+      toast.success("Help request submitted", {
+        description: `Reference ${res.id} — we'll get back to you soon.`,
+      });
+      setSubmittedId(res.id);
+      onSubmitted?.(res.id);
+    } catch {
+      toast.error("Could not submit help request");
+    }
   };
 
-  if (submitted) {
+  if (submittedId) {
     return (
       <div className="mt-4 rounded-2xl border border-primary/30 bg-secondary/50 p-4 text-center">
         <div className="mx-auto grid h-12 w-12 place-items-center rounded-full brand-gradient">
           <Check className="h-6 w-6 text-primary-foreground" strokeWidth={3} />
         </div>
         <p className="mt-3 font-display font-bold">Help request submitted</p>
-        <p className="mt-1 text-sm text-muted-foreground">Reference: {submitted.id}</p>
+        <p className="mt-1 text-sm text-muted-foreground">Reference: {submittedId}</p>
         <Link
           to="/complaints/$complaintId"
-          params={{ complaintId: submitted.id }}
+          params={{ complaintId: submittedId }}
           className="press mt-3 inline-block text-sm font-bold text-primary"
         >
           Track status →
@@ -78,32 +67,31 @@ export function OrderHelpPanel({
     <div className="mt-4 space-y-4 rounded-2xl border border-border bg-secondary/40 p-4">
       <div className="rounded-2xl border border-border bg-card p-3 text-sm">
         <div className="space-y-2">
+          <Row label="Order" value={`#${order.id}`} />
           <Row label="Product" value={order.product} />
-          <Row label="Size" value={order.size} />
-          <Row label="Thickness" value={order.thickness} />
-          <Row label="Quantity" value={String(order.quantity)} />
-          <Row label="Status" value={order.status} />
+          <Row label="Detail" value={order.detail} />
           <Row label="Amount" value={inr(order.amount)} />
-          {order.customer?.name && <Row label="Customer" value={order.customer.name} />}
-          {order.customer?.mobile && <Row label="Mobile" value={order.customer.mobile} />}
         </div>
       </div>
+
       <div>
-        <p className="text-sm font-bold">What do you need help with?</p>
+        <p className="text-sm font-bold">Describe the issue</p>
         <Textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Describe the issue with this order…"
-          className="mt-2 min-h-28 rounded-2xl text-base"
+          placeholder="What's wrong with this order?"
+          className="mt-2 min-h-[100px] rounded-2xl"
         />
       </div>
+
       <button
-        type="button"
         onClick={submit}
         disabled={!description.trim()}
         className={cn(
-          "press h-12 w-full rounded-2xl text-base font-bold text-primary-foreground",
-          description.trim() ? "brand-gradient" : "bg-muted text-muted-foreground",
+          "press h-12 w-full rounded-2xl text-sm font-bold",
+          description.trim()
+            ? "brand-gradient text-primary-foreground"
+            : "bg-muted text-muted-foreground",
         )}
       >
         Submit Help Request

@@ -48,7 +48,10 @@ export function AppShell({
       <nav className="fixed bottom-0 left-1/2 z-40 w-full max-w-[430px] -translate-x-1/2 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:max-w-[520px]">
         <ul className="grid grid-cols-5">
           {nav.map(({ to, label, icon: Icon }) => {
-            const active = path === to || (to !== "/home" && path.startsWith(to));
+            const active =
+              path === to ||
+              (to !== "/home" && path.startsWith(to)) ||
+              (to === "/campaigns" && path === "/profile");
             return (
               <li key={to}>
                 <Link

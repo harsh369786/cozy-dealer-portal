@@ -1,3 +1,5 @@
+import { api } from "@/lib/api-client";
+
 export type SignupApplication = {
   name: string;
   birthday: string;
@@ -9,31 +11,9 @@ export type SignupApplication = {
   submittedAt: string;
 };
 
-const STORAGE_KEY = "backrest-signup-applications";
-
 export async function submitSignupApplication(
   data: Omit<SignupApplication, "submittedAt">,
 ): Promise<SignupApplication> {
-  await new Promise((r) => setTimeout(r, 400));
-  const application: SignupApplication = {
-    ...data,
-    submittedAt: new Date().toISOString(),
-  };
-  if (typeof window !== "undefined") {
-    const existing = loadApplications();
-    existing.push(application);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(existing));
-  }
-  return application;
-}
-
-function loadApplications(): SignupApplication[] {
-  if (typeof window === "undefined") return [];
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw) as SignupApplication[];
-  } catch {
-    return [];
-  }
+  const res = await api.post<{ id: string }>("/api/v1/signup/applications", data);
+  return { ...data, submittedAt: new Date().toISOString(), id: res.id } as SignupApplication & { id: string };
 }
