@@ -1,4 +1,4 @@
-import { allProducts, MATTRESS_LAYERS, pillows, priceCampaigns, campaigns, rewards } from "../src/lib/demo-data";
+import { allProducts, MATTRESS_LAYERS, pillows, priceCampaigns, campaigns, rewards } from "../src/lib/demo-data.ts";
 import {
   DISTRIBUTOR_ID,
   dealers,
@@ -7,9 +7,9 @@ import {
   seedDealerRewardClaims,
   seedCampaigns,
   seedComplaints,
-} from "../src/lib/mock/distributor/data";
-import { salespeople } from "../src/lib/demo-data";
-import { nowIso } from "../api/utils";
+} from "../src/lib/mock/distributor/data.ts";
+import { salespeople } from "../src/lib/demo-data.ts";
+import { nowIso } from "../api/utils.ts";
 
 const DEALER_USER_ID = "user-dealer-sharma";
 const DISTRIBUTOR_USER_ID = "user-dist-vikram";
@@ -20,11 +20,33 @@ const SALES_EXEC_USER_ID = "user-sales-exec";
 export async function runSeed(db: D1Database) {
   const dist = distributors[DISTRIBUTOR_ID]!;
 
+  for (const [id, d] of Object.entries(distributors)) {
+    await db
+      .prepare(`INSERT INTO distributors (id, name, region, phone) VALUES (?, ?, ?, ?)`)
+      .bind(id, d.name, d.region, d.phone)
+      .run();
+  }
+
   await db
     .prepare(
-      `INSERT INTO distributors (id, name, region, phone) VALUES (?, ?, ?, ?)`,
+      `INSERT INTO users (id, phone, name, role, dealer_id, distributor_id) VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .bind(DISTRIBUTOR_ID, dist.name, dist.region, dist.phone)
+    .bind(DISTRIBUTOR_USER_ID, "+919823044120", dist.name, "distributor", null, DISTRIBUTOR_ID)
+    .run();
+
+  await db
+    .prepare(`INSERT INTO users (id, phone, name, role) VALUES (?, ?, ?, ?)`)
+    .bind(ADMIN_USER_ID, "+919999999999", "BackRest Admin", "master_admin")
+    .run();
+
+  await db
+    .prepare(`INSERT INTO users (id, phone, name, role) VALUES (?, ?, ?, ?)`)
+    .bind(ADMIN_STAFF_USER_ID, "+919888877777", "Priya Operations", "admin_staff")
+    .run();
+
+  await db
+    .prepare(`INSERT INTO users (id, phone, name, role) VALUES (?, ?, ?, ?)`)
+    .bind(SALES_EXEC_USER_ID, "+919777766666", "Amit Sales", "sales_executive")
     .run();
 
   for (const d of dealers) {
@@ -59,28 +81,6 @@ export async function runSeed(db: D1Database) {
       `INSERT INTO users (id, phone, name, role, dealer_id, distributor_id) VALUES (?, ?, ?, ?, ?, ?)`,
     )
     .bind(DEALER_USER_ID, "+919876543210", "Rajesh Sharma", "dealer", "dlr-sharma", null)
-    .run();
-
-  await db
-    .prepare(
-      `INSERT INTO users (id, phone, name, role, dealer_id, distributor_id) VALUES (?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(DISTRIBUTOR_USER_ID, "+919823044120", dist.name, "distributor", null, DISTRIBUTOR_ID)
-    .run();
-
-  await db
-    .prepare(`INSERT INTO users (id, phone, name, role) VALUES (?, ?, ?, ?)`)
-    .bind(ADMIN_USER_ID, "+919999999999", "BackRest Admin", "master_admin")
-    .run();
-
-  await db
-    .prepare(`INSERT INTO users (id, phone, name, role) VALUES (?, ?, ?, ?)`)
-    .bind(ADMIN_STAFF_USER_ID, "+919888877777", "Priya Operations", "admin_staff")
-    .run();
-
-  await db
-    .prepare(`INSERT INTO users (id, phone, name, role) VALUES (?, ?, ?, ?)`)
-    .bind(SALES_EXEC_USER_ID, "+919777766666", "Amit Sales", "sales_executive")
     .run();
 
   for (const d of dealers) {

@@ -10,7 +10,7 @@ import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { getUser, resendUserInvite, updateUserStatus } from "@/services/admin/users";
+import { getUser, deleteUser, updateUserStatus } from "@/services/admin/users";
 
 export const Route = createFileRoute("/admin/users/$userId")({
   component: UserDetailPage,
@@ -30,6 +30,7 @@ function statusLabel(status: string) {
 function UserDetailPage() {
   const { userId } = Route.useParams();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
   const { data: user, loading, error, retry } = useAsyncData(() => getUser(userId), [userId]);
@@ -50,18 +51,23 @@ function UserDetailPage() {
     }
   };
 
-  const handleResendInvite = async () => {
+  const handleDelete = async () => {
     if (!user) return;
     setActionLoading(true);
     try {
-      await resendUserInvite(user.id);
-      toast.success("WhatsApp invite resent");
-      retry();
+      await deleteUser(user.id);
+      toast.success("User deleted");
+      window.location.href = "/admin/users";
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to resend invite");
+      toast.error(e instanceof Error ? e.message : "Delete failed");
     } finally {
       setActionLoading(false);
+      setDeleteOpen(false);
     }
+  };
+
+  const handleResendInvite = async () => {
+    toast.error("Invite resend is not available in the demo API");
   };
 
   if (loading) return <PageSkeleton rows={3} />;
@@ -151,13 +157,20 @@ function UserDetailPage() {
 
       <AdminPermissionGate permission="users:write">
         {user.status !== "pending_invite" && (
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap gap-3">
             <Button
               variant={user.status === "active" ? "destructive" : "default"}
               className="rounded-2xl font-bold"
               onClick={() => setConfirmOpen(true)}
             >
               {user.status === "active" ? "Suspend user" : "Activate user"}
+            </Button>
+            <Button
+              variant="outline"
+              className="rounded-2xl font-bold"
+              onClick={() => setDeleteOpen(true)}
+            >
+              Delete user
             </Button>
           </div>
         )}
@@ -174,6 +187,16 @@ function UserDetailPage() {
           onConfirm={handleToggleStatus}
           loading={actionLoading}
           variant={user.status === "active" ? "destructive" : "default"}
+        />
+        <ConfirmActionDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          title="Delete user?"
+          description="This soft-deletes the user and suspends their access."
+          confirmLabel="Delete"
+          onConfirm={handleDelete}
+          loading={actionLoading}
+          variant="destructive"
         />
       </AdminPermissionGate>
     </div>

@@ -1,137 +1,127 @@
-import { adminStore } from "@/lib/mock/admin/store";
-import type { AdminUser, ListFilters, PaginatedResult, SignupApplication } from "@/lib/mock/admin/types";
+import type { PaginatedResult } from "@/lib/mock/admin/types";
+import type { AdminUser, SignupApplication } from "@/lib/mock/admin/types";
 import type { UserRole } from "@/lib/mock/distributor/types";
-import { delay, matchesQuery, paginate } from "./_utils";
+import { api } from "@/lib/api-client";
 
-export type UserListFilters = ListFilters & {
+export type UserListFilters = {
+  search?: string;
   role?: UserRole | "signup" | "all";
+  status?: string;
+  page?: number;
+  pageSize?: number;
 };
 
-function normalizePhone(phone: string) {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length === 10) return `+91${digits}`;
-  if (digits.startsWith("91") && digits.length === 12) return `+${digits}`;
-  return phone.trim();
-}
-
-function audienceLabel(role: UserRole) {
-  return role.replace("_", " ");
+function qs(filters: Record<string, string | number | undefined>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "" && value !== "all") params.set(key, String(value));
+  }
+  const q = params.toString();
+  return q ? `?${q}` : "";
 }
 
 export async function listUsers(filters: UserListFilters = {}): Promise<PaginatedResult<AdminUser>> {
-  await delay();
-  let items = [...adminStore.users];
-  if (filters.role && filters.role !== "all" && filters.role !== "signup") {
-    items = items.filter((u) => u.role === filters.role);
-  }
-  if (filters.search) {
-    items = items.filter((u) =>
-      matchesQuery(filters.search, u.name, u.phone, u.dealerName, u.distributorName),
-    );
-  }
-  if (filters.status) {
-    items = items.filter((u) => u.status === filters.status);
-  }
-  return paginate(items, filters);
+  return api.get(
+    `/api/v1/admin/users${qs({
+      search: filters.search,
+      role: filters.role === "signup" ? undefined : filters.role,
+      status: filters.status,
+      page: filters.page,
+      pageSize: filters.pageSize,
+    })}`,
+  );
 }
 
 export async function getUser(id: string): Promise<AdminUser | null> {
-  await delay();
-  return adminStore.users.find((u) => u.id === id) ?? null;
+  try {
+    return await api.get<AdminUser>(`/api/v1/admin/users/${id}`);
+  } catch {
+    return null;
+  }
 }
+
+type SignupApiRow = {
+  id: string;
+  name: string;
+  store_name: string;
+  phone: string;
+  address: string;
+  status: SignupApplication["status"];
+  created_at: string;
+};
 
 export async function listSignupApplications(
-  filters: ListFilters = {},
+  filters: { search?: string; status?: string; page?: number; pageSize?: number } = {},
 ): Promise<PaginatedResult<SignupApplication>> {
-  await delay();
-  let items = [...adminStore.signupApplications];
-  if (filters.status) {
+  const rows = await api.get<SignupApiRow[]>("/api/v1/admin/signup-applications");
+  let items: SignupApplication[] = rows.map((r) => ({
+    id: r.id,
+    businessName: r.store_name,
+    contactName: r.name,
+    phone: r.phone,
+    city: r.address.split(",").pop()?.trim() ?? r.address,
+    submittedAt: r.created_at,
+    status: r.status,
+  }));
+
+  if (filters.search) {
+    const q = filters.search.toLowerCase();
+    items = items.filter((s) =>
+      [s.businessName, s.contactName, s.phone, s.city].some((v) => v.toLowerCase().includes(q)),
+    );
+  }
+  if (filters.status && filters.status !== "all") {
     items = items.filter((s) => s.status === filters.status);
   }
-  if (filters.search) {
-    items = items.filter((s) =>
-      matchesQuery(filters.search, s.businessName, s.contactName, s.phone, s.city),
-    );
-  }
-  return paginate(items, filters);
-}
 
-/** @deprecated Use inviteUser — creates active user without invite flow */
-export async function createUser(input: Omit<AdminUser, "id" | "createdAt" | "status">): Promise<AdminUser> {
-  return inviteUser(input);
-}
+  const page = filters.page ?? 1;
+  const pageSize = filters.pageSize ?? 20;
+  const total = items.length;
+  const offset = (page - 1) * pageSize;
 
-export async function inviteUser(
-  input: Omit<AdminUser, "id" | "createdAt" | "status" | "invitedAt" | "inviteSentVia">,
-): Promise<AdminUser> {
-  await delay();
-  const phone = normalizePhone(input.phone);
-  const now = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-  const user: AdminUser = {
-    ...input,
-    phone,
-    id: `usr-${Date.now()}`,
-    status: "pending_invite",
-    createdAt: now,
-    invitedAt: now,
-    inviteSentVia: "whatsapp",
+  return {
+    items: items.slice(offset, offset + pageSize),
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
   };
-  adminStore.users.unshift(user);
-
-  adminStore.whatsappOutbox.unshift({
-    id: `wa-${Date.now()}`,
-    toPhone: phone,
-    templateKey: "user_invite",
-    sentAt: new Date().toLocaleString("en-IN"),
-  });
-
-  if (typeof console !== "undefined") {
-    console.info(
-      `[whatsapp:mock] user_invite → ${phone}`,
-      `Hi ${input.name}, you've been invited to BackRest as ${audienceLabel(input.role)}. Download the app and sign up with this number.`,
-    );
-  }
-
-  return user;
 }
 
-export async function resendUserInvite(id: string): Promise<void> {
-  await delay();
-  const user = adminStore.users.find((u) => u.id === id);
-  if (!user || user.status !== "pending_invite") throw new Error("User is not pending invite");
-
-  user.invitedAt = new Date().toLocaleDateString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-
-  adminStore.whatsappOutbox.unshift({
-    id: `wa-${Date.now()}`,
-    toPhone: user.phone,
-    templateKey: "user_invite",
-    sentAt: new Date().toLocaleString("en-IN"),
-  });
+export async function createUser(input: {
+  name: string;
+  phone: string;
+  role: UserRole;
+  dealerId?: string | null;
+  distributorId?: string | null;
+}): Promise<AdminUser> {
+  return api.post("/api/v1/admin/users", input);
 }
 
-export function activateInvitedUserByPhone(phone: string) {
-  const normalized = normalizePhone(phone);
-  const user = adminStore.users.find((u) => u.phone === normalized && u.status === "pending_invite");
-  if (user) user.status = "active";
+/** Creates an active user (demo flow — no WhatsApp invite queue). */
+export async function inviteUser(input: {
+  name: string;
+  phone: string;
+  role: UserRole;
+  dealerId?: string | null;
+  distributorId?: string | null;
+}): Promise<AdminUser> {
+  return createUser(input);
 }
 
 export async function updateUserStatus(id: string, status: AdminUser["status"]): Promise<void> {
-  await delay();
-  const user = adminStore.users.find((u) => u.id === id);
-  if (user) user.status = status;
+  if (status === "pending_invite") return;
+  await api.patch(`/api/v1/admin/users/${id}`, { status });
 }
 
-export async function reviewSignup(id: string, status: "approved" | "rejected"): Promise<void> {
-  await delay();
-  const app = adminStore.signupApplications.find((s) => s.id === id);
-  if (!app) return;
-  app.status = status;
-  if (status === "approved") {
-    activateInvitedUserByPhone(app.phone);
-  }
+export async function deleteUser(id: string): Promise<void> {
+  await api.delete(`/api/v1/admin/users/${id}`);
+}
+
+export async function resendUserInvite(_id: string): Promise<void> {
+  throw new Error("Invite resend is not available in the demo API");
+}
+
+export async function reviewSignup(_id: string, _status: "approved" | "rejected"): Promise<void> {
+  throw new Error("Signup review is not available in the demo API");
 }

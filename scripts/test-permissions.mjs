@@ -1,9 +1,11 @@
 /**
- * RBAC permission smoke tests (hits local dev server).
+ * RBAC permission smoke tests.
  * Run: node scripts/test-permissions.mjs
- * Requires: npm run dev on port 8080
+ * Remote: node scripts/test-permissions.mjs --base=https://backrest-pwa.shahharsh143-hs.workers.dev
+ * Local requires: npm run dev on port 8080
  */
-const BASE = "http://localhost:8080";
+const baseArg = process.argv.find((a) => a.startsWith("--base="));
+const BASE = baseArg?.slice("--base=".length) ?? "http://localhost:8080";
 const OTP = "123456";
 
 async function login(phone) {
@@ -40,6 +42,11 @@ function assert(name, condition, detail) {
 }
 
 async function main() {
+  console.log(`Testing against ${BASE}\n`);
+
+  const health = await fetch(`${BASE}/api/v1/health`);
+  assert("health check", health.status === 200);
+
   const dealerSession = await login("9876543210");
   const distSession = await login("9823044120");
   const adminSession = await login("9999999999");
@@ -48,7 +55,7 @@ async function main() {
   try {
     staffSession = await login("9888877777");
   } catch {
-    console.log("  ~ skip admin_staff tests (user not seeded — re-seed DB or delete .local.db)");
+    console.log("  ~ skip admin_staff tests (user not seeded — run db:seed:remote)");
     staffSession = null;
   }
 
@@ -93,6 +100,15 @@ async function main() {
 
   const adminAssignments = await api("/api/v1/admin/assignments", adminSession);
   assert("master_admin can list assignments", adminAssignments.status === 200);
+
+  const adminUsers = await api("/api/v1/admin/users", adminSession);
+  assert("master_admin can list users", adminUsers.status === 200);
+
+  const adminProducts = await api("/api/v1/admin/products", adminSession);
+  assert("master_admin can list products", adminProducts.status === 200);
+
+  const adminCampaigns = await api("/api/v1/admin/campaigns", adminSession);
+  assert("master_admin can list campaigns", adminCampaigns.status === 200);
 
   if (staffSession) {
     const staffAssignments = await api("/api/v1/admin/assignments", staffSession);

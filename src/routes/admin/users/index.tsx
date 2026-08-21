@@ -91,7 +91,7 @@ function AdminUsersPage() {
         actions={
           can("users:write") ? (
             <Link to="/admin/users/new">
-              <AdminPrimaryButton>Invite user</AdminPrimaryButton>
+              <AdminPrimaryButton>Create user</AdminPrimaryButton>
             </Link>
           ) : undefined
         }

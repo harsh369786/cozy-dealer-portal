@@ -102,15 +102,24 @@ export async function createDevDatabase(): Promise<D1Database> {
     db.prepare(`UPDATE dealers SET sales_executive_user_id = NULL WHERE id = 'dlr-gupta'`).run();
   }
 
+  const migration4Path = join(root, "migrations", "0004_performance_indexes.sql");
+  const hasOrderItemsIndex = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_order_items_order'")
+    .get();
+  if (!hasOrderItemsIndex && existsSync(migration4Path)) {
+    const migration4 = readFileSync(migration4Path, "utf8");
+    db.exec(migration4);
+  }
+
   const seeded = db.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number };
   const d1 = createD1(db);
   if (seeded.c === 0) {
     try {
-      const { runSeed } = await import("../../scripts/seed-data");
+      const { runSeed } = await import("../../scripts/seed-data.ts");
       await runSeed(d1);
     } catch (error) {
       console.warn("[db] Full seed failed, using minimal auth seed:", error);
-      const { runMinimalSeed } = await import("./minimal-seed");
+      const { runMinimalSeed } = await import("./minimal-seed.ts");
       await runMinimalSeed(d1);
     }
   }

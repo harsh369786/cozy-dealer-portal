@@ -40,6 +40,29 @@ import {
   listAssignmentRows,
   updateDealerAssignment,
 } from "./services/assignments";
+import {
+  createAdminUser,
+  getAdminUser,
+  listAdminUsers,
+  softDeleteAdminUser,
+  updateAdminUser,
+} from "./services/users";
+import {
+  archiveAdminProduct,
+  createAdminProduct,
+  getAdminProduct,
+  listAdminProducts,
+  restoreAdminProduct,
+  updateAdminProduct,
+} from "./services/products-admin";
+import {
+  activateAdminCampaign,
+  archiveAdminCampaign,
+  createPriceCampaign,
+  getAdminCampaign,
+  listAdminCampaigns,
+  updatePriceCampaign,
+} from "./services/campaigns-admin";
 
 const app = new Hono<{ Bindings: ApiEnv; Variables: AppVariables }>();
 
@@ -65,7 +88,7 @@ app.get("/api/v1/health", (c) => c.json({ ok: true }));
 app.post("/api/v1/auth/otp/request", async (c) => {
   const body = await c.req.json<{ phone: string }>();
   const db = await getDatabase(c.env);
-  const result = await requestOtp(db, body.phone);
+  const result = await requestOtp(db, body.phone, c.env.ENVIRONMENT);
   return c.json(result);
 });
 
@@ -187,13 +210,27 @@ app.get("/api/v1/orders", requireAuth, requirePermission("orders:read"), async (
   const user = c.get("user");
   const search = c.req.query("search");
   const status = c.req.query("status");
+  const page = c.req.query("page");
+  const pageSize = c.req.query("pageSize");
+
+  const opts = {
+    status,
+    search,
+    page: page ? Number(page) : undefined,
+    pageSize: pageSize ? Number(pageSize) : undefined,
+  };
 
   const scope = await getAssignedDealerIds(db, user);
   if (scope === "all") {
-    return c.json(await listOrders(db, { status, search }));
+    return c.json(await listOrders(db, opts));
   }
-  if (!scope.length) return c.json([]);
-  return c.json(await listOrders(db, { dealerIds: scope, status, search }));
+  if (!scope.length) {
+    if (page || pageSize) {
+      return c.json({ items: [], total: 0, page: 1, pageSize: Number(pageSize) || 50, totalPages: 1 });
+    }
+    return c.json([]);
+  }
+  return c.json(await listOrders(db, { ...opts, dealerIds: scope }));
 });
 
 app.get("/api/v1/orders/:id", requireAuth, requirePermission("orders:read"), async (c) => {
@@ -684,42 +721,190 @@ admin.use("*", async (c, next) => {
 
 admin.get("/users", requirePermission("users:read"), async (c) => {
   const db = await getDatabase(c.env);
-  const { results } = await db.prepare(`SELECT id, phone, name, role, status, dealer_id, distributor_id FROM users WHERE deleted_at IS NULL`).all();
-  return c.json(results);
+  return c.json(
+    await listAdminUsers(db, {
+      search: c.req.query("search"),
+      role: c.req.query("role"),
+      status: c.req.query("status"),
+      page: Number(c.req.query("page") ?? 1),
+      pageSize: Number(c.req.query("pageSize") ?? 20),
+    }),
+  );
+});
+
+admin.get("/users/:id", requirePermission("users:read"), async (c) => {
+  const db = await getDatabase(c.env);
+  const user = await getAdminUser(db, c.req.param("id"));
+  if (!user) return c.json({ error: "User not found" }, 404);
+  return c.json(user);
 });
 
 admin.post("/users", requirePermission("users:write"), async (c) => {
   const db = await getDatabase(c.env);
   const body = await c.req.json();
-  const userId = id("user");
-  await db
-    .prepare(`INSERT INTO users (id, phone, name, role, dealer_id, distributor_id) VALUES (?, ?, ?, ?, ?, ?)`)
-    .bind(userId, body.phone, body.name, body.role, body.dealerId ?? null, body.distributorId ?? null)
-    .run();
-  return c.json({ id: userId }, 201);
+  try {
+    const user = await createAdminUser(db, body, c.get("user").id);
+    return c.json(user, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Create failed";
+    return c.json({ error: message }, 400);
+  }
+});
+
+admin.patch("/users/:id", requirePermission("users:write"), async (c) => {
+  const db = await getDatabase(c.env);
+  const body = await c.req.json();
+  try {
+    const user = await updateAdminUser(db, c.req.param("id"), body, c.get("user").id);
+    return c.json(user);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Update failed";
+    const status = message.includes("not found") ? 404 : 400;
+    return c.json({ error: message }, status);
+  }
+});
+
+admin.delete("/users/:id", requirePermission("users:write"), async (c) => {
+  const db = await getDatabase(c.env);
+  try {
+    return c.json(await softDeleteAdminUser(db, c.req.param("id"), c.get("user").id));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Delete failed";
+    const status = message.includes("not found") ? 404 : 400;
+    return c.json({ error: message }, status);
+  }
 });
 
 admin.get("/products", requirePermission("catalog:read"), async (c) => {
   const db = await getDatabase(c.env);
-  const { results } = await db.prepare(`SELECT * FROM products WHERE deleted_at IS NULL`).all();
-  return c.json(results);
+  return c.json(
+    await listAdminProducts(db, {
+      search: c.req.query("search"),
+      category: c.req.query("category"),
+      status: (c.req.query("status") as "active" | "archived" | "all") ?? "all",
+      page: Number(c.req.query("page") ?? 1),
+      pageSize: Number(c.req.query("pageSize") ?? 20),
+    }),
+  );
+});
+
+admin.get("/products/:id", requirePermission("catalog:read"), async (c) => {
+  const db = await getDatabase(c.env);
+  const product = await getAdminProduct(db, c.req.param("id"));
+  if (!product) return c.json({ error: "Product not found" }, 404);
+  return c.json(product);
 });
 
 admin.post("/products", requirePermission("catalog:write"), async (c) => {
   const db = await getDatabase(c.env);
   const body = await c.req.json();
-  const productId = body.id ?? id("prod");
-  await db
-    .prepare(`INSERT INTO products (id, name, category, guarantee, blurb, sort_order) VALUES (?, ?, ?, ?, ?, ?)`)
-    .bind(productId, body.name, body.category, body.guarantee, body.blurb ?? "", body.sortOrder ?? 0)
-    .run();
-  return c.json({ id: productId }, 201);
+  try {
+    const product = await createAdminProduct(db, body, c.get("user").id);
+    return c.json(product, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Create failed";
+    return c.json({ error: message }, 400);
+  }
 });
 
-admin.get("/campaigns/price", requirePermission("campaigns:read"), async (c) => {
+admin.patch("/products/:id", requirePermission("catalog:write"), async (c) => {
   const db = await getDatabase(c.env);
-  const { results } = await db.prepare(`SELECT * FROM price_campaigns WHERE deleted_at IS NULL`).all();
-  return c.json(results);
+  const body = await c.req.json();
+  try {
+    const product = await updateAdminProduct(db, c.req.param("id"), body, c.get("user").id);
+    return c.json(product);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Update failed";
+    const status = message.includes("not found") ? 404 : 400;
+    return c.json({ error: message }, status);
+  }
+});
+
+admin.patch("/products/:id/archive", requirePermission("catalog:write"), async (c) => {
+  const db = await getDatabase(c.env);
+  try {
+    return c.json(await archiveAdminProduct(db, c.req.param("id"), c.get("user").id));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Archive failed";
+    return c.json({ error: message }, message.includes("not found") ? 404 : 400);
+  }
+});
+
+admin.patch("/products/:id/restore", requirePermission("catalog:write"), async (c) => {
+  const db = await getDatabase(c.env);
+  try {
+    return c.json(await restoreAdminProduct(db, c.req.param("id"), c.get("user").id));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Restore failed";
+    return c.json({ error: message }, message.includes("not found") ? 404 : 400);
+  }
+});
+
+admin.get("/campaigns", requirePermission("campaigns:read"), async (c) => {
+  const db = await getDatabase(c.env);
+  const type = c.req.query("type");
+  return c.json(
+    await listAdminCampaigns(db, {
+      search: c.req.query("search"),
+      type:
+        type === "price" || type === "sell" || type === "distributor" ? type : "all",
+      status: c.req.query("status"),
+      active: (c.req.query("active") as "all" | "active" | "inactive") ?? "all",
+      page: Number(c.req.query("page") ?? 1),
+      pageSize: Number(c.req.query("pageSize") ?? 20),
+    }),
+  );
+});
+
+admin.get("/campaigns/:id", requirePermission("campaigns:read"), async (c) => {
+  const db = await getDatabase(c.env);
+  const campaign = await getAdminCampaign(db, c.req.param("id"));
+  if (!campaign) return c.json({ error: "Campaign not found" }, 404);
+  return c.json(campaign);
+});
+
+admin.post("/campaigns", requirePermission("campaigns:write"), async (c) => {
+  const db = await getDatabase(c.env);
+  const body = await c.req.json();
+  try {
+    const campaign = await createPriceCampaign(db, body, c.get("user").id);
+    return c.json(campaign, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Create failed";
+    return c.json({ error: message }, 400);
+  }
+});
+
+admin.patch("/campaigns/:id", requirePermission("campaigns:write"), async (c) => {
+  const db = await getDatabase(c.env);
+  const body = await c.req.json();
+  try {
+    const campaign = await updatePriceCampaign(db, c.req.param("id"), body, c.get("user").id);
+    return c.json(campaign);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Update failed";
+    return c.json({ error: message }, message.includes("not found") ? 404 : 400);
+  }
+});
+
+admin.patch("/campaigns/:id/archive", requirePermission("campaigns:write"), async (c) => {
+  const db = await getDatabase(c.env);
+  try {
+    return c.json(await archiveAdminCampaign(db, c.req.param("id"), c.get("user").id));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Archive failed";
+    return c.json({ error: message }, message.includes("not found") ? 404 : 400);
+  }
+});
+
+admin.patch("/campaigns/:id/activate", requirePermission("campaigns:write"), async (c) => {
+  const db = await getDatabase(c.env);
+  try {
+    return c.json(await activateAdminCampaign(db, c.req.param("id"), c.get("user").id));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Activate failed";
+    return c.json({ error: message }, message.includes("not found") ? 404 : 400);
+  }
 });
 
 admin.get("/rewards", requirePermission("campaigns:read"), async (c) => {

@@ -11,6 +11,9 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "db:seed": "node --experimental-strip-types scripts/run-seed.ts",
+    "db:seed:remote": "node --experimental-strip-types scripts/seed-remote.ts",
+    "pwa:icons": "node scripts/generate-pwa-icons.mjs",
+    "deploy": "npm run build && wrangler deploy --config .output/server/wrangler.json",
     "wrangler:dev": "wrangler dev"
   },
   "dependencies": {

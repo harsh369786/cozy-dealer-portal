@@ -1,6 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-page-header";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
@@ -16,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { UserRole } from "@/lib/mock/distributor/types";
-import { inviteUser } from "@/services/admin/users";
+import { createUser } from "@/services/admin/users";
 
 export const Route = createFileRoute("/admin/users/new")({
   component: NewUserPage,
@@ -29,20 +28,20 @@ function NewUserPage() {
   const [role, setRole] = useState<UserRole>("dealer");
   const [saving, setSaving] = useState(false);
 
-  const handleInvite = async () => {
+  const handleCreate = async () => {
     if (!name.trim() || phone.replace(/\D/g, "").length < 10) {
       toast.error("Name and a valid 10-digit phone are required");
       return;
     }
     setSaving(true);
     try {
-      const user = await inviteUser({ name, phone, role });
-      toast.success("WhatsApp invite sent", {
-        description: `${user.name} is pending until they sign up with this number.`,
+      const user = await createUser({ name, phone, role });
+      toast.success("User created", {
+        description: `${user.name} can sign in immediately with OTP.`,
       });
       await navigate({ to: "/admin/users/$userId", params: { userId: user.id } });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to send invite");
+      toast.error(e instanceof Error ? e.message : "Failed to create user");
     } finally {
       setSaving(false);
     }
@@ -51,8 +50,8 @@ function NewUserPage() {
   return (
     <AdminPermissionGate permission="users:write">
       <AdminPageHeader
-        title="Invite user"
-        description="Send a WhatsApp invite. Status stays pending until they complete signup."
+        title="Create user"
+        description="Add an active portal user. They can sign in with OTP on their phone number."
         actions={
           <Link to="/admin/users">
             <Button variant="outline" className="rounded-2xl font-bold">
@@ -96,13 +95,11 @@ function NewUserPage() {
               </SelectContent>
             </Select>
           </div>
-          <AdminPrimaryButton onClick={handleInvite} disabled={saving}>
-            <MessageCircle className="mr-2 h-4 w-4" />
-            {saving ? "Sending invite…" : "Send WhatsApp invite"}
+          <AdminPrimaryButton onClick={handleCreate} disabled={saving}>
+            {saving ? "Creating…" : "Create user"}
           </AdminPrimaryButton>
           <p className="text-xs text-muted-foreground">
-            A utility WhatsApp message with signup instructions will be sent. The user appears as{" "}
-            <strong>Pending invite</strong> until they register with this phone number.
+            Staging OTP is <strong>123456</strong> for all test phones.
           </p>
         </div>
       </AdminSection>
