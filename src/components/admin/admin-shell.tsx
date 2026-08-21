@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import {
   BarChart3,
@@ -30,6 +31,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import type { Permission } from "@/lib/admin/rbac";
 import { cn } from "@/lib/utils";
@@ -63,6 +65,41 @@ function isActive(path: string, to: string, matchPrefix?: string) {
   return path === to || path.startsWith(`${prefix}/`);
 }
 
+function MobileSidebarAutoClose() {
+  const path = useRouterState({ select: (s) => s.location.pathname });
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  useEffect(() => {
+    if (isMobile) setOpenMobile(false);
+  }, [path, isMobile, setOpenMobile]);
+
+  return null;
+}
+
+function AdminNavLink({
+  to,
+  children,
+  className,
+}: {
+  to: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  return (
+    <Link
+      to={to}
+      className={className}
+      onClick={() => {
+        if (isMobile) setOpenMobile(false);
+      }}
+    >
+      {children}
+    </Link>
+  );
+}
+
 export function AdminShell({ children }: { children: ReactNode }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const router = useRouter();
@@ -84,15 +121,16 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <SidebarProvider>
+      <MobileSidebarAutoClose />
       <Sidebar className="border-r border-border/60 bg-card text-foreground">
         <SidebarHeader className="border-b border-border/60 p-4">
-          <Link to="/admin" className="flex items-center gap-2">
+          <AdminNavLink to="/admin" className="flex items-center gap-2">
             <Logo size="sm" />
             <div className="min-w-0">
               <p className="truncate font-display text-sm font-bold">BackRest Admin</p>
               <p className="truncate text-xs text-muted-foreground">Operations console</p>
             </div>
-          </Link>
+          </AdminNavLink>
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
@@ -104,10 +142,10 @@ export function AdminShell({ children }: { children: ReactNode }) {
                   return (
                     <SidebarMenuItem key={item.to}>
                       <SidebarMenuButton asChild isActive={active} className="rounded-xl font-semibold">
-                        <Link to={item.to}>
+                        <AdminNavLink to={item.to}>
                           <Icon className="h-4 w-4" />
                           <span>{item.label}</span>
-                        </Link>
+                        </AdminNavLink>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   );
