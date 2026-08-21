@@ -15,3 +15,12 @@ export async function getProductSales(simulateError = false): Promise<ProductSal
   if (simulateError) throw new Error("Failed to load product sales");
   return api.get<ProductSales[]>("/api/v1/reports/product-sales");
 }
+
+export async function getDealerPerformance(simulateError = false) {
+  if (simulateError) throw new Error("Failed to load dealer performance");
+  return api.get<{
+    currentMonth: string;
+    previousMonth: string;
+    dealers: import("@/lib/mock/distributor/types").DealerPerformanceRow[];
+  }>("/api/v1/reports/dealer-performance");
+}

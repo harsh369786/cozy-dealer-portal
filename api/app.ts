@@ -751,6 +751,97 @@ app.get("/api/v1/reports/product-sales", requireAuth, requireActiveAccount, requ
   return c.json(results);
 });
 
+app.get("/api/v1/reports/dealer-performance", requireAuth, requireActiveAccount, requirePermission("reports:read"), async (c) => {
+  const db = await getDatabase(c.env);
+  const user = c.get("user");
+  const reportScope = await resolveReportScope(db, user);
+  if (!reportScope.allowed) return c.json({ error: "Forbidden" }, 403);
+
+  const now = new Date();
+  const currentMonth = now.toLocaleString("en-IN", { month: "short", year: "numeric" });
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const previousMonth = prev.toLocaleString("en-IN", { month: "short", year: "numeric" });
+
+  const binds: unknown[] = [];
+  let dealerFilter = "";
+  if (reportScope.dealerIds !== "all") {
+    dealerFilter = appendDealerScopeSql(reportScope.dealerIds, "d.id", binds);
+  }
+
+  const sql = `
+    SELECT
+      d.id,
+      d.store_name AS name,
+      d.code,
+      COALESCE(cur.sales, 0) AS current_sales,
+      COALESCE(cur.orders, 0) AS current_orders,
+      COALESCE(prev.sales, 0) AS previous_sales,
+      COALESCE(prev.orders, 0) AS previous_orders
+    FROM dealers d
+    LEFT JOIN (
+      SELECT dealer_id, SUM(total_value) AS sales, COUNT(*) AS orders
+      FROM orders
+      WHERE deleted_at IS NULL
+        AND strftime('%Y-%m', placed_at) = strftime('%Y-%m', 'now')
+      GROUP BY dealer_id
+    ) cur ON cur.dealer_id = d.id
+    LEFT JOIN (
+      SELECT dealer_id, SUM(total_value) AS sales, COUNT(*) AS orders
+      FROM orders
+      WHERE deleted_at IS NULL
+        AND strftime('%Y-%m', placed_at) = strftime('%Y-%m', date('now', '-1 month'))
+      GROUP BY dealer_id
+    ) prev ON prev.dealer_id = d.id
+    WHERE d.deleted_at IS NULL${dealerFilter}
+    ORDER BY current_sales DESC, d.store_name ASC
+  `;
+
+  const { results } = await db.prepare(sql).bind(...binds).all<{
+    id: string;
+    name: string;
+    code: string;
+    current_sales: number;
+    current_orders: number;
+    previous_sales: number;
+    previous_orders: number;
+  }>();
+
+  const dealers = (results ?? []).map((row) => {
+    const currentSales = Number(row.current_sales) || 0;
+    const previousSales = Number(row.previous_sales) || 0;
+    const currentOrders = Number(row.current_orders) || 0;
+    const previousOrders = Number(row.previous_orders) || 0;
+    const salesChangePct =
+      previousSales > 0
+        ? Math.round(((currentSales - previousSales) / previousSales) * 100)
+        : currentSales > 0
+          ? 100
+          : 0;
+    const ordersChangePct =
+      previousOrders > 0
+        ? Math.round(((currentOrders - previousOrders) / previousOrders) * 100)
+        : currentOrders > 0
+          ? 100
+          : 0;
+
+    return {
+      id: row.id,
+      name: row.name,
+      code: row.code,
+      currentMonth,
+      previousMonth,
+      currentSales,
+      previousSales,
+      currentOrders,
+      previousOrders,
+      salesChangePct,
+      ordersChangePct,
+    };
+  });
+
+  return c.json({ currentMonth, previousMonth, dealers });
+});
+
 // Signup
 app.post("/api/v1/signup/applications", async (c) => {
   const db = await getDatabase(c.env);

@@ -47,7 +47,7 @@ export function RankingSection({
 }: {
   title: string;
   rows: RankingRow[];
-  onRowClick: (row: RankingRow) => void;
+  onRowClick?: (row: RankingRow) => void;
   anim: number;
   muted?: boolean;
 }) {
@@ -57,7 +57,11 @@ export function RankingSection({
   }));
 
   return (
-    <ChartCard title={title} description="Click a bar to drill down" config={barConfig}>
+    <ChartCard
+      title={title}
+      description={onRowClick ? "Click a bar to drill down" : "Sales for selected month"}
+      config={barConfig}
+    >
       <BarChart
         data={data}
         layout="vertical"
@@ -89,8 +93,8 @@ export function RankingSection({
           fill={muted ? "#A8A29E" : "var(--color-sales)"}
           radius={[0, 6, 6, 0]}
           animationDuration={anim}
-          className="cursor-pointer"
-          onClick={(data) => data?.payload && onRowClick(data.payload as RankingRow)}
+          className={onRowClick ? "cursor-pointer" : undefined}
+          onClick={(data) => data?.payload && onRowClick?.(data.payload as RankingRow)}
         />
       </BarChart>
     </ChartCard>

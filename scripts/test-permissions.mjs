@@ -125,6 +125,13 @@ async function main() {
     `got ${distDealerList.length} dealers`,
   );
 
+  const distDealerPerf = await api("/api/v1/reports/dealer-performance", distSession);
+  const distPerfData = await distDealerPerf.json();
+  assert(
+    "distributor can load dealer performance",
+    distDealerPerf.status === 200 && Array.isArray(distPerfData.dealers),
+  );
+
   if (seSession) {
     const seDealers = await api("/api/v1/dealers", seSession);
     const seDealerList = await seDealers.json();
@@ -133,6 +140,15 @@ async function main() {
       "SE sees only assigned dealers",
       seDealerList.length >= 1 && seDealerList.every((d) => ["dlr-sharma", "dlr-patil"].includes(d.id)),
       `got ids: ${seDealerList.map((d) => d.id).join(",")}`,
+    );
+
+    const seDealerPerf = await api("/api/v1/reports/dealer-performance", seSession);
+    const sePerfData = await seDealerPerf.json();
+    assert(
+      "SE can load scoped dealer performance",
+      seDealerPerf.status === 200 &&
+        Array.isArray(sePerfData.dealers) &&
+        sePerfData.dealers.every((d) => ["dlr-sharma", "dlr-patil"].includes(d.id)),
     );
   }
 

@@ -165,6 +165,20 @@ export type MonthlySales = {
 
 export type ProductSales = { product: string; sales: number; units: number };
 
+export type DealerPerformanceRow = {
+  id: string;
+  name: string;
+  code: string;
+  currentMonth: string;
+  previousMonth: string;
+  currentSales: number;
+  previousSales: number;
+  currentOrders: number;
+  previousOrders: number;
+  salesChangePct: number;
+  ordersChangePct: number;
+};
+
 export type ProductMonthlyTrend = {
   month: string;
   product: string;
