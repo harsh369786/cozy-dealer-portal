@@ -5,9 +5,10 @@ import { ArrowRight, ShieldCheck } from "lucide-react";
 import { ApiError } from "@/lib/api-client";
 import loginBg from "@/assets/login-bg.jpg";
 import { Logo } from "@/components/brand";
-import { getHomePath, requestOtp, verifyOtp } from "@/services/auth";
+import { getHomePath, getPostLoginPath, requestOtp, verifyOtp } from "@/services/auth";
 
 export const Route = createFileRoute("/")({
+  ssr: true,
   head: () => ({
     meta: [
       { title: "BackRest Dealer App — Sleep. Reset. Perform." },
@@ -52,7 +53,7 @@ function Login() {
     setLoading(true);
     try {
       const user = await verifyOtp(phone, otp);
-      navigate({ to: getHomePath(user.role) });
+      navigate({ to: getPostLoginPath(user) });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Invalid OTP");
     } finally {
@@ -67,6 +68,8 @@ function Login() {
         alt=""
         width={900}
         height={1400}
+        decoding="async"
+        fetchPriority="low"
         className="pointer-events-none absolute inset-x-0 top-0 h-[46vh] w-full object-cover opacity-35"
       />
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[46vh] bg-gradient-to-b from-transparent to-background" />

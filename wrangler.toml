@@ -5,11 +5,7 @@ compatibility_date = "2024-11-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "backrest-db"
-database_id = "local-backrest-db"
-
-[[r2_buckets]]
-binding = "ASSETS"
-bucket_name = "backrest-assets"
+database_id = "0960e05b-0400-4450-aecb-a20c315063ca"
 
 [[queues.producers]]
 binding = "WHATSAPP_QUEUE"

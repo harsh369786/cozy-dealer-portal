@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import { AppShell } from "@/components/app-shell";
+import { SearchBar, matchesSearch } from "@/components/shared/search-bar";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
 import { requireRoles } from "@/lib/auth-guard";
@@ -13,25 +15,44 @@ export const Route = createFileRoute("/complaints/")({
 });
 
 function DealerComplaintsPage() {
+  const [search, setSearch] = useState("");
   const { data, loading, error, retry } = useAsyncData(() => getComplaints(), []);
+
+  const filtered = useMemo(
+    () =>
+      data?.filter((c) =>
+        matchesSearch(search, c.id, c.orderId, c.category, c.description, c.status),
+      ) ?? [],
+    [data, search],
+  );
 
   return (
     <AppShell title="Help Requests" back="/orders">
-      <p className="mb-4 text-sm text-muted-foreground">
+      <SearchBar
+        value={search}
+        onChange={setSearch}
+        placeholder="Search by ID, order or description…"
+      />
+
+      <p className="mb-4 mt-4 text-sm text-muted-foreground">
         Track status of help requests you submitted from your orders.
       </p>
 
       {loading && <PageSkeleton rows={4} />}
       {error && <ErrorState message={error} onRetry={retry} />}
-      {!loading && !error && data?.length === 0 && (
+      {!loading && !error && filtered.length === 0 && (
         <EmptyState
-          title="No help requests yet"
-          description="Open an order and tap Need Help? to submit a request."
+          title={search.trim() ? "No matching requests" : "No help requests yet"}
+          description={
+            search.trim()
+              ? "Try a different ID, order number, or keyword."
+              : "Open an order and tap Need Help? to submit a request."
+          }
         />
       )}
-      {!loading && !error && data && data.length > 0 && (
+      {!loading && !error && filtered.length > 0 && (
         <div className="space-y-3">
-          {data.map((c) => (
+          {filtered.map((c) => (
             <Link
               key={c.id}
               to="/complaints/$complaintId"

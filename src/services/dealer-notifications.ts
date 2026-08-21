@@ -6,6 +6,7 @@ export async function getDealerNotifications(): Promise<AppNotification[]> {
   const list = await api.get<
     Array<{
       id: string;
+      category: string;
       type: string;
       title: string;
       body: string;
@@ -17,7 +18,10 @@ export async function getDealerNotifications(): Promise<AppNotification[]> {
 
   return list.map((n) => ({
     id: n.id,
-    type: n.type === "complaint" ? "complaint" : "campaign",
+    type:
+      n.category === "complaints" || n.type.startsWith("complaint")
+        ? "complaint"
+        : "campaign",
     title: n.title,
     body: n.body,
     link: n.link,

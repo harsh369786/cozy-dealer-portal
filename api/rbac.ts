@@ -1,4 +1,4 @@
-import type { Permission, SessionUser, UserRole } from "./types";
+import type { Permission, SessionUser, UserAccountStatus, UserRole } from "./types";
 
 const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   master_admin: [
@@ -86,17 +86,20 @@ export function buildSessionUser(row: {
   name: string;
   phone: string;
   role: UserRole;
+  status?: UserAccountStatus | string;
   dealer_id?: string | null;
   distributor_id?: string | null;
 }): SessionUser {
+  const status = (row.status ?? "active") as UserAccountStatus;
   return {
     id: row.id,
     name: row.name,
     phone: row.phone,
     role: row.role,
+    status,
     dealerId: row.dealer_id ?? undefined,
     distributorId: row.distributor_id ?? undefined,
-    permissions: permissionsForRole(row.role),
+    permissions: status === "active" ? permissionsForRole(row.role) : [],
   };
 }
 

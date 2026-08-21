@@ -1,5 +1,6 @@
 import { id, nowIso } from "../utils";
 import { writeAuditLog } from "./audit";
+import { notifyCampaignPublished } from "./notification-events";
 
 export type CampaignType = "price" | "sell" | "distributor";
 
@@ -55,6 +56,33 @@ export type PriceCampaignInput = {
 
 function isActiveStatus(status: string) {
   return status === "active" || status === "upcoming";
+}
+
+async function sendCampaignNotifications(db: D1Database, campaign: AdminCampaignRow) {
+  if (!isActiveStatus(campaign.status)) return;
+
+  if (campaign.type === "price") {
+    await notifyCampaignPublished(db, {
+      campaignId: campaign.id,
+      name: campaign.name,
+      productName: campaign.product,
+      discountPercent: campaign.discountPercent,
+      targetDealers: campaign.whatsappTargetDealers,
+      targetDistributors: campaign.whatsappTargetDistributors,
+      distributorId: campaign.distributorId ?? null,
+    });
+    return;
+  }
+
+  await notifyCampaignPublished(db, {
+    campaignId: campaign.id,
+    name: campaign.name,
+    productName: campaign.product,
+    discountPercent: campaign.discountPercent,
+    targetDealers: campaign.type === "distributor",
+    targetDistributors: campaign.type === "distributor" || campaign.type === "sell",
+    distributorId: campaign.distributorId ?? null,
+  });
 }
 
 function mapPriceCampaign(r: Record<string, unknown>): AdminCampaignRow {
@@ -263,6 +291,7 @@ export async function createPriceCampaign(
     entityId: campaignId,
     after: created,
   });
+  if (created) await sendCampaignNotifications(db, created);
   return created!;
 }
 
@@ -382,5 +411,6 @@ export async function activateAdminCampaign(db: D1Database, campaignId: string, 
     before,
     after,
   });
+  if (after) await sendCampaignNotifications(db, after);
   return after!;
 }

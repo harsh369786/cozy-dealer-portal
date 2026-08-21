@@ -1,6 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { AdminDataTable } from "@/components/admin/admin-data-table";
+import { AdminFiltersBar } from "@/components/admin/admin-filters-bar";
 import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-page-header";
 import { AdminPagination } from "@/components/admin/admin-pagination";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
@@ -20,11 +21,12 @@ export const Route = createFileRoute("/admin/rewards/")({
 function AdminRewardsPage() {
   const navigate = useNavigate();
   const { can } = useAdminPermissions();
+  const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
 
   const { data, loading, error, retry } = useAsyncData(
-    () => listRewardCatalog({ page, pageSize: 10 }),
-    [page],
+    () => listRewardCatalog({ search, page, pageSize: 10 }),
+    [search, page],
   );
 
   const toggleActive = async (id: string, active: boolean) => {
@@ -61,6 +63,15 @@ function AdminRewardsPage() {
             )}
           </div>
         }
+      />
+
+      <AdminFiltersBar
+        search={search}
+        onSearchChange={(v) => {
+          setSearch(v);
+          setPage(1);
+        }}
+        searchPlaceholder="Search rewards…"
       />
 
       <AdminDataTable

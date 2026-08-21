@@ -1,5 +1,6 @@
 import { formatInLabel, id, normalizePhone, nowIso } from "../utils";
 import { writeAuditLog } from "./audit";
+import { notifyUser } from "./notification-events";
 
 export type AdminUserRow = {
   id: string;
@@ -49,6 +50,13 @@ const USER_ROLES = new Set([
   "sales_executive",
   "dealer",
 ]);
+
+function postLoginPathForRole(role: string) {
+  if (role === "dealer") return "/home";
+  if (role === "distributor" || role === "sales_executive") return "/distributor/dashboard";
+  if (role === "master_admin" || role === "admin_staff") return "/admin";
+  return "/";
+}
 
 function mapUserRow(r: Record<string, unknown>): AdminUserRow {
   return {
@@ -194,6 +202,15 @@ export async function createAdminUser(db: D1Database, input: CreateUserInput, ac
     entityId: userId,
     after: created,
   });
+
+  await notifyUser(db, userId, {
+    category: "system",
+    type: "system",
+    title: "Welcome to BackRest",
+    body: "Your account is ready. Sign in with your registered phone number.",
+    link: postLoginPathForRole(input.role),
+  });
+
   return created!;
 }
 
@@ -277,6 +294,25 @@ export async function updateAdminUser(
     before,
     after,
   });
+
+  if (patch.status === "suspended") {
+    await notifyUser(db, userId, {
+      category: "system",
+      type: "system",
+      title: "Account suspended",
+      body: "Your portal access has been suspended. Contact support if you need help.",
+      link: "/",
+    });
+  } else if (patch.status === "active" && before.status === "suspended") {
+    await notifyUser(db, userId, {
+      category: "system",
+      type: "system",
+      title: "Account reactivated",
+      body: "Your portal access has been restored.",
+      link: postLoginPathForRole(after!.role),
+    });
+  }
+
   return after!;
 }
 

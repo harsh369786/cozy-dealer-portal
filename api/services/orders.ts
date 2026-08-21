@@ -9,7 +9,10 @@ import {
 } from "../order-status";
 import { buildPriceQuote, calculateRewardPoints } from "./pricing";
 import { enqueueWhatsapp } from "./whatsapp";
-import { createNotification } from "./notifications";
+import {
+  notifyNewOrder,
+  notifyOrderStatusChange,
+} from "./notification-events";
 
 type CreateOrderInput = {
   productId: string;
@@ -27,65 +30,6 @@ type CreateOrderInput = {
   customerEmail?: string;
   notes?: string;
 };
-
-async function notifyMasterAdmins(
-  db: D1Database,
-  input: { title: string; body: string; link: string },
-) {
-  const { results } = await db
-    .prepare(`SELECT id FROM users WHERE role = 'master_admin' AND status = 'active'`)
-    .all<{ id: string }>();
-  for (const u of results) {
-    await createNotification(db, {
-      recipientUserId: u.id,
-      category: "orders",
-      type: "new_order",
-      title: input.title,
-      body: input.body,
-      link: input.link,
-    });
-  }
-}
-
-async function notifyAdminStaff(
-  db: D1Database,
-  input: { title: string; body: string; link: string },
-) {
-  const { results } = await db
-    .prepare(`SELECT id FROM users WHERE role = 'admin_staff' AND status = 'active'`)
-    .all<{ id: string }>();
-  for (const u of results) {
-    await createNotification(db, {
-      recipientUserId: u.id,
-      category: "orders",
-      type: "new_order",
-      title: input.title,
-      body: input.body,
-      link: input.link,
-    });
-  }
-}
-
-async function notifyDistributors(
-  db: D1Database,
-  distributorId: string,
-  input: { title: string; body: string; link: string; type?: string },
-) {
-  const { results } = await db
-    .prepare(`SELECT id FROM users WHERE distributor_id = ? AND role = 'distributor' AND status = 'active'`)
-    .bind(distributorId)
-    .all<{ id: string }>();
-  for (const u of results) {
-    await createNotification(db, {
-      recipientUserId: u.id,
-      category: "orders",
-      type: input.type ?? "new_order",
-      title: input.title,
-      body: input.body,
-      link: input.link,
-    });
-  }
-}
 
 async function addTimelineEvent(
   db: D1Database,
@@ -214,23 +158,7 @@ export async function createOrder(
 
   await addTimelineEvent(db, orderId, "order_placed", ORDER_STATUS_LABELS.order_placed, user.id);
 
-  await notifyDistributors(db, dealer.distributor_id, {
-    title: "New order placed",
-    body: `${dealer.store_name} placed order ${orderId}`,
-    link: `/distributor/orders/${orderId}`,
-  });
-
-  await notifyMasterAdmins(db, {
-    title: "New order placed",
-    body: `${dealer.store_name} placed order ${orderId}`,
-    link: `/admin/orders/${orderId}`,
-  });
-
-  await notifyAdminStaff(db, {
-    title: "New order placed",
-    body: `${dealer.store_name} placed order ${orderId}`,
-    link: `/admin/orders/${orderId}`,
-  });
+  await notifyNewOrder(db, orderId, dealer.store_name, dealer.distributor_id);
 
   const order = await getOrderById(db, orderId);
   if (order && dealer.phone) {
@@ -284,6 +212,8 @@ export async function rejectOrder(
 
   await addTimelineEvent(db, orderId, "rejected", ORDER_STATUS_LABELS.rejected, actor.id, reason);
 
+  await notifyOrderStatusChange(db, orderId, "rejected", { reason });
+
   const dealer = await db
     .prepare(`SELECT phone FROM dealers WHERE id = (SELECT dealer_id FROM orders WHERE id = ?)`)
     .bind(orderId)
@@ -334,6 +264,8 @@ export async function cancelApprovedOrder(
     reason,
   );
 
+  await notifyOrderStatusChange(db, orderId, "cancelled", { reason });
+
   return getOrderById(db, orderId);
 }
 
@@ -371,7 +303,10 @@ export async function updateOrderStatus(
   await addTimelineEvent(db, orderId, toStatus, ORDER_STATUS_LABELS[toStatus], actor.id);
 
   if (toStatus === "delivered") {
-    await handleOrderDelivered(db, orderId, env);
+    const points = await handleOrderDelivered(db, orderId, env);
+    await notifyOrderStatusChange(db, orderId, "delivered", { points });
+  } else {
+    await notifyOrderStatusChange(db, orderId, toStatus);
   }
 
   return getOrderById(db, orderId);
@@ -381,12 +316,12 @@ async function handleOrderDelivered(
   db: D1Database,
   orderId: string,
   env: { WHATSAPP_QUEUE?: Queue },
-) {
+): Promise<number> {
   const order = await db
     .prepare(`SELECT * FROM orders WHERE id = ?`)
     .bind(orderId)
     .first<Record<string, unknown>>();
-  if (!order || order.rewards_credited_at) return;
+  if (!order || order.rewards_credited_at) return 0;
 
   const items = await db
     .prepare(
@@ -458,18 +393,7 @@ async function handleOrderDelivered(
     });
   }
 
-  await notifyDistributors(db, order.distributor_id as string, {
-    title: "Order delivered",
-    body: `Order ${orderId} for ${dealer?.store_name ?? "dealer"} has been delivered`,
-    link: `/distributor/orders/${orderId}`,
-    type: "order_approved",
-  });
-
-  await notifyMasterAdmins(db, {
-    title: "Order delivered",
-    body: `Order ${orderId} has been marked delivered`,
-    link: `/admin/orders/${orderId}`,
-  });
+  return dealerPoints;
 }
 
 export async function getOrderById(db: D1Database, orderId: string) {

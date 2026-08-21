@@ -27,6 +27,26 @@ export async function requireAuth(c: Context<{ Bindings: ApiEnv; Variables: AppV
   await next();
 }
 
+export async function requireActiveAccount(
+  c: Context<{ Bindings: ApiEnv; Variables: AppVariables }>,
+  next: Next,
+) {
+  const user = c.get("user");
+  if (!user) return c.json({ error: "Unauthorized" }, 401);
+
+  if (user.status === "pending_approval") {
+    return c.json({ error: "account_pending_approval" }, 403);
+  }
+  if (user.status === "rejected") {
+    return c.json({ error: "account_rejected" }, 403);
+  }
+  if (user.status === "suspended") {
+    return c.json({ error: "account_suspended" }, 403);
+  }
+
+  await next();
+}
+
 export function requirePermission(permission: Permission) {
   return async (c: Context<{ Bindings: ApiEnv; Variables: AppVariables }>, next: Next) => {
     const user = c.get("user");
@@ -46,9 +66,9 @@ async function resolveSession(env: ApiEnv, sessionId: string): Promise<SessionUs
   const tokenHash = await sha256(sessionId);
   const row = await db
     .prepare(
-      `SELECT s.id, s.expires_at, u.id as uid, u.name, u.phone, u.role, u.dealer_id, u.distributor_id, u.status
+      `SELECT s.id, s.expires_at, u.id as uid, u.name, u.phone, u.role, u.status, u.dealer_id, u.distributor_id
        FROM sessions s JOIN users u ON u.id = s.user_id
-       WHERE s.id = ? AND s.token_hash = ? AND u.status = 'active' AND u.deleted_at IS NULL`,
+       WHERE s.id = ? AND s.token_hash = ? AND u.status IN ('active', 'pending_approval') AND u.deleted_at IS NULL`,
     )
     .bind(sessionId, tokenHash)
     .first<{
@@ -58,6 +78,7 @@ async function resolveSession(env: ApiEnv, sessionId: string): Promise<SessionUs
       name: string;
       phone: string;
       role: SessionUser["role"];
+      status: SessionUser["status"];
       dealer_id: string | null;
       distributor_id: string | null;
     }>();
@@ -70,6 +91,7 @@ async function resolveSession(env: ApiEnv, sessionId: string): Promise<SessionUs
     name: row.name,
     phone: row.phone,
     role: row.role,
+    status: row.status,
     dealer_id: row.dealer_id,
     distributor_id: row.distributor_id,
   });

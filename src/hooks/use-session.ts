@@ -24,6 +24,7 @@ export function useSession() {
     user,
     role,
     loading,
+    isPendingApproval: user?.status === "pending_approval",
     isDistributor: role === "distributor",
     isAdmin: role === "master_admin" || role === "admin_staff",
     refresh,

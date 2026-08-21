@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { DistributorShell } from "@/components/distributor-shell";
 import { CampaignCard } from "@/components/shared/campaign-card";
+import { SearchBar, matchesSearch } from "@/components/shared/search-bar";
 import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
 import type { CampaignStatus } from "@/lib/mock/distributor/types";
@@ -20,6 +21,7 @@ const campaignTabs: { id: CampaignStatus; label: string }[] = [
 
 function CampaignsPage() {
   const [tab, setTab] = useState<CampaignStatus>("active");
+  const [search, setSearch] = useState("");
   const simulateError =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("error") === "1";
@@ -29,11 +31,21 @@ function CampaignsPage() {
     [simulateError],
   );
 
-  const filtered = useMemo(() => data?.filter((c) => c.status === tab) ?? [], [data, tab]);
+  const filtered = useMemo(
+    () =>
+      data?.filter(
+        (c) =>
+          c.status === tab &&
+          matchesSearch(search, c.name, c.product, c.description, c.discountLabel, c.status),
+      ) ?? [],
+    [data, tab, search],
+  );
 
   return (
     <DistributorShell title="Campaigns" back="/distributor/more" showBell={false}>
-      <div className="flex gap-2 rounded-2xl bg-secondary p-1">
+      <SearchBar value={search} onChange={setSearch} placeholder="Search campaigns…" />
+
+      <div className="mt-4 flex gap-2 rounded-2xl bg-secondary p-1">
         {campaignTabs.map((t) => (
           <button
             key={t.id}
@@ -53,8 +65,12 @@ function CampaignsPage() {
         {error && <ErrorState message={error} onRetry={retry} />}
         {!loading && !error && filtered.length === 0 && (
           <EmptyState
-            title={`No ${tab} campaigns`}
-            description="Campaigns in this category will appear here."
+            title={search.trim() ? "No matching campaigns" : `No ${tab} campaigns`}
+            description={
+              search.trim()
+                ? "Try a different campaign name or product."
+                : "Campaigns in this category will appear here."
+            }
           />
         )}
         {!loading && !error && filtered.length > 0 && (

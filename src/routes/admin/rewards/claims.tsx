@@ -17,14 +17,15 @@ export const Route = createFileRoute("/admin/rewards/claims")({
 });
 
 function RewardClaimsPage() {
+  const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"all" | "pending" | "delivered">("all");
   const [page, setPage] = useState(1);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [loadingAction, setLoadingAction] = useState(false);
 
   const { data, loading, error, retry } = useAsyncData(
-    () => listRewardClaims({ status, page, pageSize: 10 }),
-    [status, page],
+    () => listRewardClaims({ search, status, page, pageSize: 10 }),
+    [search, status, page],
   );
 
   const handleDeliver = async () => {
@@ -57,7 +58,14 @@ function RewardClaimsPage() {
         }
       />
 
-      <AdminFiltersBar>
+      <AdminFiltersBar
+        search={search}
+        onSearchChange={(v) => {
+          setSearch(v);
+          setPage(1);
+        }}
+        searchPlaceholder="Search by dealer or reward…"
+      >
         <AdminFilterTabs
           value={status}
           onChange={(v) => { setStatus(v as typeof status); setPage(1); }}

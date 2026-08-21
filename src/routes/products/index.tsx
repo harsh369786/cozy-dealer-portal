@@ -1,7 +1,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronRight, ShieldCheck } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
+import { SearchBar, matchesSearch } from "@/components/shared/search-bar";
 import { cn } from "@/lib/utils";
 import { requireRoles } from "@/lib/auth-guard";
 import { pillows, products, MATTRESS_LAYERS, type Product } from "@/lib/demo-data";
@@ -32,12 +33,21 @@ const productById = new Map(products.map((p) => [p.id, p]));
 
 function Catalogue() {
   const [tab, setTab] = useState<(typeof tabs)[number]>("Mattresses");
+  const [search, setSearch] = useState("");
 
   const foldable = products.filter((p) => p.category === "Foldable");
+  const filterProducts = (items: Product[]) =>
+    items.filter((p) => matchesSearch(search, p.name, p.category, p.guarantee));
 
   return (
     <AppShell title="Choose a Model">
-      <p className="text-sm text-muted-foreground">
+      <SearchBar
+        value={search}
+        onChange={setSearch}
+        placeholder="Search products by name…"
+      />
+
+      <p className="mt-4 text-sm text-muted-foreground">
         Tap a model name to see details and place your order.
       </p>
 
@@ -77,13 +87,14 @@ function Catalogue() {
                     const items = sg.productIds
                       .map((id) => productById.get(id))
                       .filter((p): p is Product => Boolean(p));
-                    if (!items.length) return null;
+                    const filteredItems = filterProducts(items);
+                    if (!filteredItems.length) return null;
                     return (
                       <div key={sg.label}>
                         <p className="mb-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                           {sg.label}
                         </p>
-                        <ProductList products={items} />
+                        <ProductList products={filteredItems} />
                       </div>
                     );
                   })}
@@ -91,9 +102,11 @@ function Catalogue() {
               ) : (
                 <div className="mt-4">
                   <ProductList
-                    products={layer.productIds
-                      .map((id) => productById.get(id))
-                      .filter((p): p is Product => Boolean(p))}
+                    products={filterProducts(
+                      layer.productIds
+                        .map((id) => productById.get(id))
+                        .filter((p): p is Product => Boolean(p)),
+                    )}
                   />
                 </div>
               )}
@@ -109,7 +122,7 @@ function Catalogue() {
             Foldable Mattresses
           </h2>
           <div className="mt-4">
-            <ProductList products={foldable} />
+            <ProductList products={filterProducts(foldable)} />
           </div>
         </section>
       )}
@@ -121,7 +134,7 @@ function Catalogue() {
             Pillows
           </h2>
           <div className="mt-4">
-            <ProductList products={pillows} />
+            <ProductList products={filterProducts(pillows)} />
           </div>
         </section>
       )}

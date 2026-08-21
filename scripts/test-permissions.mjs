@@ -69,7 +69,8 @@ async function main() {
 
   const allOrders = await api("/api/v1/orders", dealerSession);
   const orders = await allOrders.json();
-  assert("dealer can list orders", allOrders.status === 200 && Array.isArray(orders));
+  const orderItems = Array.isArray(orders) ? orders : orders.items ?? [];
+  assert("dealer can list orders", allOrders.status === 200 && orderItems.length > 0);
 
   if (staffSession) {
     const staffReports = await api("/api/v1/reports/monthly-sales", staffSession);
@@ -83,7 +84,7 @@ async function main() {
     assert("SE can access scoped product-sales", seReports.status === 200);
   }
 
-  const orderId = orders[0]?.id;
+  const orderId = orderItems[0]?.id;
   if (orderId) {
     const distDeliver = await api(`/api/v1/orders/${orderId}/status`, distSession, {
       method: "PATCH",
@@ -134,6 +135,52 @@ async function main() {
       `got ids: ${seDealerList.map((d) => d.id).join(",")}`,
     );
   }
+
+  // Signup approval flow
+  const signupPhone = `9${String(Date.now()).slice(-9)}`;
+  const signupRes = await fetch(`${BASE}/api/v1/signup/applications`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: "Test Dealer",
+      birthday: "1990-01-15",
+      storeName: "Test Mattress Store",
+      phone: signupPhone,
+      address: "123 MG Road, Pune, Maharashtra",
+      gstNumber: "27AABCU9603R1ZM",
+      distributorName: "Nagpur Distributors",
+    }),
+  });
+  assert("signup application created", signupRes.status === 201, `status ${signupRes.status}`);
+
+  const pendingSession = await login(signupPhone);
+  const pendingMe = await api("/api/v1/auth/me", pendingSession);
+  const pendingUser = await pendingMe.json();
+  assert(
+    "pending signup user can authenticate",
+    pendingMe.status === 200 && pendingUser.user?.status === "pending_approval",
+  );
+
+  const pendingCatalog = await api("/api/v1/catalog", pendingSession);
+  assert(
+    "pending user blocked from catalog",
+    pendingCatalog.status === 403,
+    `status ${pendingCatalog.status}`,
+  );
+
+  const adminSignups = await api("/api/v1/admin/signup-applications?status=pending", adminSession);
+  const signupList = await adminSignups.json();
+  assert(
+    "master_admin can list pending signups",
+    adminSignups.status === 200 && Array.isArray(signupList.items) && signupList.items.length >= 1,
+  );
+
+  const adminOrders = await api("/api/v1/orders?pageSize=100", adminSession);
+  const adminOrderData = await adminOrders.json();
+  const adminOrderTotal = Array.isArray(adminOrderData)
+    ? adminOrderData.length
+    : (adminOrderData.total ?? adminOrderData.items?.length ?? 0);
+  assert("system has at least 5 demo orders", adminOrderTotal >= 5, `count ${adminOrderTotal}`);
 
   console.log("\nPermission smoke tests passed.");
 }

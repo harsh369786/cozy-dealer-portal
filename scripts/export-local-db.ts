@@ -53,16 +53,7 @@ function exportTable(db: Database.Database, table: string): string[] {
   });
 }
 
-export async function exportLocalDb(outPath?: string): Promise<string> {
-  if (existsSync(dbPath)) unlinkSync(dbPath);
-
-  execSync("npx vite-node scripts/run-seed.ts", {
-    stdio: "inherit",
-    cwd: root,
-    env: process.env,
-  });
-
-  const db = new Database(dbPath);
+function writeExport(db: Database.Database, outPath?: string): string {
   const lines = [
     "-- Auto-generated demo seed export (INSERT OR IGNORE)",
     "PRAGMA foreign_keys = OFF;",
@@ -85,6 +76,35 @@ export async function exportLocalDb(outPath?: string): Promise<string> {
   writeFileSync(target, lines.join("\n"), "utf8");
   console.log(`Exported ${EXPORT_TABLES.length} tables to ${target}`);
   return target;
+}
+
+export async function exportLocalDb(outPath?: string): Promise<string> {
+  let skipReseed = false;
+
+  if (existsSync(dbPath)) {
+    try {
+      unlinkSync(dbPath);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "EBUSY" || code === "EPERM") {
+        console.warn(".local.db is locked; exporting existing data without re-seeding.");
+        skipReseed = true;
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  if (!skipReseed) {
+    execSync("npx vite-node scripts/run-seed.ts", {
+      stdio: "inherit",
+      cwd: root,
+      env: process.env,
+    });
+  }
+
+  const db = new Database(dbPath, skipReseed ? { readonly: true } : undefined);
+  return writeExport(db, outPath);
 }
 
 if (import.meta.url === `file://${process.argv[1]?.replace(/\\/g, "/")}` || process.argv[1]?.endsWith("export-local-db.ts")) {

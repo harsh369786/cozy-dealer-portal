@@ -11,6 +11,7 @@ import { submitSignupApplication } from "@/services/signup";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/signup")({
+  ssr: true,
   head: () => ({
     meta: [
       { title: "Dealer Sign Up — BackRest" },
@@ -125,8 +126,9 @@ function SignUpPage() {
             <h1 className="mt-6 font-display text-2xl font-bold">Application Submitted</h1>
             <p className="mt-3 text-base text-muted-foreground">
               Thanks, {form.name.split(" ")[0]}! We&apos;ve received your dealer sign-up for{" "}
-              <span className="font-semibold text-foreground">{form.storeName}</span>. Our team will
-              review your details and contact you on +91 {form.phone}.
+              <span className="font-semibold text-foreground">{form.storeName}</span>. You can sign in with
+              your phone number now — you&apos;ll see a confirmation screen while an administrator reviews
+              your request.
             </p>
             <Link
               to="/"

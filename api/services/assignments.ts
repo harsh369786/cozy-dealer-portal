@@ -1,5 +1,10 @@
 import { nowIso } from "../utils";
 import { writeAuditLog } from "./audit";
+import {
+  notifyDealerUsers,
+  notifyDistributorsForOrg,
+  notifySalesExecutive,
+} from "./notification-events";
 
 export type AssignmentRow = {
   id: string;
@@ -292,6 +297,41 @@ export async function updateDealerAssignment(
           }
         : null,
     });
+  }
+
+  if (after) {
+    if (
+      patch.salesExecutiveUserId &&
+      patch.salesExecutiveUserId !== before.sales_executive_user_id
+    ) {
+      await notifySalesExecutive(db, patch.salesExecutiveUserId, {
+        category: "system",
+        type: "system",
+        title: "Dealer assigned to you",
+        body: `${after.store_name} (${after.code}) is now under your portfolio`,
+        link: `/distributor/dealers/${dealerId}`,
+      });
+    }
+    if (patch.distributorId !== undefined && patch.distributorId !== before.distributor_id) {
+      if (patch.distributorId) {
+        await notifyDistributorsForOrg(db, patch.distributorId, {
+          category: "system",
+          type: "system",
+          title: "Dealer assigned",
+          body: `${after.store_name} (${after.code}) joined your network`,
+          link: `/distributor/dealers/${dealerId}`,
+        });
+      }
+      await notifyDealerUsers(db, dealerId, {
+        category: "system",
+        type: "system",
+        title: "Distributor updated",
+        body: after.distributor_name
+          ? `Your account is now linked to ${after.distributor_name}`
+          : "Your distributor assignment has been updated",
+        link: "/profile",
+      });
+    }
   }
 
   return afterRow ? mapRow(afterRow) : null;

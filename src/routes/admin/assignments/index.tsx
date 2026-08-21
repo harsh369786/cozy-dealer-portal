@@ -27,6 +27,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useAdminPermissions } from "@/hooks/use-admin-permissions";
+import type { SignupApplication } from "@/lib/mock/admin/types";
+import type { UserRole } from "@/lib/mock/distributor/types";
 import type { AssignmentRow } from "@/services/admin/assignments";
 import {
   bulkUpdateAssignments,
@@ -35,23 +38,36 @@ import {
   listAssignments,
   updateDealerAssignment,
 } from "@/services/admin/assignments";
+import { listSignupApplications, reviewSignup } from "@/services/admin/users";
+import { Textarea } from "@/components/ui/textarea";
 
 export const Route = createFileRoute("/admin/assignments/")({
-  validateSearch: (s: Record<string, unknown>) => ({
-    tab: (s.tab as string) === "sales_executive" ? "sales_executive" : "distributor",
-  }),
+  validateSearch: (s: Record<string, unknown>) => {
+    const tab = s.tab as string;
+    if (tab === "sales_executive" || tab === "approvals") return { tab };
+    return { tab: "distributor" as const };
+  },
   component: AdminAssignmentsPage,
 });
 
 const UNASSIGNED_VALUE = "__unassigned__";
 const CLEAR_VALUE = "__clear__";
 
-type AssignmentTab = "distributor" | "sales_executive";
+type AssignmentTab = "distributor" | "sales_executive" | "approvals";
+
+const APPROVAL_ROLES: Array<{ value: Exclude<UserRole, "master_admin">; label: string }> = [
+  { value: "dealer", label: "Dealer" },
+  { value: "distributor", label: "Distributor" },
+  { value: "sales_executive", label: "Sales executive" },
+  { value: "admin_staff", label: "Admin staff" },
+];
 
 function AdminAssignmentsPage() {
   const navigate = useNavigate();
+  const { can } = useAdminPermissions();
   const { tab } = Route.useSearch();
-  const activeTab: AssignmentTab = tab === "sales_executive" ? "sales_executive" : "distributor";
+  const activeTab: AssignmentTab =
+    tab === "sales_executive" ? "sales_executive" : tab === "approvals" ? "approvals" : "distributor";
 
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -67,6 +83,13 @@ function AdminAssignmentsPage() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkValue, setBulkValue] = useState<string>("");
   const [saving, setSaving] = useState(false);
+
+  const [reviewSignupRow, setReviewSignupRow] = useState<SignupApplication | null>(null);
+  const [approveRole, setApproveRole] = useState<Exclude<UserRole, "master_admin">>("dealer");
+  const [approveDistributorId, setApproveDistributorId] = useState<string>("");
+  const [approveSeId, setApproveSeId] = useState<string>(CLEAR_VALUE);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectNote, setRejectNote] = useState("");
 
   const filters = useMemo(() => {
     let unassigned: "distributor" | "sales_executive" | "any" | undefined;
@@ -88,13 +111,24 @@ function AdminAssignmentsPage() {
   }, [search, page, distributorFilter, seFilter, unassignedFilter]);
 
   const listQuery = useAsyncData(() => listAssignments(filters), [filters]);
-  const summaryQuery = useAsyncData(() => getAssignmentSummary(), []);
+  const signupsQuery = useAsyncData(
+    () =>
+      activeTab === "approvals"
+        ? listSignupApplications({ search, page, pageSize: 10, status: "pending" })
+        : Promise.resolve({ items: [], total: 0, page: 1, pageSize: 10, totalPages: 1 }),
+    [search, page, activeTab],
+  );
+  const summaryQuery = useAsyncData(
+    () => (activeTab === "approvals" ? Promise.resolve(null) : getAssignmentSummary()),
+    [activeTab],
+  );
   const optionsQuery = useAsyncData(() => getAssignmentOptions(), []);
 
   const navigateTab = (next: AssignmentTab) => {
     navigate({ to: "/admin/assignments", search: { tab: next } });
     setSelectedIds(new Set());
     setBulkValue("");
+    setPage(1);
   };
 
   const refresh = () => {
@@ -169,6 +203,280 @@ function AdminAssignmentsPage() {
     }
   };
 
+  const openReview = (row: SignupApplication) => {
+    setReviewSignupRow(row);
+    setApproveRole("dealer");
+    setApproveDistributorId("");
+    setApproveSeId(CLEAR_VALUE);
+    setRejectNote("");
+  };
+
+  const saveApprove = async () => {
+    if (!reviewSignupRow) return;
+    if (approveRole === "dealer" && !approveDistributorId) {
+      toast.error("Select a distributor for dealer approval");
+      return;
+    }
+    if (approveRole === "distributor" && !approveDistributorId) {
+      toast.error("Select a distributor record for this user");
+      return;
+    }
+    setSaving(true);
+    try {
+      await reviewSignup(reviewSignupRow.id, {
+        action: "approve",
+        role: approveRole,
+        distributorId:
+          approveRole === "dealer" || approveRole === "distributor"
+            ? approveDistributorId || null
+            : null,
+        salesExecutiveUserId:
+          approveRole === "dealer" && approveSeId !== CLEAR_VALUE ? approveSeId : null,
+      });
+      toast.success("Signup approved");
+      setReviewSignupRow(null);
+      signupsQuery.retry();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Approval failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveReject = async () => {
+    if (!reviewSignupRow) return;
+    setSaving(true);
+    try {
+      await reviewSignup(reviewSignupRow.id, { action: "reject", note: rejectNote || null });
+      toast.success("Signup rejected");
+      setRejectOpen(false);
+      setReviewSignupRow(null);
+      signupsQuery.retry();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Reject failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (activeTab === "approvals") {
+    if (!can("signup:review")) {
+      return <ErrorState message="You don't have permission to review signups." />;
+    }
+    if (signupsQuery.loading && !signupsQuery.data) return <PageSkeleton rows={4} />;
+    if (signupsQuery.error || !signupsQuery.data) {
+      return (
+        <ErrorState
+          message={signupsQuery.error ?? "Failed to load pending signups"}
+          onRetry={signupsQuery.retry}
+        />
+      );
+    }
+
+    const signupResult = signupsQuery.data;
+    const approvalOptions = optionsQuery.data ?? { distributors: [], salesExecutives: [] };
+
+    return (
+      <AdminPermissionGate permission="signup:review">
+        <div>
+          <AdminPageHeader
+            title="Assignments"
+            description="Review pending signups and assign roles before users can access the app."
+          />
+
+          <div className="mb-4 flex flex-wrap gap-2">
+            <AdminFilterTabs
+              value={activeTab}
+              onChange={(v) => navigateTab(v as AssignmentTab)}
+              tabs={[
+                { value: "distributor", label: "Distributor assignment" },
+                { value: "sales_executive", label: "Sales executive assignment" },
+                { value: "approvals", label: "Pending signups" },
+              ]}
+            />
+          </div>
+
+          <AdminFiltersBar search={search} onSearchChange={(v) => { setSearch(v); setPage(1); }} />
+
+          <AdminDataTable
+            data={signupResult.items}
+            keyFn={(s) => s.id}
+            emptyTitle="No pending signups"
+            columns={[
+              { key: "name", header: "Name", cell: (s) => <span className="font-bold">{s.contactName}</span> },
+              { key: "phone", header: "Phone", cell: (s) => s.phone, hideOnMobile: true },
+              {
+                key: "submitted",
+                header: "Signup date",
+                cell: (s) => new Date(s.submittedAt).toLocaleDateString("en-IN"),
+                hideOnMobile: true,
+              },
+              {
+                key: "status",
+                header: "Status",
+                cell: (s) => (
+                  <Badge variant="default" className="capitalize">
+                    Pending approval
+                  </Badge>
+                ),
+              },
+              { key: "store", header: "Store", cell: (s) => s.businessName },
+              {
+                key: "distributor",
+                header: "Requested distributor",
+                cell: (s) => s.distributorName ?? "—",
+                hideOnMobile: true,
+              },
+              {
+                key: "actions",
+                header: "",
+                cell: (s) => (
+                  <Button size="sm" className="rounded-xl" onClick={() => openReview(s)}>
+                    Review
+                  </Button>
+                ),
+              },
+            ]}
+          />
+
+          <AdminPagination
+            page={signupResult.page}
+            totalPages={signupResult.totalPages}
+            onPageChange={setPage}
+          />
+
+          <Dialog open={!!reviewSignupRow && !rejectOpen} onOpenChange={(o) => !o && setReviewSignupRow(null)}>
+            <DialogContent className="max-h-[90vh] w-[calc(100%-2rem)] overflow-y-auto rounded-3xl sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Approve signup</DialogTitle>
+                <DialogDescription>
+                  Assign a role and relationships before granting access.
+                </DialogDescription>
+              </DialogHeader>
+              {reviewSignupRow && (
+                <div className="space-y-4 text-sm">
+                  <div className="rounded-2xl bg-secondary/50 p-4">
+                    <p className="font-bold">{reviewSignupRow.contactName}</p>
+                    <p className="text-muted-foreground">{reviewSignupRow.businessName}</p>
+                    <p className="mt-2">{reviewSignupRow.phone}</p>
+                    {reviewSignupRow.address && (
+                      <p className="mt-1 text-muted-foreground">{reviewSignupRow.address}</p>
+                    )}
+                    {reviewSignupRow.distributorName && (
+                      <p className="mt-2">
+                        Requested distributor:{" "}
+                        <span className="font-semibold">{reviewSignupRow.distributorName}</span>
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Role</Label>
+                    <Select
+                      value={approveRole}
+                      onValueChange={(v) => setApproveRole(v as Exclude<UserRole, "master_admin">)}
+                    >
+                      <SelectTrigger className="rounded-2xl">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {APPROVAL_ROLES.map((r) => (
+                          <SelectItem key={r.value} value={r.value}>
+                            {r.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {(approveRole === "dealer" || approveRole === "distributor") && (
+                    <div className="space-y-2">
+                      <Label>Distributor</Label>
+                      <Select value={approveDistributorId} onValueChange={setApproveDistributorId}>
+                        <SelectTrigger className="rounded-2xl">
+                          <SelectValue placeholder="Select distributor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {approvalOptions.distributors.map((d) => (
+                            <SelectItem key={d.id} value={d.id}>
+                              {d.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+
+                  {approveRole === "dealer" && (
+                    <div className="space-y-2">
+                      <Label>Sales executive (optional)</Label>
+                      <Select value={approveSeId} onValueChange={setApproveSeId}>
+                        <SelectTrigger className="rounded-2xl">
+                          <SelectValue placeholder="Select sales executive" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={CLEAR_VALUE}>Unassigned</SelectItem>
+                          {approvalOptions.salesExecutives.map((u) => (
+                            <SelectItem key={u.id} value={u.id}>
+                              {u.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                </div>
+              )}
+              <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-0">
+                <Button
+                  variant="destructive"
+                  className="w-full rounded-2xl sm:mr-auto sm:w-auto"
+                  onClick={() => setRejectOpen(true)}
+                >
+                  Reject
+                </Button>
+                <Button variant="outline" className="rounded-2xl" onClick={() => setReviewSignupRow(null)}>
+                  Cancel
+                </Button>
+                <Button className="rounded-2xl" disabled={saving} onClick={() => void saveApprove()}>
+                  Approve
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+            <DialogContent className="w-[calc(100%-2rem)] rounded-3xl sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Reject signup</DialogTitle>
+                <DialogDescription>
+                  The applicant will not be able to access the app.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2">
+                <Label>Note (optional)</Label>
+                <Textarea
+                  value={rejectNote}
+                  onChange={(e) => setRejectNote(e.target.value)}
+                  className="min-h-24 rounded-2xl"
+                  placeholder="Reason for rejection (internal)"
+                />
+              </div>
+              <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-0">
+                <Button variant="outline" className="rounded-2xl" onClick={() => setRejectOpen(false)}>
+                  Cancel
+                </Button>
+                <Button variant="destructive" className="rounded-2xl" disabled={saving} onClick={() => void saveReject()}>
+                  Reject signup
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </AdminPermissionGate>
+    );
+  }
+
   if (listQuery.loading && !listQuery.data) return <PageSkeleton rows={4} />;
   if (listQuery.error || !listQuery.data) {
     return <ErrorState message={listQuery.error ?? "Failed to load assignments"} onRetry={listQuery.retry} />;
@@ -192,6 +500,9 @@ function AdminAssignmentsPage() {
             tabs={[
               { value: "distributor", label: "Distributor assignment" },
               { value: "sales_executive", label: "Sales executive assignment" },
+              ...(can("signup:review")
+                ? [{ value: "approvals" as const, label: "Pending signups" }]
+                : []),
             ]}
           />
         </div>

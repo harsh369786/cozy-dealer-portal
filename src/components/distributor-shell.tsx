@@ -1,10 +1,9 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
 import { BarChart3, Bell, ChevronLeft, Home, Menu, Package, Users } from "lucide-react";
 import { Logo } from "@/components/brand";
 import { cn } from "@/lib/utils";
-import { getUnreadCount } from "@/services/notifications";
+import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 
 const nav = [
@@ -28,13 +27,7 @@ export function DistributorShell({
 }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
   const reducedMotion = useReducedMotion();
-  const [unread, setUnread] = useState(0);
-
-  useEffect(() => {
-    getUnreadCount()
-      .then(setUnread)
-      .catch(() => setUnread(0));
-  }, [path]);
+  const unread = useUnreadNotificationCount();
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-background">

@@ -33,11 +33,14 @@ export type Permission =
   | "assignments:read"
   | "assignments:write";
 
+export type UserAccountStatus = "pending_approval" | "active" | "suspended" | "rejected";
+
 export type SessionUser = {
   id: string;
   name: string;
   phone: string;
   role: UserRole;
+  status: UserAccountStatus;
   dealerId?: string;
   distributorId?: string;
   permissions: Permission[];

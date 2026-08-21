@@ -208,11 +208,14 @@ export type Permission =
   | "audit:read"
   | "signup:review";
 
+export type UserAccountStatus = "pending_approval" | "active" | "suspended" | "rejected";
+
 export type SessionUser = {
   id: string;
   name: string;
   phone: string;
   role: UserRole;
+  status: UserAccountStatus;
   distributorId?: string;
   dealerId?: string;
   permissions?: Permission[];

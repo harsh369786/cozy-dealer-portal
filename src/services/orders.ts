@@ -156,24 +156,42 @@ function statusLabel(status: string): string {
   return labels[status] ?? status;
 }
 
+function mapDealerOrder(o: DistributorOrder): DealerOrderListItem {
+  const item = o.items[0];
+  return {
+    id: o.id,
+    product: item?.model ?? "Order",
+    size: item?.size ?? "",
+    thickness: item?.thickness ?? "",
+    quantity: o.totalItems,
+    dealer: o.storeName ?? o.dealerName,
+    status: statusLabel(o.status),
+    placed: o.placedAt,
+    amount: o.totalValue,
+    step: statusStep(o.status),
+    detail: o.items.map((i) => `${i.quantity} × ${i.size} × ${i.thickness}`).join(", "),
+  };
+}
+
 export async function getDealerOrders(): Promise<DealerOrderListItem[]> {
   const orders = await getOrders();
-  return orders.map((o) => {
-    const item = o.items[0];
-    return {
-      id: o.id,
-      product: item?.model ?? "Order",
-      size: item?.size ?? "",
-      thickness: item?.thickness ?? "",
-      quantity: o.totalItems,
-      dealer: o.storeName ?? o.dealerName,
-      status: statusLabel(o.status),
-      placed: o.placedAt,
-      amount: o.totalValue,
-      step: statusStep(o.status),
-      detail: o.items.map((i) => `${i.quantity} × ${i.size} × ${i.thickness}`).join(", "),
-    };
+  return orders.map(mapDealerOrder);
+}
+
+export async function listDealerOrdersPage(params: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+} = {}) {
+  const res = await listOrdersPage({
+    page: params.page ?? 1,
+    pageSize: params.pageSize ?? 10,
+    search: params.search,
   });
+  return {
+    ...res,
+    items: res.items.map(mapDealerOrder),
+  };
 }
 
 export async function getPriceQuote(input: {

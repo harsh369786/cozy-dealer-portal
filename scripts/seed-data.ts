@@ -270,6 +270,11 @@ export async function runSeed(db: D1Database) {
       .run();
   }
 
+  const orderCount = await db
+    .prepare(`SELECT COUNT(*) as c FROM orders WHERE deleted_at IS NULL`)
+    .first<{ c: number }>();
+
+  if ((orderCount?.c ?? 0) < 5) {
   for (const order of seedOrders.slice(0, 8)) {
     const placedIso = nowIso();
     await db
@@ -323,6 +328,7 @@ export async function runSeed(db: D1Database) {
         .bind(`te-${order.id}-${ev.label}`, order.id, ev.label, placedIso, ev.note ?? null)
         .run();
     }
+  }
   }
 
   for (const c of seedComplaints) {

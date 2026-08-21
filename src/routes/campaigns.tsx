@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { CalendarDays, ChevronRight, MessageSquareWarning, User } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { CampaignPriceBlock } from "@/components/campaign-price";
+import { SearchBar, matchesSearch } from "@/components/shared/search-bar";
 import { ProgressBar } from "@/components/brand";
 import { requireRoles } from "@/lib/auth-guard";
 import {
@@ -42,17 +43,33 @@ const campaignTabs: { id: CampaignTab; label: string }[] = [
 
 function Campaigns() {
   const [tab, setTab] = useState<CampaignTab>("active");
+  const [search, setSearch] = useState("");
   const priceCampaign = tab === "active" ? getActivePriceCampaign("latexo") : null;
   const latexo = getProduct("latexo");
   const campaignPrice = priceCampaign
     ? getCampaignPrice(latexo.price, priceCampaign.discountPercent)
     : null;
 
-  const sellCampaigns = useMemo(() => campaigns.filter((c) => c.status === tab), [tab]);
+  const sellCampaigns = useMemo(
+    () =>
+      campaigns.filter(
+        (c) =>
+          c.status === tab &&
+          matchesSearch(search, c.title, c.goal, c.description, c.reward),
+      ),
+    [tab, search],
+  );
+
+  const showPriceCampaign =
+    priceCampaign &&
+    campaignPrice &&
+    matchesSearch(search, priceCampaign.name, latexo.name, priceCampaign.description, priceCampaign.badgeLabel);
 
   return (
     <AppShell title="Campaigns">
-      <div className="flex gap-2 rounded-2xl bg-secondary p-1">
+      <SearchBar value={search} onChange={setSearch} placeholder="Search campaigns…" />
+
+      <div className="mt-4 flex gap-2 rounded-2xl bg-secondary p-1">
         {campaignTabs.map((t) => (
           <button
             key={t.id}
@@ -67,7 +84,7 @@ function Campaigns() {
         ))}
       </div>
 
-      {priceCampaign && campaignPrice && (
+      {showPriceCampaign && (
         <section className="animate-rise mt-5 overflow-hidden rounded-3xl border border-primary/30 bg-card shadow-lift">
           <div className="brand-gradient px-5 py-6 text-primary-foreground">
             <p className="text-3xl">🔥</p>
@@ -101,7 +118,9 @@ function Campaigns() {
       <h2 className="mb-3 mt-8 font-display text-lg font-bold">Sell & Earn Campaigns</h2>
       {sellCampaigns.length === 0 ? (
         <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-          No {tab} sell campaigns right now.
+          {search.trim()
+            ? "No campaigns match your search."
+            : `No ${tab} sell campaigns right now.`}
         </p>
       ) : (
         <div className="space-y-4">

@@ -10,6 +10,8 @@ export const getRouter = () => {
     context: { queryClient },
     scrollRestoration: true,
     defaultPreloadStaleTime: 60_000,
+    // Authenticated app shells hydrate client-side after the first load.
+    defaultSsr: false,
   });
 
   return router;

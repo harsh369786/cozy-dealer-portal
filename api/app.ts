@@ -32,7 +32,13 @@ import {
   resolveReportScope,
   appendDealerScopeSql,
 } from "./services/scope";
-import { createNotification, listNotifications } from "./services/notifications";
+import {
+  notifyAdminStaff,
+  notifyDealerUsers,
+  notifyDistributorsForOrg,
+  notifyMasterAdmins,
+} from "./services/notification-events";
+import { listNotifications } from "./services/notifications";
 import { enqueueWhatsapp, processWhatsappOutbox, scanPendingOrderReminders } from "./services/whatsapp";
 import {
   bulkUpdateAssignments,
@@ -524,6 +530,19 @@ app.post("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePer
     .bind(id("pl"), user.dealerId, -reward.points_required, balance - reward.points_required, reward.name, claimId, claimedAt)
     .run();
 
+  const dealer = await db
+    .prepare(`SELECT store_name FROM dealers WHERE id = ?`)
+    .bind(user.dealerId)
+    .first<{ store_name: string }>();
+
+  await notifyMasterAdmins(db, {
+    category: "system",
+    type: "system",
+    title: "Reward claim submitted",
+    body: `${dealer?.store_name ?? "Dealer"} claimed ${reward.name as string} (${reward.points_required} pts)`,
+    link: "/admin/rewards/claims",
+  });
+
   return c.json({ id: claimId, status: "pending" }, 201);
 });
 
@@ -549,6 +568,26 @@ app.post("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermiss
     )
     .bind(complaintId, body.orderId, user.dealerId, order.distributor_id, body.category ?? "general", body.description, ts, ts)
     .run();
+
+  const dealer = await db
+    .prepare(`SELECT store_name FROM dealers WHERE id = ?`)
+    .bind(user.dealerId)
+    .first<{ store_name: string }>();
+
+  const complaintPayload = {
+    category: "complaints" as const,
+    type: "complaint_new" as const,
+    title: "New complaint",
+    body: `${dealer?.store_name ?? "Dealer"} reported an issue on order ${body.orderId}`,
+    link: `/admin/complaints/${complaintId}`,
+  };
+
+  await notifyDistributorsForOrg(db, order.distributor_id, {
+    ...complaintPayload,
+    link: `/distributor/complaints/${complaintId}`,
+  });
+  await notifyMasterAdmins(db, complaintPayload);
+  await notifyAdminStaff(db, complaintPayload);
 
   return c.json({ id: complaintId }, 201);
 });
@@ -590,10 +629,25 @@ app.patch("/api/v1/complaints/:id", requireAuth, requireActiveAccount, requirePe
   const complaintId = c.req.param("id");
   if (!(await canAccessComplaint(db, user, complaintId))) return c.json({ error: "Forbidden" }, 403);
   const body = await c.req.json<{ status: string }>();
+  const complaint = await db
+    .prepare(`SELECT dealer_id, order_id FROM complaints WHERE id = ?`)
+    .bind(complaintId)
+    .first<{ dealer_id: string; order_id: string }>();
+  if (!complaint) return c.json({ error: "Not found" }, 404);
+
   await db
     .prepare(`UPDATE complaints SET status = ?, updated_at = ? WHERE id = ?`)
     .bind(body.status, nowIso(), complaintId)
     .run();
+
+  await notifyDealerUsers(db, complaint.dealer_id, {
+    category: "complaints",
+    type: "complaint_update",
+    title: "Complaint updated",
+    body: `Your complaint on order ${complaint.order_id} is now ${body.status.replace(/_/g, " ")}`,
+    link: `/complaints/${complaintId}`,
+  });
+
   return c.json({ ok: true });
 });
 

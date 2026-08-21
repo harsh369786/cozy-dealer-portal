@@ -33,6 +33,8 @@ export type SignupApplication = {
   city: string;
   submittedAt: string;
   status: "pending" | "approved" | "rejected";
+  distributorName?: string;
+  address?: string;
 };
 
 export type AdminProduct = {

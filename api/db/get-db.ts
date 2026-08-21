@@ -6,6 +6,15 @@ function isNodeRuntime() {
   return typeof process !== "undefined" && process.release?.name === "node";
 }
 
+function isCloudflareWorker() {
+  return typeof caches !== "undefined";
+}
+
+function resolveBindings(env?: ApiEnv | null): ApiEnv | null | undefined {
+  if (env?.DB) return env;
+  return (globalThis as { __env__?: ApiEnv }).__env__ ?? env;
+}
+
 function getDevDatabaseSingleton(): Promise<D1Database> {
   const g = globalThis as Record<string, Promise<D1Database> | undefined>;
   if (!g[DEV_DB_KEY]) {
@@ -15,14 +24,20 @@ function getDevDatabaseSingleton(): Promise<D1Database> {
 }
 
 /**
- * In Vite dev (Node), Nitro may inject a Cloudflare D1 binding that does not
- * share state with our seeded `.local.db` file — OTP challenges written there
- * are invisible to verify on the next request. Always use local SQLite in Node.
+ * Cloudflare Workers: read D1 from Nitro's globalThis.__env__ or Hono c.env.
+ * Vite dev (Node): always use local `.local.db` so OTP/session share one DB file.
  */
 export async function getDatabase(env?: ApiEnv | null): Promise<D1Database> {
+  const bindings = resolveBindings(env);
+
+  if (isCloudflareWorker() && bindings?.DB) {
+    return bindings.DB;
+  }
+
   if (isNodeRuntime()) {
     return getDevDatabaseSingleton();
   }
-  if (env?.DB) return env.DB;
-  return getDevDatabaseSingleton();
+
+  if (bindings?.DB) return bindings.DB;
+  throw new Error("Database binding DB is not configured");
 }

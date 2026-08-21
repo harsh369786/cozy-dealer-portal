@@ -42,49 +42,46 @@ export async function getUser(id: string): Promise<AdminUser | null> {
 
 type SignupApiRow = {
   id: string;
+  userId: string | null;
   name: string;
-  store_name: string;
+  storeName: string;
   phone: string;
   address: string;
+  distributorName: string;
   status: SignupApplication["status"];
-  created_at: string;
+  createdAt: string;
+  submittedAtLabel: string;
 };
+
+function mapSignupRow(r: SignupApiRow): SignupApplication {
+  return {
+    id: r.id,
+    businessName: r.storeName,
+    contactName: r.name,
+    phone: r.phone,
+    city: r.address.split(",").pop()?.trim() ?? r.address,
+    submittedAt: r.createdAt,
+    status: r.status,
+    distributorName: r.distributorName,
+    address: r.address,
+  };
+}
 
 export async function listSignupApplications(
   filters: { search?: string; status?: string; page?: number; pageSize?: number } = {},
 ): Promise<PaginatedResult<SignupApplication>> {
-  const rows = await api.get<SignupApiRow[]>("/api/v1/admin/signup-applications");
-  let items: SignupApplication[] = rows.map((r) => ({
-    id: r.id,
-    businessName: r.store_name,
-    contactName: r.name,
-    phone: r.phone,
-    city: r.address.split(",").pop()?.trim() ?? r.address,
-    submittedAt: r.created_at,
-    status: r.status,
-  }));
-
-  if (filters.search) {
-    const q = filters.search.toLowerCase();
-    items = items.filter((s) =>
-      [s.businessName, s.contactName, s.phone, s.city].some((v) => v.toLowerCase().includes(q)),
-    );
-  }
-  if (filters.status && filters.status !== "all") {
-    items = items.filter((s) => s.status === filters.status);
-  }
-
-  const page = filters.page ?? 1;
-  const pageSize = filters.pageSize ?? 20;
-  const total = items.length;
-  const offset = (page - 1) * pageSize;
+  const result = await api.get<PaginatedResult<SignupApiRow>>(
+    `/api/v1/admin/signup-applications${qs({
+      search: filters.search,
+      status: filters.status ?? "pending",
+      page: filters.page,
+      pageSize: filters.pageSize,
+    })}`,
+  );
 
   return {
-    items: items.slice(offset, offset + pageSize),
-    total,
-    page,
-    pageSize,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    ...result,
+    items: result.items.map(mapSignupRow),
   };
 }
 
@@ -122,6 +119,20 @@ export async function resendUserInvite(_id: string): Promise<void> {
   throw new Error("Invite resend is not available in the demo API");
 }
 
-export async function reviewSignup(_id: string, _status: "approved" | "rejected"): Promise<void> {
-  throw new Error("Signup review is not available in the demo API");
+export type ReviewSignupInput =
+  | {
+      action: "approve";
+      role: Exclude<UserRole, "master_admin">;
+      distributorId?: string | null;
+      salesExecutiveUserId?: string | null;
+    }
+  | { action: "reject"; note?: string | null };
+
+export async function reviewSignup(id: string, input: ReviewSignupInput): Promise<void> {
+  await api.patch(`/api/v1/admin/signup-applications/${id}`, input);
+}
+
+export async function countPendingSignups(): Promise<number> {
+  const result = await listSignupApplications({ page: 1, pageSize: 1, status: "pending" });
+  return result.total;
 }

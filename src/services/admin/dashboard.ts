@@ -1,6 +1,7 @@
-import { adminStore } from "@/lib/mock/admin/store";
 import type { AdminDashboardData } from "@/lib/mock/admin/types";
+import { adminStore } from "@/lib/mock/admin/store";
 import { delay } from "./_utils";
+import { listSignupApplications } from "./users";
 
 export async function getAdminDashboard(): Promise<AdminDashboardData> {
   await delay();
@@ -11,6 +12,14 @@ export async function getAdminDashboard(): Promise<AdminDashboardData> {
   ).length;
   const activeCampaigns = adminStore.campaigns.filter((c) => c.status === "active").length;
   const monthlySales = adminStore.monthlySales.reduce((s, m) => s + m.sales, 0);
+
+  let pendingSignups = adminStore.signupApplications.filter((s) => s.status === "pending");
+  try {
+    const result = await listSignupApplications({ page: 1, pageSize: 5, status: "pending" });
+    pendingSignups = result.items;
+  } catch {
+    // Keep mock fallback when API unavailable
+  }
 
   return {
     stats: {
@@ -34,7 +43,7 @@ export async function getAdminDashboard(): Promise<AdminDashboardData> {
       totalValue: o.totalValue,
       totalItems: o.totalItems,
     })),
-    pendingSignups: adminStore.signupApplications.filter((s) => s.status === "pending"),
+    pendingSignups,
     openComplaints: adminStore.complaints.filter(
       (c) => c.status === "pending" || c.status === "in_progress",
     ),

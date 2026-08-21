@@ -6,9 +6,7 @@ export type OtpProvider = {
 
 export class MockOtpProvider implements OtpProvider {
   async sendOtp(phone: string, code: string) {
-    if (typeof process !== "undefined") {
-      console.info(`[otp:mock] ${phone} → ${code}`);
-    }
+    console.info(`[otp:mock] ${phone} → ${code}`);
   }
 }
 
@@ -16,17 +14,18 @@ export function getOtpProvider(): OtpProvider {
   return new MockOtpProvider();
 }
 
-export function generateOtpCode(): string {
-  if (typeof process !== "undefined" && process.env?.ENVIRONMENT !== "production") {
+export function generateOtpCode(environment?: string): string {
+  const env = environment ?? (typeof process !== "undefined" ? process.env?.ENVIRONMENT : undefined);
+  if (env !== "production") {
     return "123456";
   }
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-export async function requestOtp(db: D1Database, phone: string) {
+export async function requestOtp(db: D1Database, phone: string, environment?: string) {
   const { normalizePhone, sha256, id, nowIso, OTP_TTL_MINUTES } = await import("../utils");
   const normalized = normalizePhone(phone);
-  const code = generateOtpCode();
+  const code = generateOtpCode(environment);
   const expires = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
   const challengeId = id("otp");
 
@@ -80,10 +79,16 @@ export async function verifyOtp(db: D1Database, phone: string, code: string) {
     .run();
 
   const user = await db
-    .prepare(`SELECT * FROM users WHERE phone = ? AND status = 'active' AND deleted_at IS NULL`)
+    .prepare(`SELECT * FROM users WHERE phone = ? AND deleted_at IS NULL`)
     .bind(normalized)
     .first<Record<string, unknown>>();
 
   if (!user) throw new Error("Phone not registered. Apply via signup.");
+  if (user.status === "rejected") throw new Error("Your signup request was rejected");
+  if (user.status === "suspended") throw new Error("Account suspended. Contact support.");
+  if (user.status !== "active" && user.status !== "pending_approval") {
+    throw new Error("Account is not eligible to sign in");
+  }
+
   return user;
 }

@@ -106,7 +106,15 @@ function AdminUsersPage() {
       </AdminFiltersBar>
 
       {isSignupTab ? (
-        <AdminDataTable
+        <>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Approve or reject signups from{" "}
+            <Link to="/admin/assignments" search={{ tab: "approvals" }} className="font-semibold text-primary">
+              Assignments → Pending signups
+            </Link>
+            .
+          </p>
+          <AdminDataTable
           data={result.items}
           keyFn={(s) => s.id}
           emptyTitle="No pending signups"
@@ -126,6 +134,7 @@ function AdminUsersPage() {
             },
           ]}
         />
+        </>
       ) : (
         <AdminDataTable
           data={result.items as AdminUser[]}

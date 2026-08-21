@@ -31,6 +31,8 @@ function withPwaHeaders(pathname: string, response: Response): Response {
     headers.set("Cache-Control", "public, max-age=86400");
   } else if (pathname.startsWith("/icons/") || pathname === "/favicon.png") {
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  } else if (pathname.startsWith("/assets/")) {
+    headers.set("Cache-Control", "public, max-age=31536000, immutable");
   }
   return new Response(response.body, { status: response.status, headers });
 }
@@ -88,7 +90,7 @@ export default {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       const normalized = await normalizeCatastrophicSsrResponse(response);
-      if (PWA_PATHS.has(url.pathname)) {
+      if (PWA_PATHS.has(url.pathname) || url.pathname.startsWith("/assets/")) {
         return withPwaHeaders(url.pathname, normalized);
       }
       return normalized;

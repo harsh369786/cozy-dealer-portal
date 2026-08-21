@@ -1,4 +1,5 @@
 import type { DistributorNotification, NotificationCategory } from "@/lib/mock/distributor/types";
+import { invalidateUnreadCountCache } from "@/lib/notification-count-cache";
 import { api } from "@/lib/api-client";
 
 type ApiNotification = {
@@ -41,10 +42,12 @@ export async function getUnreadCount(): Promise<number> {
 
 export async function markNotificationRead(id: string): Promise<void> {
   await api.patch(`/api/v1/notifications/${id}/read`);
+  invalidateUnreadCountCache();
 }
 
 export async function markAllRead(): Promise<void> {
   await api.post("/api/v1/notifications/read-all");
+  invalidateUnreadCountCache();
 }
 
 export async function getNotificationsByCategory(

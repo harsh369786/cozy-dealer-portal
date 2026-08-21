@@ -1,5 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import { DistributorShell } from "@/components/distributor-shell";
+import { SearchBar, matchesSearch } from "@/components/shared/search-bar";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
@@ -10,6 +12,7 @@ export const Route = createFileRoute("/distributor/complaints/")({
 });
 
 function ComplaintsPage() {
+  const [search, setSearch] = useState("");
   const simulateError =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("error") === "1";
@@ -19,22 +22,40 @@ function ComplaintsPage() {
     [simulateError],
   );
 
+  const filtered = useMemo(
+    () =>
+      data?.filter((c) =>
+        matchesSearch(search, c.id, c.orderId, c.dealerName, c.category, c.description, c.status),
+      ) ?? [],
+    [data, search],
+  );
+
   return (
     <DistributorShell title="Complaints" back="/distributor/more" showBell={false}>
-      <p className="mb-4 text-sm text-muted-foreground">
+      <SearchBar
+        value={search}
+        onChange={setSearch}
+        placeholder="Search by ID, dealer, order or category…"
+      />
+
+      <p className="mb-4 mt-4 text-sm text-muted-foreground">
         Read-only view. Complaint status is managed by admin staff.
       </p>
       {loading && <PageSkeleton rows={4} />}
       {error && <ErrorState message={error} onRetry={retry} />}
-      {!loading && !error && data?.length === 0 && (
+      {!loading && !error && filtered.length === 0 && (
         <EmptyState
-          title="No complaints"
-          description="Complaints from your dealers will appear here."
+          title={search.trim() ? "No matching complaints" : "No complaints"}
+          description={
+            search.trim()
+              ? "Try a different dealer name, order ID, or keyword."
+              : "Complaints from your dealers will appear here."
+          }
         />
       )}
-      {!loading && !error && data && data.length > 0 && (
+      {!loading && !error && filtered.length > 0 && (
         <div className="space-y-3">
-          {data.map((c) => (
+          {filtered.map((c) => (
             <Link
               key={c.id}
               to="/distributor/complaints/$complaintId"

@@ -84,7 +84,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   return (
     <SidebarProvider>
-      <Sidebar className="border-r border-border/60 bg-card">
+      <Sidebar className="border-r border-border/60 bg-card text-foreground">
         <SidebarHeader className="border-b border-border/60 p-4">
           <Link to="/admin" className="flex items-center gap-2">
             <Logo size="sm" />
