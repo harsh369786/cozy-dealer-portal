@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-page-header";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
 import { AdminSection } from "@/components/admin/admin-section";
+import { RewardImageUpload } from "@/components/admin/reward-image-upload";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,6 +64,11 @@ export function RewardEditor({
             placeholder="Bluetooth Speaker"
           />
         </div>
+        <RewardImageUpload
+          imageUrl={reward.imageUrl}
+          disabled={readOnly}
+          onChange={(next) => patch(next)}
+        />
         <div>
           <Label>Points required</Label>
           <Input

@@ -17,10 +17,11 @@ import { CampaignBadge, CampaignPriceBlock } from "@/components/campaign-price";
 import { cn } from "@/lib/utils";
 import { Confetti, ProgressBar } from "@/components/brand";
 import {
-  getActivePriceCampaign,
+  fetchActivePriceCampaign,
   getCampaignPrice,
   getCampaignSavings,
   formatCampaignDate,
+  type PriceCampaign,
 } from "@/lib/campaign-service";
 import {
   FREE_ITEM,
@@ -29,8 +30,9 @@ import {
   inr,
 } from "@/lib/demo-data";
 import { requireRoles } from "@/lib/auth-guard";
+import { resolveAssetUrl } from "@/lib/asset-url";
 import { createDealerOrder } from "@/services/orders";
-import { getProductDetail, getSalespeople } from "@/services/catalog";
+import { getSalespeople } from "@/services/catalog";
 import { formatSizeLabel, mapToNearestStandardSize } from "@/lib/mattress-size";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -43,6 +45,9 @@ import {
 } from "@/components/ui/select";
 
 export const Route = createFileRoute("/products/$productId")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    campaignId: typeof search.campaignId === "string" ? search.campaignId : undefined,
+  }),
   beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
@@ -76,6 +81,7 @@ function selectedCornerLabels(corners: PermaCorners) {
 
 function Configurator() {
   const { productId } = useParams({ from: "/products/$productId" });
+  const { campaignId } = Route.useSearch();
   const product = getProduct(productId);
   const isPillow = product.category === "Pillows";
   const isFoldable = product.category === "Foldable";
@@ -110,6 +116,7 @@ function Configurator() {
   const [showCustomer, setShowCustomer] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const [placed, setPlaced] = useState<string | null>(null);
+  const [campaign, setCampaign] = useState<PriceCampaign | null>(null);
 
   useEffect(() => {
     getSalespeople()
@@ -118,10 +125,11 @@ function Configurator() {
         if (list[0]) setPlacedBy(list[0].name);
       })
       .catch(() => setSalespeople([]));
-    getProductDetail(productId).catch(() => undefined);
-  }, [productId]);
+    fetchActivePriceCampaign(productId, campaignId)
+      .then(setCampaign)
+      .catch(() => setCampaign(null));
+  }, [productId, campaignId]);
 
-  const campaign = getActivePriceCampaign(product.id);
   const unitDealerPrice = product.price;
   const unitCampaignPrice = campaign
     ? getCampaignPrice(unitDealerPrice, campaign.discountPercent)
@@ -187,7 +195,7 @@ function Configurator() {
 
       <div className="mt-4 flex gap-3 rounded-3xl border border-border bg-card p-3 shadow-soft">
         <img
-          src={product.image}
+          src={resolveAssetUrl(product.image)}
           alt={product.name}
           width={400}
           height={400}
@@ -197,7 +205,7 @@ function Configurator() {
           <p className="font-display text-lg font-bold">{product.name}</p>
           <p className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-            {product.guarantee === "Pillow" ? "Pillow" : `${product.guarantee} Guarantee`}
+            {product.guarantee} Guarantee
           </p>
           <p className="mt-1 text-sm text-muted-foreground">MRP {inr(product.mrp)}</p>
           {showPrice ? (
@@ -525,10 +533,7 @@ function Configurator() {
 
             <div className="mt-4 divide-y divide-border rounded-2xl border border-border">
               <Line label="Model" value={product.name} />
-              <Line
-                label="Guarantee"
-                value={product.guarantee === "Pillow" ? "Pillow" : product.guarantee}
-              />
+              <Line label="Guarantee" value={product.guarantee} />
               {isPillow ? (
                 <Line label="Size" value={product.fixedSize!} />
               ) : isFoldable ? (

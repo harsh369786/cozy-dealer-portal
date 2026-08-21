@@ -27,8 +27,8 @@ function CampaignsPage() {
     new URLSearchParams(window.location.search).get("error") === "1";
 
   const { data, loading, error, retry } = useAsyncData(
-    () => getCampaigns(simulateError),
-    [simulateError],
+    () => getCampaigns(simulateError, tab),
+    [simulateError, tab],
   );
 
   const filtered = useMemo(

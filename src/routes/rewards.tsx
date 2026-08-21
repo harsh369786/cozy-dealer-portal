@@ -6,9 +6,11 @@ import { AppShell, Section } from "@/components/app-shell";
 import { Confetti, CountUp, ProgressBar, ProgressRing } from "@/components/brand";
 import { cn } from "@/lib/utils";
 import { requireRoles } from "@/lib/auth-guard";
-import { rewards as rewardCatalog } from "@/lib/demo-data";
+import { resolveAssetUrl } from "@/lib/asset-url";
+import { ConfirmActionDialog } from "@/components/shared/dialogs";
 import {
   getRewardBalance,
+  getRewardCatalog,
   getRewardClaims,
   getRewardLedger,
   redeemReward,
@@ -35,8 +37,12 @@ export const Route = createFileRoute("/rewards")({
 
 function Rewards() {
   const [celebrate, setCelebrate] = useState(false);
+  const [celebrateReward, setCelebrateReward] = useState<{ name: string; emoji: string } | null>(null);
+  const [confirmReward, setConfirmReward] = useState<{ id: string; name: string; emoji: string; points: number } | null>(null);
+  const [claimLoading, setClaimLoading] = useState(false);
   const [historyTab, setHistoryTab] = useState<"pending" | "delivered">("pending");
   const [balance, setBalance] = useState({ balance: 0, nextRewardAt: 3000 });
+  const [rewards, setRewards] = useState<Array<{ id: string; name: string; emoji: string; points: number; imageUrl?: string }>>([]);
   const [rewardHistory, setRewardHistory] = useState<
     Array<{ id: string; name: string; emoji: string; claimed: string; status: string; delivered?: string }>
   >([]);
@@ -46,28 +52,39 @@ function Rewards() {
     getRewardBalance().then(setBalance).catch(() => undefined);
     getRewardClaims().then(setRewardHistory).catch(() => undefined);
     getRewardLedger().then(setPointsHistory).catch(() => undefined);
+    getRewardCatalog().then(setRewards).catch(() => undefined);
   }, []);
 
-  const rewards = rewardCatalog;
   const dealer = { points: balance.balance, nextRewardAt: balance.nextRewardAt };
-  const nextReward = rewards.find((r) => r.points > dealer.points) ?? rewards[rewards.length - 1]!;
-  const pct = Math.min(100, Math.round((dealer.points / nextReward.points) * 100));
-  const remaining = Math.max(0, nextReward.points - dealer.points);
+  const nextReward = rewards.find((r) => r.points > dealer.points) ?? rewards[0] ?? null;
+  const pct = nextReward ? Math.min(100, Math.round((dealer.points / nextReward.points) * 100)) : 0;
+  const remaining = nextReward ? Math.max(0, nextReward.points - dealer.points) : 0;
 
   const pendingRewards = useMemo(
-    () => rewardHistory.filter((c) => c.status === "Pending"),
-    [],
+    () => rewardHistory.filter((c) => c.status === "pending"),
+    [rewardHistory],
   );
   const deliveredRewards = useMemo(
-    () => rewardHistory.filter((c) => c.status === "Delivered"),
-    [],
+    () => rewardHistory.filter((c) => c.status === "delivered"),
+    [rewardHistory],
   );
   const historyItems = historyTab === "pending" ? pendingRewards : deliveredRewards;
 
   return (
     <AppShell title="Your Rewards">
       <div className="relative overflow-hidden rounded-3xl border border-primary/30 surface-gradient py-6 shadow-lift">
-        {celebrate && <Confetti />}
+        {celebrate && celebrateReward && (
+          <>
+            <Confetti />
+            <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 backdrop-blur-sm">
+              <div className="animate-rise rounded-3xl border border-primary/40 bg-card px-8 py-6 text-center shadow-lift">
+                <p className="text-5xl">{celebrateReward.emoji}</p>
+                <p className="mt-3 font-display text-2xl font-bold">Reward claimed!</p>
+                <p className="mt-1 text-sm text-muted-foreground">{celebrateReward.name} is on its way to your shop.</p>
+              </div>
+            </div>
+          </>
+        )}
         <div className="grid place-items-center">
           <ProgressRing value={pct} label={`${pct}%`} sub="to next reward" />
           <p className="font-display text-4xl font-bold">
@@ -76,44 +93,65 @@ function Rewards() {
         </div>
 
         <div className="mx-5 mt-5 rounded-2xl border border-border bg-card/80 p-4">
-          <div className="flex items-center gap-3">
-            <span className="grid h-12 w-12 place-items-center rounded-2xl bg-secondary text-2xl">
-              {nextReward.emoji}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-bold uppercase tracking-wide text-primary">Next reward</p>
-              <p className="font-display text-base font-bold">{nextReward.name}</p>
-              <p className="text-xs text-muted-foreground">
-                {nextReward.points.toLocaleString("en-IN")} points
+          {nextReward ? (
+            <>
+              <div className="flex items-center gap-3">
+                <span className="grid h-12 w-12 place-items-center rounded-2xl bg-secondary text-2xl">
+                  {nextReward.emoji}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold uppercase tracking-wide text-primary">Next reward</p>
+                  <p className="font-display text-base font-bold">{nextReward.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {nextReward.points.toLocaleString("en-IN")} points
+                  </p>
+                </div>
+                <Gift className="h-5 w-5 shrink-0 text-primary" />
+              </div>
+              <ProgressBar value={pct} className="mt-4 h-3" />
+              <p className="mt-3 text-center text-sm font-semibold">
+                {remaining > 0 ? (
+                  <>
+                    <span className="font-display text-lg font-bold text-primary">{remaining}</span>{" "}
+                    points to unlock your {nextReward.name} 🎁
+                  </>
+                ) : (
+                  "You've unlocked your next reward — redeem it below!"
+                )}
               </p>
-            </div>
-            <Gift className="h-5 w-5 shrink-0 text-primary" />
-          </div>
-          <ProgressBar value={pct} className="mt-4 h-3" />
-          <p className="mt-3 text-center text-sm font-semibold">
-            {remaining > 0 ? (
-              <>
-                <span className="font-display text-lg font-bold text-primary">{remaining}</span>{" "}
-                points to unlock your {nextReward.name} 🎁
-              </>
-            ) : (
-              "You've unlocked your next reward — redeem it below!"
-            )}
-          </p>
+            </>
+          ) : (
+            <p className="text-center text-sm text-muted-foreground">
+              Rewards catalogue is being updated. Check back soon.
+            </p>
+          )}
         </div>
       </div>
 
       <Section title="Rewards You Can Claim">
         <div className="space-y-3">
-          {rewards.map((r) => {
+          {rewards.length === 0 ? (
+            <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+              No rewards available right now.
+            </p>
+          ) : (
+            rewards.map((r) => {
             const can = dealer.points >= r.points;
             const p = Math.min(100, (dealer.points / r.points) * 100);
             return (
               <div key={r.id} className="rounded-3xl border border-border bg-card p-4 shadow-soft">
                 <div className="flex items-center gap-3">
-                  <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-2xl">
-                    {r.emoji}
-                  </span>
+                  {r.imageUrl ? (
+                    <img
+                      src={resolveAssetUrl(r.imageUrl)}
+                      alt={r.name}
+                      className="h-14 w-14 shrink-0 rounded-2xl object-cover"
+                    />
+                  ) : (
+                    <span className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-secondary text-2xl">
+                      {r.emoji}
+                    </span>
+                  )}
                   <div className="flex-1">
                     <p className="text-base font-bold">{r.name}</p>
                     <p className="text-sm text-muted-foreground">
@@ -122,19 +160,7 @@ function Rewards() {
                   </div>
                   <button
                     disabled={!can}
-                    onClick={async () => {
-                      try {
-                        await redeemReward(r.id);
-                        setCelebrate(true);
-                        toast.success(`${r.name} claimed! We'll ship it to your shop.`);
-                        const [bal, claims] = await Promise.all([getRewardBalance(), getRewardClaims()]);
-                        setBalance(bal);
-                        setRewardHistory(claims);
-                        setTimeout(() => setCelebrate(false), 2200);
-                      } catch {
-                        toast.error("Could not redeem reward");
-                      }
-                    }}
+                    onClick={() => setConfirmReward({ id: r.id, name: r.name, emoji: r.emoji, points: r.points })}
                     className={cn(
                       "press rounded-xl px-5 py-3 text-sm font-bold",
                       can
@@ -153,7 +179,8 @@ function Rewards() {
                 </p>
               </div>
             );
-          })}
+          })
+          )}
         </div>
       </Section>
 
@@ -233,6 +260,39 @@ function Rewards() {
           </div>
         )}
       </Section>
+      <ConfirmActionDialog
+        open={!!confirmReward}
+        onOpenChange={(open) => !open && setConfirmReward(null)}
+        title="Claim this reward?"
+        description={
+          confirmReward
+            ? `Are you sure you want to claim ${confirmReward.emoji} ${confirmReward.name} for ${confirmReward.points.toLocaleString("en-IN")} points?`
+            : ""
+        }
+        confirmLabel="Yes, claim it"
+        loading={claimLoading}
+        onConfirm={async () => {
+          if (!confirmReward) return;
+          setClaimLoading(true);
+          try {
+            await redeemReward(confirmReward.id);
+            setCelebrateReward({ name: confirmReward.name, emoji: confirmReward.emoji });
+            setCelebrate(true);
+            setConfirmReward(null);
+            const [bal, claims] = await Promise.all([getRewardBalance(), getRewardClaims()]);
+            setBalance(bal);
+            setRewardHistory(claims);
+            setTimeout(() => {
+              setCelebrate(false);
+              setCelebrateReward(null);
+            }, 2800);
+          } catch {
+            toast.error("Could not redeem reward");
+          } finally {
+            setClaimLoading(false);
+          }
+        }}
+      />
     </AppShell>
   );
 }

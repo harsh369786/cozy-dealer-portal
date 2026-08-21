@@ -1,8 +1,16 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { createFileRoute } from "@tanstack/react-router";
+import { useMemo, useState } from "react";
 import { DistributorShell } from "@/components/distributor-shell";
 import { DealerPerformanceTable } from "@/components/shared/dealer-performance-table";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ChartTooltip, ChartTooltipContent, ChartContainer } from "@/components/ui/chart";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
@@ -17,12 +25,35 @@ const lineConfig = { sales: { label: "Sales", color: "#B45309" } };
 
 function ReportsPage() {
   const reducedMotion = useReducedMotion();
+  const [dealerFilter, setDealerFilter] = useState("all");
+  const [period, setPeriod] = useState<"week" | "month" | "quarter" | "year">("month");
   const simulateError =
     typeof window !== "undefined" &&
     new URLSearchParams(window.location.search).get("error") === "1";
 
   const salesQuery = useAsyncData(() => getMonthlySales(simulateError), [simulateError]);
-  const dealerQuery = useAsyncData(() => getDealerPerformance(simulateError), [simulateError]);
+  const dealerQuery = useAsyncData(
+    () =>
+      getDealerPerformance(simulateError, {
+        period,
+        dealerId: dealerFilter !== "all" ? dealerFilter : undefined,
+      }),
+    [simulateError, period, dealerFilter],
+  );
+
+  const sales = salesQuery.data ?? [];
+  const dealerData = dealerQuery.data;
+  const filteredDealers = useMemo(
+    () =>
+      dealerFilter === "all"
+        ? (dealerData?.dealers ?? [])
+        : (dealerData?.dealers.filter((d) => d.id === dealerFilter) ?? []),
+    [dealerData, dealerFilter],
+  );
+  const strongCount = filteredDealers.filter((d) => d.salesChangePct >= 5).length;
+  const weakCount = filteredDealers.filter(
+    (d) => d.salesChangePct <= -5 || (d.currentSales === 0 && d.previousSales > 0),
+  ).length;
 
   const loading = salesQuery.loading || dealerQuery.loading;
   const error = salesQuery.error || dealerQuery.error;
@@ -49,13 +80,6 @@ function ReportsPage() {
     );
   }
 
-  const sales = salesQuery.data ?? [];
-  const dealerData = dealerQuery.data;
-  const strongCount = dealerData?.dealers.filter((d) => d.salesChangePct >= 5).length ?? 0;
-  const weakCount =
-    dealerData?.dealers.filter((d) => d.salesChangePct <= -5 || (d.currentSales === 0 && d.previousSales > 0))
-      .length ?? 0;
-
   return (
     <DistributorShell title="Dealer Reports">
       <p className="mb-4 text-sm text-muted-foreground">
@@ -79,9 +103,43 @@ function ReportsPage() {
                 {weakCount} need focus
               </span>
             </div>
+            <div className="flex flex-wrap gap-2">
+              {([
+                ["week", "Weekly"],
+                ["month", "Monthly"],
+                ["quarter", "Quarterly"],
+                ["year", "Annual"],
+              ] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setPeriod(id)}
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-bold ${
+                    period === id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {dealerData.dealers.length > 1 && (
+              <Select value={dealerFilter} onValueChange={setDealerFilter}>
+                <SelectTrigger className="w-[200px] rounded-lg">
+                  <SelectValue placeholder="Filter dealer" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All dealers</SelectItem>
+                  {dealerData.dealers.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <DealerPerformanceTable
-            rows={dealerData.dealers}
+            rows={filteredDealers}
             currentMonth={dealerData.currentMonth}
             previousMonth={dealerData.previousMonth}
           />

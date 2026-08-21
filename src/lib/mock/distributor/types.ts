@@ -141,6 +141,8 @@ export type DistributorCampaign = {
   status: CampaignStatus;
   bannerEmoji: string;
   applicableDealers?: string[];
+  productId?: string;
+  imageUrl?: string;
 };
 
 export type DistributorNotification = {

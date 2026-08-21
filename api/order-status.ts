@@ -52,6 +52,19 @@ export function canTransition(from: OrderStatus, to: OrderStatus): boolean {
 }
 
 export function assertStatusUpdate(user: SessionUser, from: OrderStatus, to: OrderStatus) {
+  if (from === to) {
+    throw new Error(`Order is already ${ORDER_STATUS_LABELS[from]}`);
+  }
+  if (to === "rejected") {
+    throw new Error("Use the reject action for rejected orders");
+  }
+  // Master admin can move orders forward or backward across operational statuses.
+  if (user.role === "master_admin") {
+    if (from === "cancelled" || from === "rejected") {
+      throw new Error(`Cannot change status from ${ORDER_STATUS_LABELS[from]}`);
+    }
+    return;
+  }
   if (!canTransition(from, to)) {
     throw new Error(`Cannot change status from ${ORDER_STATUS_LABELS[from]} to ${ORDER_STATUS_LABELS[to]}`);
   }

@@ -3,16 +3,19 @@ import { useMemo, useState } from "react";
 import { CalendarDays, ChevronRight, MessageSquareWarning, User } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { CampaignPriceBlock } from "@/components/campaign-price";
-import { SearchBar, matchesSearch } from "@/components/shared/search-bar";
 import { ProgressBar } from "@/components/brand";
+import { SearchBar, matchesSearch } from "@/components/shared/search-bar";
+import { ErrorState, PageSkeleton } from "@/components/shared/states";
+import { useAsyncData } from "@/hooks/use-async-data";
 import { requireRoles } from "@/lib/auth-guard";
+import { resolveAssetUrl } from "@/lib/asset-url";
 import {
   formatCampaignDate,
-  getActivePriceCampaign,
   getCampaignPrice,
 } from "@/lib/campaign-service";
-import { campaigns, getProduct, inr } from "@/lib/demo-data";
+import { getProduct } from "@/lib/demo-data";
 import { cn } from "@/lib/utils";
+import { getDealerCampaigns, type DealerCampaign } from "@/services/campaigns";
 
 export const Route = createFileRoute("/campaigns")({
   beforeLoad: () => requireRoles(["dealer"]),
@@ -41,29 +44,31 @@ const campaignTabs: { id: CampaignTab; label: string }[] = [
   { id: "expired", label: "Expired" },
 ];
 
+function campaignSearchText(campaign: DealerCampaign) {
+  return [
+    campaign.name,
+    campaign.productName,
+    campaign.description,
+    campaign.badgeLabel,
+    campaign.discountPercent != null ? String(campaign.discountPercent) : "",
+  ];
+}
+
 function Campaigns() {
   const [tab, setTab] = useState<CampaignTab>("active");
   const [search, setSearch] = useState("");
-  const priceCampaign = tab === "active" ? getActivePriceCampaign("latexo") : null;
-  const latexo = getProduct("latexo");
-  const campaignPrice = priceCampaign
-    ? getCampaignPrice(latexo.price, priceCampaign.discountPercent)
-    : null;
 
-  const sellCampaigns = useMemo(
-    () =>
-      campaigns.filter(
-        (c) =>
-          c.status === tab &&
-          matchesSearch(search, c.title, c.goal, c.description, c.reward),
-      ),
-    [tab, search],
+  const { data, loading, error, retry } = useAsyncData(
+    () => getDealerCampaigns(tab),
+    [tab],
   );
 
-  const showPriceCampaign =
-    priceCampaign &&
-    campaignPrice &&
-    matchesSearch(search, priceCampaign.name, latexo.name, priceCampaign.description, priceCampaign.badgeLabel);
+  const campaigns = useMemo(
+    () =>
+      data?.campaigns.filter((campaign) => matchesSearch(search, ...campaignSearchText(campaign))) ??
+      [],
+    [data, search],
+  );
 
   return (
     <AppShell title="Campaigns">
@@ -84,87 +89,26 @@ function Campaigns() {
         ))}
       </div>
 
-      {showPriceCampaign && (
-        <section className="animate-rise mt-5 overflow-hidden rounded-3xl border border-primary/30 bg-card shadow-lift">
-          <div className="brand-gradient px-5 py-6 text-primary-foreground">
-            <p className="text-3xl">🔥</p>
-            <p className="mt-2 font-display text-xl font-bold">{priceCampaign.name}</p>
-            <p className="mt-1 text-sm font-semibold opacity-90">Product: {latexo.name}</p>
-            <p className="mt-2 text-sm font-bold">{priceCampaign.badgeLabel}</p>
-          </div>
-          <div className="p-5">
-            <CampaignPriceBlock
-              mrp={latexo.mrp}
-              dealerPrice={latexo.price}
-              campaignPrice={campaignPrice}
-            />
-            <p className="mt-4 text-sm text-muted-foreground">{priceCampaign.description}</p>
-            <p className="mt-3 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-              <CalendarDays className="h-4 w-4" />
-              {formatCampaignDate(priceCampaign.startAt)} –{" "}
-              {formatCampaignDate(priceCampaign.endAt)}
-            </p>
-            <Link
-              to="/products/$productId"
-              params={{ productId: "latexo" }}
-              className="press mt-5 block rounded-2xl brand-gradient py-4 text-center text-base font-bold text-primary-foreground"
-            >
-              Order Latexo
-            </Link>
-          </div>
-        </section>
+      {loading && <div className="mt-5"><PageSkeleton rows={3} /></div>}
+      {error && (
+        <div className="mt-5">
+          <ErrorState message={error} onRetry={retry} />
+        </div>
       )}
 
-      <h2 className="mb-3 mt-8 font-display text-lg font-bold">Sell & Earn Campaigns</h2>
-      {sellCampaigns.length === 0 ? (
-        <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-          {search.trim()
-            ? "No campaigns match your search."
-            : `No ${tab} sell campaigns right now.`}
-        </p>
-      ) : (
-        <div className="space-y-4">
-          {sellCampaigns.map((c, i) => {
-            const pct = (c.done / c.target) * 100;
-            return (
-              <div
-                key={c.id}
-                className="animate-rise overflow-hidden rounded-3xl border border-border bg-card shadow-soft"
-                style={{ animationDelay: `${i * 70}ms` }}
-              >
-                <div className="brand-gradient px-5 py-6 text-primary-foreground">
-                  <p className="text-3xl">{c.emoji}</p>
-                  <p className="mt-2 font-display text-xl font-bold leading-snug">{c.title}</p>
-                  <p className="mt-1 text-sm font-semibold opacity-90">{c.goal}</p>
-                </div>
-                <div className="p-5">
-                  <p className="font-display text-2xl font-bold text-primary">Earn {c.reward}</p>
-                  {tab === "active" && (
-                    <>
-                      <ProgressBar value={pct} className="mt-4" />
-                      <div className="mt-2 flex items-center justify-between text-sm font-semibold">
-                        <span>
-                          {c.done} / {c.target}
-                        </span>
-                        <span className="text-muted-foreground">{c.target - c.done} more to go!</span>
-                      </div>
-                    </>
-                  )}
-                  <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-                    <CalendarDays className="h-4 w-4" /> {c.starts} – {c.ends}
-                  </p>
-                  {tab !== "expired" && (
-                    <Link
-                      to="/products"
-                      className="press mt-4 block rounded-2xl border border-border bg-secondary py-3.5 text-center text-base font-bold"
-                    >
-                      {tab === "upcoming" ? "View Products" : "Start Selling"}
-                    </Link>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+      {!loading && !error && (
+        <div className="mt-5 space-y-4">
+          {campaigns.length === 0 ? (
+            <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+              {search.trim()
+                ? "No campaigns match your search."
+                : `No ${tab} campaigns right now.`}
+            </p>
+          ) : (
+            campaigns.map((campaign, i) => (
+              <DealerCampaignCard key={campaign.id} campaign={campaign} tab={tab} index={i} />
+            ))
+          )}
         </div>
       )}
 
@@ -198,5 +142,103 @@ function Campaigns() {
         </Link>
       </div>
     </AppShell>
+  );
+}
+
+function DealerCampaignCard({
+  campaign,
+  tab,
+  index,
+}: {
+  campaign: DealerCampaign;
+  tab: CampaignTab;
+  index: number;
+}) {
+  const hasProductPricing = Boolean(campaign.productId && campaign.discountPercent);
+  const product = campaign.productId ? getProduct(campaign.productId) : null;
+  const campaignPrice =
+    product && campaign.discountPercent
+      ? getCampaignPrice(product.price, campaign.discountPercent)
+      : null;
+  const hasVolumeGoal = Boolean(campaign.target && campaign.target > 0);
+  const pct =
+    hasVolumeGoal && campaign.target
+      ? ((campaign.done ?? 0) / campaign.target) * 100
+      : 0;
+
+  return (
+    <section
+      className="animate-rise overflow-hidden rounded-3xl border border-border bg-card shadow-soft"
+      style={{ animationDelay: `${index * 70}ms` }}
+    >
+      {campaign.imageUrl ? (
+        <img
+          src={resolveAssetUrl(campaign.imageUrl)}
+          alt={campaign.name}
+          className="h-40 w-full object-cover"
+        />
+      ) : (
+        <div className="brand-gradient px-5 py-6 text-primary-foreground">
+          <p className="text-3xl">{hasVolumeGoal ? "🎯" : "🔥"}</p>
+        </div>
+      )}
+      <div className="brand-gradient px-5 py-4 text-primary-foreground">
+        <p className="font-display text-xl font-bold">{campaign.name}</p>
+        {campaign.productName && (
+          <p className="mt-1 text-sm font-semibold opacity-90">Product: {campaign.productName}</p>
+        )}
+        <p className="mt-2 text-sm font-bold">
+          {campaign.badgeLabel ??
+            (campaign.discountPercent
+              ? `${campaign.discountPercent}% campaign discount`
+              : "Campaign offer")}
+        </p>
+      </div>
+      <div className="p-5">
+        {hasProductPricing && product && campaignPrice != null && (
+          <CampaignPriceBlock
+            mrp={product.mrp}
+            dealerPrice={product.price}
+            campaignPrice={campaignPrice}
+          />
+        )}
+        <p className="mt-4 text-sm text-muted-foreground">{campaign.description}</p>
+        {hasVolumeGoal && tab === "active" && (
+          <>
+            <ProgressBar value={pct} className="mt-4" />
+            <div className="mt-2 flex items-center justify-between text-sm font-semibold">
+              <span>
+                {campaign.done ?? 0} / {campaign.target}
+              </span>
+              <span className="text-muted-foreground">
+                {Math.max(0, (campaign.target ?? 0) - (campaign.done ?? 0))} more to go!
+              </span>
+            </div>
+          </>
+        )}
+        <p className="mt-3 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+          <CalendarDays className="h-4 w-4" />
+          {formatCampaignDate(campaign.startDate)} – {formatCampaignDate(campaign.endDate)}
+        </p>
+        {tab !== "expired" && campaign.productId && (
+          <Link
+            to="/products/$productId"
+            params={{ productId: campaign.productId }}
+            search={{ campaignId: campaign.id }}
+            className="press mt-5 block rounded-2xl brand-gradient py-4 text-center text-base font-bold text-primary-foreground"
+          >
+            Order {campaign.productName ?? "product"}
+          </Link>
+        )}
+        {tab !== "expired" && !campaign.productId && (
+          <Link
+            to="/products"
+            className="press mt-4 block rounded-2xl border border-border bg-secondary py-3.5 text-center text-base font-bold"
+          >
+            {tab === "upcoming" ? "View Products" : "Start Selling"}
+          </Link>
+        )}
+      </div>
+    </section>
   );
 }

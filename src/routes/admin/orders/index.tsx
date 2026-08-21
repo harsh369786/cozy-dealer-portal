@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AdminDataTable } from "@/components/admin/admin-data-table";
 import { AdminFilterTabs, AdminFiltersBar } from "@/components/admin/admin-filters-bar";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
@@ -7,11 +7,15 @@ import { AdminPagination } from "@/components/admin/admin-pagination";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { inr } from "@/lib/demo-data";
 import type { OrderStatus } from "@/lib/mock/distributor/types";
 import { listOrders } from "@/services/admin/orders";
 
 export const Route = createFileRoute("/admin/orders/")({
+  validateSearch: (s: Record<string, unknown>) => ({
+    status: (s.status as OrderStatus | "all") || undefined,
+  }),
   component: AdminOrdersPage,
 });
 
@@ -20,37 +24,55 @@ const STATUS_TABS: Array<{ value: OrderStatus | "all"; label: string }> = [
   { value: "order_placed", label: "Order placed" },
   { value: "approved", label: "Approved" },
   { value: "rejected", label: "Rejected" },
+  { value: "in_making", label: "In making" },
+  { value: "out_for_delivery", label: "Out for delivery" },
   { value: "delivered", label: "Delivered" },
 ];
 
 function AdminOrdersPage() {
   const navigate = useNavigate();
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<OrderStatus | "all">("all");
+  const { status: statusFromUrl } = Route.useSearch();
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebouncedValue(searchInput, 350);
+  const [status, setStatus] = useState<OrderStatus | "all">(statusFromUrl ?? "all");
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    if (statusFromUrl) setStatus(statusFromUrl);
+  }, [statusFromUrl]);
 
   const { data, loading, error, retry } = useAsyncData(
     () => listOrders({ search, status, page, pageSize: 10 }),
     [search, status, page],
   );
 
-  if (loading) return <PageSkeleton rows={4} />;
-  if (error || !data) return <ErrorState message={error ?? "Failed to load orders"} onRetry={retry} />;
+  if (loading && !data) return <PageSkeleton rows={4} />;
+  if (error && !data) return <ErrorState message={error ?? "Failed to load orders"} onRetry={retry} />;
 
   return (
     <div>
       <AdminPageHeader title="Orders" description="View and manage all orders across the network." />
 
-      <AdminFiltersBar search={search} onSearchChange={(v) => { setSearch(v); setPage(1); }} searchPlaceholder="Search orders…">
+      <AdminFiltersBar
+        search={searchInput}
+        onSearchChange={(v) => {
+          setSearchInput(v);
+          setPage(1);
+        }}
+        searchPlaceholder="Search by order ID, dealer or store…"
+      >
         <AdminFilterTabs
           value={status}
-          onChange={(v) => { setStatus(v as OrderStatus | "all"); setPage(1); }}
+          onChange={(v) => {
+            setStatus(v as OrderStatus | "all");
+            setPage(1);
+          }}
           tabs={STATUS_TABS}
         />
       </AdminFiltersBar>
 
       <AdminDataTable
-        data={data.items}
+        data={data?.items ?? []}
         keyFn={(o) => o.id}
         onRowClick={(o) => navigate({ to: "/admin/orders/$orderId", params: { orderId: o.id } })}
         emptyTitle="No orders found"
@@ -64,7 +86,9 @@ function AdminOrdersPage() {
         ]}
       />
 
-      <AdminPagination page={data.page} totalPages={data.totalPages} onPageChange={setPage} />
+      {data && (
+        <AdminPagination page={data.page} totalPages={data.totalPages} onPageChange={setPage} />
+      )}
     </div>
   );
 }

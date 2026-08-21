@@ -1,4 +1,4 @@
-import { createNotification } from "./notifications";
+import { createNotification, createNotificationsBatch } from "./notifications";
 
 export type NotifyInput = {
   category: string;
@@ -12,9 +12,11 @@ export type NotifyInput = {
 
 async function notifyUserIds(db: D1Database, userIds: string[], input: NotifyInput) {
   const unique = [...new Set(userIds.filter(Boolean))];
-  for (const recipientUserId of unique) {
-    await createNotification(db, { recipientUserId, ...input });
-  }
+  if (!unique.length) return;
+  await createNotificationsBatch(
+    db,
+    unique.map((recipientUserId) => ({ recipientUserId, ...input })),
+  );
 }
 
 export async function notifyUser(db: D1Database, userId: string, input: NotifyInput) {
@@ -182,7 +184,7 @@ export async function notifyOrderStatusChange(
   if (toStatus === "in_making") {
     await notifyDealerUsers(db, ctx.dealer_id, {
       category: "orders",
-      type: "order_approved",
+      type: "order_in_making",
       title: "Order in production",
       body: `Order ${orderId} is now being manufactured`,
       link: dealerLink,
@@ -193,7 +195,7 @@ export async function notifyOrderStatusChange(
   if (toStatus === "out_for_delivery") {
     await notifyDealerUsers(db, ctx.dealer_id, {
       category: "orders",
-      type: "order_approved",
+      type: "order_out_for_delivery",
       title: "Order out for delivery",
       body: `Order ${orderId} is on the way to ${store}`,
       link: dealerLink,
@@ -208,22 +210,19 @@ export async function notifyOrderStatusChange(
         : "";
     await notifyDealerUsers(db, ctx.dealer_id, {
       category: "orders",
-      type: "order_approved",
-      title: "Order delivered",
+      type: "order_delivered",
       body: `Order ${orderId} has been delivered.${pointsMsg}`,
       link: dealerLink,
     });
     await notifyDistributorsForOrg(db, ctx.distributor_id, {
       category: "orders",
-      type: "order_approved",
-      title: "Order delivered",
+      type: "order_delivered",
       body: `Order ${orderId} for ${store} has been delivered`,
       link: distLink,
     });
     await notifyMasterAdmins(db, {
       category: "orders",
-      type: "order_approved",
-      title: "Order delivered",
+      type: "order_delivered",
       body: `Order ${orderId} has been marked delivered`,
       link: adminLink,
     });

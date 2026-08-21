@@ -4,6 +4,7 @@ import {
   assertStatusUpdate,
   canRoleSetStatus,
   normalizeLegacyStatus,
+  ORDER_STATUSES,
   ORDER_STATUS_LABELS,
   type OrderStatus,
 } from "../order-status";
@@ -98,7 +99,7 @@ export async function createOrder(
     thickness: input.thickness,
   });
 
-  const orderId = `BR-${Date.now().toString().slice(-5)}`;
+  const orderId = id("BR");
   const placedAt = nowIso();
 
   await db
@@ -353,7 +354,9 @@ async function handleOrderDelivered(
   if (dealerPoints > 0) {
     const dealerId = order.dealer_id as string;
     const last = await db
-      .prepare(`SELECT balance_after FROM points_ledger WHERE dealer_id = ? ORDER BY occurred_at DESC LIMIT 1`)
+      .prepare(
+        `SELECT balance_after FROM points_ledger WHERE dealer_id = ? ORDER BY occurred_at DESC, id DESC LIMIT 1`,
+      )
       .bind(dealerId)
       .first<{ balance_after: number }>();
     const balance = (last?.balance_after ?? 0) + dealerPoints;
@@ -486,17 +489,21 @@ async function batchOrderItems(db: D1Database, orderIds: string[]) {
   const map = new Map<string, Record<string, unknown>[]>();
   if (!orderIds.length) return map;
 
-  const placeholders = orderIds.map(() => "?").join(",");
-  const { results } = await db
-    .prepare(`SELECT * FROM order_items WHERE order_id IN (${placeholders}) ORDER BY order_id, id`)
-    .bind(...orderIds)
-    .all<Record<string, unknown>>();
+  const chunkSize = 90;
+  for (let i = 0; i < orderIds.length; i += chunkSize) {
+    const chunk = orderIds.slice(i, i + chunkSize);
+    const placeholders = chunk.map(() => "?").join(",");
+    const { results } = await db
+      .prepare(`SELECT * FROM order_items WHERE order_id IN (${placeholders}) ORDER BY order_id, id`)
+      .bind(...chunk)
+      .all<Record<string, unknown>>();
 
-  for (const item of results) {
-    const orderId = item.order_id as string;
-    const list = map.get(orderId) ?? [];
-    list.push(item);
-    map.set(orderId, list);
+    for (const item of results) {
+      const orderId = item.order_id as string;
+      const list = map.get(orderId) ?? [];
+      list.push(item);
+      map.set(orderId, list);
+    }
   }
   return map;
 }
@@ -555,6 +562,8 @@ export type ListOrdersOptions = {
   distributorId?: string;
   status?: string;
   search?: string;
+  fromDate?: string;
+  toDate?: string;
   page?: number;
   pageSize?: number;
 };
@@ -567,24 +576,25 @@ export type PaginatedOrders = {
   totalPages: number;
 };
 
-export async function listOrders(
-  db: D1Database,
-  opts: ListOrdersOptions,
-): Promise<PaginatedOrders | Awaited<ReturnType<typeof mapListOrderRow>>[]> {
-  let sql = `SELECT o.*, d.store_name as dealer_name, d.code as dealer_code, d.address as dealer_address, d.contact_name,
-                    dist.name as distributor_name
-             FROM orders o
-             JOIN dealers d ON d.id = o.dealer_id
-             JOIN distributors dist ON dist.id = o.distributor_id
-             WHERE o.deleted_at IS NULL`;
+const ORDER_LIST_FROM = `FROM orders o
+  JOIN dealers d ON d.id = o.dealer_id
+  JOIN distributors dist ON dist.id = o.distributor_id`;
+
+const ORDER_LIST_SELECT = `SELECT o.*, d.store_name as dealer_name, d.code as dealer_code, d.address as dealer_address, d.contact_name,
+  dist.name as distributor_name`;
+
+const DEFAULT_UNPAGINATED_LIMIT = 500;
+
+function buildOrdersWhereClause(opts: ListOrdersOptions): { clause: string; binds: unknown[] } {
+  let clause = `WHERE o.deleted_at IS NULL`;
   const binds: unknown[] = [];
 
   if (opts.dealerIds?.length) {
-    sql += ` AND o.dealer_id IN (${opts.dealerIds.map(() => "?").join(",")})`;
+    clause += ` AND o.dealer_id IN (${opts.dealerIds.map(() => "?").join(",")})`;
     binds.push(...opts.dealerIds);
   }
   if (opts.distributorId) {
-    sql += ` AND o.distributor_id = ?`;
+    clause += ` AND o.distributor_id = ?`;
     binds.push(opts.distributorId);
   }
   if (opts.status) {
@@ -594,40 +604,58 @@ export async function listOrders(
     };
     const dbStatus = legacyMap[opts.status] ?? opts.status;
     if (dbStatus === "order_placed") {
-      sql += ` AND o.status IN ('order_placed', 'pending_approval')`;
+      clause += ` AND o.status IN ('order_placed', 'pending_approval')`;
     } else {
-      sql += ` AND o.status = ?`;
+      clause += ` AND o.status = ?`;
       binds.push(dbStatus);
     }
   }
   if (opts.search) {
-    sql += ` AND (o.id LIKE ? OR d.store_name LIKE ? OR d.code LIKE ?)`;
+    clause += ` AND (o.id LIKE ? OR d.store_name LIKE ? OR d.code LIKE ?)`;
     const q = `%${opts.search}%`;
     binds.push(q, q, q);
   }
+  if (opts.fromDate) {
+    clause += ` AND o.placed_at >= ?`;
+    binds.push(`${opts.fromDate}T00:00:00.000Z`);
+  }
+  if (opts.toDate) {
+    clause += ` AND o.placed_at <= ?`;
+    binds.push(`${opts.toDate}T23:59:59.999Z`);
+  }
 
+  return { clause, binds };
+}
+
+export async function listOrders(
+  db: D1Database,
+  opts: ListOrdersOptions,
+): Promise<PaginatedOrders | Awaited<ReturnType<typeof mapListOrderRow>>[]> {
+  const { clause, binds: filterBinds } = buildOrdersWhereClause(opts);
   const paginate = opts.page != null || opts.pageSize != null;
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 50));
 
   let total = 0;
   if (paginate) {
-    const countSql = sql.replace(
-      /^SELECT o\.\*, d\.store_name as dealer_name.*?FROM orders o/s,
-      "SELECT COUNT(*) as total FROM orders o",
-    );
     const countRow = await db
-      .prepare(countSql)
-      .bind(...binds)
+      .prepare(`SELECT COUNT(*) as total ${ORDER_LIST_FROM} ${clause}`)
+      .bind(...filterBinds)
       .first<{ total: number }>();
     total = countRow?.total ?? 0;
-    sql += ` ORDER BY o.placed_at DESC LIMIT ? OFFSET ?`;
-    binds.push(pageSize, (page - 1) * pageSize);
-  } else {
-    sql += ` ORDER BY o.placed_at DESC`;
   }
 
-  const { results } = await db.prepare(sql).bind(...binds).all<Record<string, unknown>>();
+  const execBinds = [...filterBinds];
+  let sql = `${ORDER_LIST_SELECT} ${ORDER_LIST_FROM} ${clause} ORDER BY o.placed_at DESC`;
+  if (paginate) {
+    sql += ` LIMIT ? OFFSET ?`;
+    execBinds.push(pageSize, (page - 1) * pageSize);
+  } else {
+    sql += ` LIMIT ?`;
+    execBinds.push(DEFAULT_UNPAGINATED_LIMIT);
+  }
+
+  const { results } = await db.prepare(sql).bind(...execBinds).all<Record<string, unknown>>();
   const orderIds = results.map((row) => row.id as string);
   const itemsByOrder = await batchOrderItems(db, orderIds);
   const items = results.map((row) =>
@@ -647,11 +675,17 @@ export async function listOrders(
 
 export function getAllowedStatusTargets(actor: SessionUser, currentStatus: string): OrderStatus[] {
   const from = normalizeLegacyStatus(currentStatus);
+  if (from === "rejected" || from === "cancelled") return [];
+
+  if (actor.role === "master_admin") {
+    return ORDER_STATUSES.filter((s) => s !== from && s !== "rejected");
+  }
+
   const targets: OrderStatus[] = [];
   const candidates: OrderStatus[] = ["approved", "in_making", "out_for_delivery", "delivered"];
   for (const to of candidates) {
     try {
-      assertStatusUpdate(actor as import("../types").SessionUser, from, to);
+      assertStatusUpdate(actor, from, to);
       targets.push(to);
     } catch {
       // not allowed

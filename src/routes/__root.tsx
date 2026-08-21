@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "../components/ui/sonner";
 import { OfflineBanner } from "../components/shared/offline-banner";
+import { PwaInstallPrompt } from "../components/shared/pwa-install-prompt";
 import { useOnline } from "../hooks/use-online";
 
 function NotFoundComponent() {
@@ -103,9 +104,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", type: "image/png", href: "/favicon.png" },
+      { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon.png" },
       { rel: "manifest", href: "/manifest.webmanifest" },
-      { rel: "apple-touch-icon", href: "/icons/icon-192.png" },
+      {
+        rel: "apple-touch-icon",
+        type: "image/png",
+        sizes: "180x180",
+        href: "/icons/apple-touch-icon.png",
+      },
     ],
   }),
 
@@ -119,6 +125,18 @@ function RootShell({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link
+          rel="apple-touch-icon"
+          type="image/png"
+          sizes="180x180"
+          href="/icons/apple-touch-icon.png"
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if("serviceWorker"in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js",{scope:"/",updateViaCache:"none"}).catch(function(){});});}`,
+          }}
+        />
         <HeadContent />
       </head>
       <body>
@@ -134,14 +152,6 @@ function RootComponent() {
   const { online, mounted } = useOnline();
   const showOffline = mounted && !online;
 
-  useEffect(() => {
-    if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-      navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" }).catch((err) => {
-        console.warn("Service worker registration failed:", err);
-      });
-    }
-  }, []);
-
   return (
     <QueryClientProvider client={queryClient}>
       {showOffline && <OfflineBanner />}
@@ -149,6 +159,7 @@ function RootComponent() {
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
       </div>
+      <PwaInstallPrompt />
       <Toaster position="top-center" richColors />
     </QueryClientProvider>
   );

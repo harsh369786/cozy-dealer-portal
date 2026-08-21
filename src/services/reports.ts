@@ -16,11 +16,18 @@ export async function getProductSales(simulateError = false): Promise<ProductSal
   return api.get<ProductSales[]>("/api/v1/reports/product-sales");
 }
 
-export async function getDealerPerformance(simulateError = false) {
+export async function getDealerPerformance(
+  simulateError = false,
+  opts: { period?: "week" | "month" | "quarter" | "year"; dealerId?: string } = {},
+) {
   if (simulateError) throw new Error("Failed to load dealer performance");
+  const params = new URLSearchParams();
+  if (opts.period) params.set("period", opts.period);
+  if (opts.dealerId) params.set("dealerId", opts.dealerId);
+  const q = params.toString();
   return api.get<{
     currentMonth: string;
     previousMonth: string;
     dealers: import("@/lib/mock/distributor/types").DealerPerformanceRow[];
-  }>("/api/v1/reports/dealer-performance");
+  }>(`/api/v1/reports/dealer-performance${q ? `?${q}` : ""}`);
 }

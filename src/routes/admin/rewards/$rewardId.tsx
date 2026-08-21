@@ -1,13 +1,14 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
+import { ConfirmActionDialog } from "@/components/shared/dialogs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
-import { getRewardItem, saveRewardItem } from "@/services/admin/rewards";
+import { deleteRewardItem, getRewardItem, saveRewardItem } from "@/services/admin/rewards";
 import { RewardEditor } from "./new";
 
 export const Route = createFileRoute("/admin/rewards/$rewardId")({
@@ -16,9 +17,12 @@ export const Route = createFileRoute("/admin/rewards/$rewardId")({
 
 function EditRewardPage() {
   const { rewardId } = Route.useParams();
+  const navigate = useNavigate();
   const { can } = useAdminPermissions();
   const [local, setLocal] = useState<Awaited<ReturnType<typeof getRewardItem>>>(null);
   const [saving, setSaving] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const { loading, error, retry } = useAsyncData(async () => {
     const item = await getRewardItem(rewardId);
@@ -46,6 +50,20 @@ function EditRewardPage() {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await deleteRewardItem(rewardId);
+      toast.success("Reward deleted");
+      navigate({ to: "/admin/rewards" });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setDeleting(false);
+      setDeleteOpen(false);
     }
   };
 
@@ -77,6 +95,29 @@ function EditRewardPage() {
         onSave={handleSave}
         saving={saving}
         readOnly={readOnly}
+      />
+
+      {!readOnly && (
+        <div className="mt-6">
+          <Button
+            variant="outline"
+            className="rounded-lg border-destructive font-bold text-destructive hover:bg-destructive/5"
+            onClick={() => setDeleteOpen(true)}
+          >
+            Delete reward
+          </Button>
+        </div>
+      )}
+
+      <ConfirmActionDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete reward"
+        description={`Permanently delete "${local.name}" from the catalogue? This cannot be undone.`}
+        confirmLabel="Delete reward"
+        onConfirm={handleDelete}
+        loading={deleting}
+        variant="destructive"
       />
     </div>
   );

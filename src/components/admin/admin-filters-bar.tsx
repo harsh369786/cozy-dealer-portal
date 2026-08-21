@@ -46,7 +46,7 @@ export function AdminFilterTabs({
             type="button"
             onClick={() => onChange(tab.value)}
             className={cn(
-              "rounded-2xl border px-3 py-1.5 text-sm font-bold transition-colors",
+              "rounded-lg border px-3 py-1.5 text-sm font-bold transition-colors",
               active
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-border bg-card text-foreground hover:bg-secondary",

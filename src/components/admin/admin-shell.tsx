@@ -120,7 +120,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
   const roleLabel = isMasterAdmin ? "Master Admin" : user?.role === "admin_staff" ? "Admin Staff" : user?.role;
 
   return (
-    <SidebarProvider>
+    <SidebarProvider className="h-svh overflow-hidden">
       <MobileSidebarAutoClose />
       <Sidebar className="border-r border-border/60 bg-card text-foreground">
         <SidebarHeader className="border-b border-border/60 p-4">
@@ -178,11 +178,13 @@ export function AdminShell({ children }: { children: ReactNode }) {
           </div>
         </SidebarFooter>
       </Sidebar>
-      <SidebarInset className="bg-background">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-border/60 bg-background/90 px-4 backdrop-blur lg:px-6">
+      <SidebarInset className="min-h-0 overflow-hidden bg-background">
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-border/60 bg-background/90 px-4 backdrop-blur lg:px-6">
           <SidebarTrigger className="-ml-1" />
         </header>
-        <main className={cn("mx-auto w-full max-w-7xl flex-1 p-4 lg:p-6")}>{children}</main>
+        <main className={cn("mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-y-auto p-4 pb-8 lg:p-6 lg:pb-10")}>
+          {children}
+        </main>
       </SidebarInset>
     </SidebarProvider>
   );

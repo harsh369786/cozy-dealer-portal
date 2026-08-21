@@ -8,6 +8,8 @@ export function StatCard({
   icon: Icon,
   className,
   valueTitle,
+  onClick,
+  href,
 }: {
   label: string;
   value: string | number;
@@ -15,11 +17,22 @@ export function StatCard({
   icon?: React.ComponentType<{ className?: string }>;
   className?: string;
   valueTitle?: string;
+  onClick?: () => void;
+  href?: string;
 }) {
+  const Wrapper = href ? "a" : onClick ? "button" : "div";
+  const wrapperProps = href
+    ? { href }
+    : onClick
+      ? { type: "button" as const, onClick }
+      : {};
+
   return (
-    <div
+    <Wrapper
+      {...wrapperProps}
       className={cn(
-        "animate-rise rounded-3xl border border-border bg-card p-4 shadow-soft",
+        "animate-rise block w-full rounded-xl border border-border bg-card p-4 text-left shadow-soft",
+        (onClick || href) && "press cursor-pointer transition-colors hover:border-primary/40 hover:bg-secondary/30",
         className,
       )}
     >
@@ -37,11 +50,11 @@ export function StatCard({
           )}
         </div>
         {Icon && (
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-secondary">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-secondary">
             <Icon className="h-5 w-5 text-primary" />
           </span>
         )}
       </div>
-    </div>
+    </Wrapper>
   );
 }

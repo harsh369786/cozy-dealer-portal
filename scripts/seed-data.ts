@@ -197,20 +197,19 @@ export async function runSeed(db: D1Database) {
   for (const c of campaigns) {
     await db
       .prepare(
-        `INSERT INTO sell_campaigns (id, title, emoji, goal_text, reward_text, target_count, done_count, starts_at, ends_at, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO price_campaigns (id, name, product_id, discount_percent, start_at, end_at, description, badge_label, status, target_count, done_count)
+         VALUES (?, ?, NULL, 0, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         c.id,
         c.title,
-        c.emoji,
-        c.goal,
-        c.reward,
-        c.target,
-        c.done,
         new Date(c.starts).toISOString(),
         new Date(c.ends).toISOString(),
+        `${c.goal}\n\nReward: ${c.reward}`,
+        c.reward,
         c.status,
+        c.target,
+        c.done,
       )
       .run();
   }
@@ -218,20 +217,18 @@ export async function runSeed(db: D1Database) {
   for (const c of seedCampaigns) {
     await db
       .prepare(
-        `INSERT INTO distributor_campaigns (id, distributor_id, name, product_name, discount_label, description, start_date, end_date, status, banner_emoji)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO price_campaigns (id, name, product_id, discount_percent, start_at, end_at, description, badge_label, status, distributor_id)
+         VALUES (?, ?, NULL, 0, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         c.id,
-        c.distributorId,
         c.name,
-        c.product,
-        c.discountLabel,
-        c.description,
         c.startDate,
         c.endDate,
+        c.description,
+        c.discountLabel,
         c.status,
-        c.bannerEmoji,
+        c.distributorId,
       )
       .run();
   }

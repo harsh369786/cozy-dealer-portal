@@ -1,7 +1,7 @@
 import { api } from "@/lib/api-client";
 
 export async function getRewardCatalog() {
-  return api.get<Array<{ id: string; name: string; emoji: string; points: number }>>(
+  return api.get<Array<{ id: string; name: string; emoji: string; points: number; imageUrl?: string }>>(
     "/api/v1/rewards/catalog",
   );
 }

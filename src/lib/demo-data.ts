@@ -1,12 +1,27 @@
-import mattress from "@/assets/mattress-premium.jpg";
-import pillow from "@/assets/pillow-memory.jpg";
-import cushion from "@/assets/cushion-support.jpg";
+import { assetPublicPath, STATIC_ASSET_KEYS } from "@/lib/asset-url";
+
+const mattress = assetPublicPath(STATIC_ASSET_KEYS.products.mattressPremium);
+const pillow = assetPublicPath(STATIC_ASSET_KEYS.products.pillowMemory);
+const cushion = assetPublicPath(STATIC_ASSET_KEYS.products.cushionSupport);
+
+export const PRODUCT_CATEGORIES = ["Mattresses", "Foldable", "Pillows"] as const;
+
+export const PRODUCT_GUARANTEES = [
+  "3 Years",
+  "5 Years",
+  "7 Years",
+  "10 Years",
+  "12 Years",
+] as const;
+
+/** Dealer catalogue grouping — warranty tiers only (not product categories). */
+export const PRODUCT_CATALOGUE_LAYERS = [...PRODUCT_GUARANTEES] as const;
 
 export type Product = {
   id: string;
   name: string;
-  category: "Mattresses" | "Foldable" | "Pillows";
-  guarantee: string;
+  category: (typeof PRODUCT_CATEGORIES)[number];
+  guarantee: (typeof PRODUCT_GUARANTEES)[number];
   thicknesses: string[];
   fixedSize?: string;
   mrp: number;
@@ -155,7 +170,7 @@ export const products: Product[] = [
     id: "2-fold-mattress",
     name: "2 Fold Mattress",
     category: "Foldable",
-    guarantee: "Foldable",
+    guarantee: "3 Years",
     thicknesses: ['2"', '3"'],
     fixedSize: "36 × 72",
     mrp: 4200,
@@ -169,7 +184,7 @@ export const products: Product[] = [
     id: "3-fold-mattress",
     name: "3 Fold Mattress",
     category: "Foldable",
-    guarantee: "Foldable",
+    guarantee: "3 Years",
     thicknesses: ['2"', '3"'],
     fixedSize: "36 × 72",
     mrp: 4600,
@@ -185,7 +200,7 @@ const P = (name: string, size: string, mrp: number, price: number, points: numbe
   id: "pillow-" + name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
   name,
   category: "Pillows",
-  guarantee: "Pillow",
+  guarantee: "3 Years",
   thicknesses: [],
   fixedSize: size,
   mrp,

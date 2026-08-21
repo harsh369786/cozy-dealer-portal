@@ -201,7 +201,7 @@ export function computeProductTrends(scope: AnalyticsScope): ProductTrendRow[] {
 
 export function computeCampaignPerformance(scope: AnalyticsScope): CampaignPerformanceRow[] {
   return scope.campaigns
-    .filter((c) => c.type === "sell" && c.target && c.active)
+    .filter((c) => c.target && c.active)
     .map((c) => {
       const done = c.done ?? 0;
       const target = c.target ?? 1;

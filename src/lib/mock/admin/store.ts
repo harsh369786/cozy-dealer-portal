@@ -199,7 +199,6 @@ export const adminStore = {
     ...seedCampaigns.map(
       (c): AdminCampaign => ({
         id: c.id,
-        type: "distributor",
         name: c.name,
         product: c.product,
         description: c.description,
@@ -216,7 +215,6 @@ export const adminStore = {
     ),
     {
       id: "pc-latexo-aug",
-      type: "price",
       name: "Latexo August Special",
       product: "Latexo",
       productId: "latexo",
@@ -232,7 +230,6 @@ export const adminStore = {
     },
     {
       id: "sc-ortho-q3",
-      type: "sell",
       name: "Orthomatic Q3 Push",
       product: "Orthomatic",
       goal: "Sell 20 Orthomatic mattresses",

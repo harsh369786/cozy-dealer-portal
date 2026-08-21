@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { AdminProduct } from "@/lib/mock/admin/types";
+import { PRODUCT_CATALOGUE_LAYERS, PRODUCT_CATEGORIES, PRODUCT_GUARANTEES } from "@/lib/demo-data";
 import { saveProduct } from "@/services/admin/products";
 
 export const Route = createFileRoute("/admin/products/new")({
@@ -96,13 +97,15 @@ export function ProductEditor({
   readOnly?: boolean;
 }) {
   return (
-    <Tabs defaultValue="basics" className="space-y-4">
-      <TabsList className="rounded-2xl">
-        <TabsTrigger value="basics">Basics</TabsTrigger>
-        <TabsTrigger value="sizes">Sizes & thickness</TabsTrigger>
-        <TabsTrigger value="pricing">Pricing</TabsTrigger>
-        <TabsTrigger value="catalogue">Catalogue layer</TabsTrigger>
-      </TabsList>
+    <Tabs defaultValue="basics" className="space-y-4 pb-4">
+      <div className="-mx-1 overflow-x-auto px-1 scrollbar-none">
+        <TabsList className="inline-flex w-max min-w-full rounded-2xl">
+          <TabsTrigger value="basics">Basics</TabsTrigger>
+          <TabsTrigger value="sizes">Sizes & thickness</TabsTrigger>
+          <TabsTrigger value="pricing">Pricing</TabsTrigger>
+          <TabsTrigger value="catalogue">Catalogue layer</TabsTrigger>
+        </TabsList>
+      </div>
 
       <TabsContent value="basics">
         <AdminSection title="Basics">
@@ -118,12 +121,22 @@ export function ProductEditor({
             </div>
             <div>
               <Label>Category</Label>
-              <Input
+              <Select
                 value={product.category}
                 disabled={readOnly}
-                onChange={(e) => onChange({ category: e.target.value })}
-                className="mt-1 rounded-2xl"
-              />
+                onValueChange={(v) => onChange({ category: v })}
+              >
+                <SelectTrigger className="mt-1 rounded-2xl">
+                  <SelectValue placeholder="Select category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRODUCT_CATEGORIES.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {category}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Description</Label>
@@ -136,15 +149,28 @@ export function ProductEditor({
             </div>
             <div>
               <Label>Guarantee</Label>
-              <Input
+              <Select
                 value={product.guarantee}
                 disabled={readOnly}
-                onChange={(e) => onChange({ guarantee: e.target.value })}
-                className="mt-1 rounded-2xl"
-              />
-            </div>
-            <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-              Image upload placeholder (R2 integration coming soon)
+                onValueChange={(v) =>
+                  onChange({
+                    guarantee: v,
+                    layerGroup:
+                      !product.layerGroup || product.layerGroup === product.guarantee ? v : product.layerGroup,
+                  })
+                }
+              >
+                <SelectTrigger className="mt-1 rounded-2xl">
+                  <SelectValue placeholder="Select guarantee" />
+                </SelectTrigger>
+                <SelectContent>
+                  {PRODUCT_GUARANTEES.map((guarantee) => (
+                    <SelectItem key={guarantee} value={guarantee}>
+                      {guarantee}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </AdminSection>
@@ -269,13 +295,23 @@ export function ProductEditor({
       <TabsContent value="catalogue">
         <AdminSection title="Catalogue layer">
           <div className="max-w-lg">
-            <Label>Guarantee group</Label>
-            <Input
+            <Label>Catalogue layer (warranty group)</Label>
+            <Select
               value={product.layerGroup ?? product.guarantee}
               disabled={readOnly}
-              onChange={(e) => onChange({ layerGroup: e.target.value })}
-              className="mt-1 rounded-2xl"
-            />
+              onValueChange={(v) => onChange({ layerGroup: v })}
+            >
+              <SelectTrigger className="mt-1 rounded-2xl">
+                <SelectValue placeholder="Select catalogue layer" />
+              </SelectTrigger>
+              <SelectContent>
+                {PRODUCT_CATALOGUE_LAYERS.map((layer) => (
+                  <SelectItem key={layer} value={layer}>
+                    {layer}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </AdminSection>
       </TabsContent>

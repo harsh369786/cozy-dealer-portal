@@ -9,7 +9,7 @@ export function DealerCard({ dealer }: { dealer: DistributorDealer }) {
     <Link
       to="/distributor/dealers/$dealerId"
       params={{ dealerId: dealer.id }}
-      className="press block rounded-3xl border border-border bg-card p-4 shadow-soft"
+      className="press block rounded-xl border border-border bg-card p-4 shadow-soft"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">

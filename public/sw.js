@@ -1,5 +1,13 @@
-const CACHE = "backrest-static-v2";
-const PRECACHE = ["/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/favicon.png"];
+const CACHE = "backrest-static-v7";
+const PRECACHE = [
+  "/",
+  "/manifest.webmanifest",
+  "/icons/apple-touch-icon.png",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/icons/icon-maskable-512.png",
+  "/favicon.png",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -27,6 +35,7 @@ function isStaticAsset(url) {
   return (
     url.pathname.startsWith("/assets/") ||
     PRECACHE.includes(url.pathname) ||
+    url.pathname.startsWith("/icons/") ||
     url.pathname.endsWith(".js") ||
     url.pathname.endsWith(".css") ||
     url.pathname.endsWith(".woff2") ||
@@ -48,10 +57,20 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate" || request.headers.get("accept")?.includes("text/html")) {
     event.respondWith(
-      fetch(request).catch(async () => {
-        const cached = await caches.match(request);
-        return cached ?? Response.error();
-      }),
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match(request);
+          if (cached) return cached;
+          const shell = await caches.match("/");
+          return shell ?? Response.error();
+        }),
     );
     return;
   }

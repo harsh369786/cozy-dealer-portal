@@ -1,4 +1,5 @@
 import type { AdminAnalyticsReport, AnalyticsFilters } from "@/lib/admin/analytics";
+import { MonthRangePicker } from "@/components/shared/month-range-picker";
 import {
   Select,
   SelectContent,
@@ -6,28 +7,40 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchBar } from "@/components/shared/search-bar";
 
 type Props = {
   report: AdminAnalyticsReport;
   onChange: (filters: AnalyticsFilters) => void;
+  search?: string;
+  onSearchChange?: (value: string) => void;
 };
 
-export function ReportsFilterBar({ report, onChange }: Props) {
+export function ReportsFilterBar({ report, onChange, search, onSearchChange }: Props) {
   const { filters, filterOptions } = report;
 
   const update = (patch: Partial<AnalyticsFilters>) => {
-    onChange({ month: filters.month, distributorId: filters.distributorId, ...patch });
+    const next = { ...filters, ...patch };
+    if (patch.distributorId !== undefined) {
+      delete next.salesExecutiveId;
+      delete next.dealerId;
+    }
+    if (patch.salesExecutiveId !== undefined) delete next.dealerId;
+    onChange(next);
   };
 
   return (
-    <div className="flex flex-wrap items-end gap-3 rounded-3xl border border-border bg-card p-4 shadow-soft">
-      <FilterSelect
-        label="Month"
-        value={filters.month ?? "Aug"}
-        onValueChange={(month) => update({ month })}
-        options={filterOptions.months.map((m) => ({ value: m, label: m }))}
-      />
-      {report.scopeLevel === "overall" && (
+    <div className="min-w-0 space-y-3 rounded-xl border border-border bg-card p-4 shadow-soft">
+      {onSearchChange && (
+        <SearchBar value={search ?? ""} onChange={onSearchChange} placeholder="Search distributor, dealer or product…" />
+      )}
+      <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-end">
+        <MonthRangePicker
+          fromMonth={filters.fromMonth ?? filters.month}
+          toMonth={filters.toMonth ?? filters.month ?? filters.fromMonth}
+          months={filterOptions.months}
+          onChange={(fromMonth, toMonth) => update({ fromMonth, toMonth, month: toMonth })}
+        />
         <FilterSelect
           label="Distributor"
           value={filters.distributorId ?? "all"}
@@ -37,7 +50,25 @@ export function ReportsFilterBar({ report, onChange }: Props) {
             ...filterOptions.distributors.map((d) => ({ value: d.id, label: d.name })),
           ]}
         />
-      )}
+        <FilterSelect
+          label="Sales executive"
+          value={filters.salesExecutiveId ?? "all"}
+          onValueChange={(v) => update({ salesExecutiveId: v === "all" ? undefined : v })}
+          options={[
+            { value: "all", label: "All executives" },
+            ...filterOptions.salesExecutives.map((s) => ({ value: s.id, label: s.name })),
+          ]}
+        />
+        <FilterSelect
+          label="Dealer"
+          value={filters.dealerId ?? "all"}
+          onValueChange={(v) => update({ dealerId: v === "all" ? undefined : v })}
+          options={[
+            { value: "all", label: "All dealers" },
+            ...filterOptions.dealers.map((d) => ({ value: d.id, label: d.name })),
+          ]}
+        />
+      </div>
     </div>
   );
 }
@@ -54,10 +85,10 @@ function FilterSelect({
   options: Array<{ value: string; label: string }>;
 }) {
   return (
-    <div className="min-w-[160px] flex-1 sm:max-w-xs">
+    <div className="min-w-0 flex-1 sm:max-w-[200px]">
       <p className="mb-1 text-xs font-semibold text-muted-foreground">{label}</p>
       <Select value={value} onValueChange={onValueChange}>
-        <SelectTrigger className="rounded-2xl">
+        <SelectTrigger className="rounded-lg">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

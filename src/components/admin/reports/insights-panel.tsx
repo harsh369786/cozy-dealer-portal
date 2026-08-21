@@ -41,15 +41,15 @@ export function InsightsPanel({ report, onDrillDown }: Props) {
                         onDrillDown({ ...report.filters, ...insight.drillDown })
                       }
                       className={cn(
-                        "rounded-2xl border p-3 text-left transition-colors hover:bg-secondary/50",
+                        "min-w-0 rounded-2xl border p-3 text-left transition-colors hover:bg-secondary/50",
                         group.severity === "critical" && "border-rose-200 bg-rose-50/50",
                         group.severity === "warning" && "border-amber-200 bg-amber-50/50",
                         group.severity === "positive" && "border-emerald-200 bg-emerald-50/50",
                         !insight.drillDown && "cursor-default",
                       )}
                     >
-                      <p className="font-bold leading-snug">{insight.title}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{insight.body}</p>
+                      <p className="break-words font-bold leading-snug">{insight.title}</p>
+                      <p className="mt-1 break-words text-sm text-muted-foreground">{insight.body}</p>
                     </button>
                   ))}
                 </div>

@@ -15,9 +15,20 @@ const PWA_PATHS = new Set([
   "/manifest.webmanifest",
   "/sw.js",
   "/favicon.png",
+  "/robots.txt",
+  "/backrest-logo.jpeg",
+  "/icons/apple-touch-icon.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
+  "/icons/icon-maskable-512.png",
 ]);
+
+const STATIC_PUBLIC_PREFIXES = ["/icons/", "/products/", "/brand/"];
+
+function isPublicStaticPath(pathname: string): boolean {
+  if (PWA_PATHS.has(pathname)) return true;
+  return STATIC_PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
 
 function withPwaHeaders(pathname: string, response: Response): Response {
   if (!response.ok) return response;
@@ -35,6 +46,19 @@ function withPwaHeaders(pathname: string, response: Response): Response {
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
   }
   return new Response(response.body, { status: response.status, headers });
+}
+
+async function tryServePublicAsset(
+  request: Request,
+  env: ApiEnv,
+  pathname: string,
+): Promise<Response | null> {
+  if (!isPublicStaticPath(pathname)) return null;
+  const assets = env.ASSETS as { fetch: (req: Request) => Promise<Response> } | undefined;
+  if (!assets) return null;
+  const response = await assets.fetch(request);
+  if (!response.ok) return null;
+  return withPwaHeaders(pathname, response);
 }
 
 let serverEntryPromise: Promise<ServerEntry> | undefined;
@@ -86,11 +110,15 @@ export default {
       }
     }
 
+    const resolvedEnv = env ?? ({} as ApiEnv);
+    const staticResponse = await tryServePublicAsset(request, resolvedEnv, url.pathname);
+    if (staticResponse) return staticResponse;
+
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
       const normalized = await normalizeCatastrophicSsrResponse(response);
-      if (PWA_PATHS.has(url.pathname) || url.pathname.startsWith("/assets/")) {
+      if (isPublicStaticPath(url.pathname) || url.pathname.startsWith("/assets/")) {
         return withPwaHeaders(url.pathname, normalized);
       }
       return normalized;

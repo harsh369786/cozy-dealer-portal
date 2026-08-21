@@ -91,17 +91,27 @@ export async function createUser(input: {
   role: UserRole;
   dealerId?: string | null;
   distributorId?: string | null;
+  sendWhatsAppInvite?: boolean;
 }): Promise<AdminUser> {
   return api.post("/api/v1/admin/users", input);
 }
 
-/** Creates an active user (demo flow — no WhatsApp invite queue). */
+export type UserCreateOptions = {
+  dealers: Array<{ id: string; name: string; code: string }>;
+  distributors: Array<{ id: string; name: string; region: string }>;
+};
+
+export async function getUserCreateOptions(): Promise<UserCreateOptions> {
+  return api.get("/api/v1/admin/users/create-options");
+}
+
 export async function inviteUser(input: {
   name: string;
   phone: string;
   role: UserRole;
   dealerId?: string | null;
   distributorId?: string | null;
+  sendWhatsAppInvite?: boolean;
 }): Promise<AdminUser> {
   return createUser(input);
 }
@@ -115,8 +125,8 @@ export async function deleteUser(id: string): Promise<void> {
   await api.delete(`/api/v1/admin/users/${id}`);
 }
 
-export async function resendUserInvite(_id: string): Promise<void> {
-  throw new Error("Invite resend is not available in the demo API");
+export async function resendUserInvite(id: string): Promise<{ invitedAt: string }> {
+  return api.post(`/api/v1/admin/users/${id}/resend-invite`);
 }
 
 export type ReviewSignupInput =

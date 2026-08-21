@@ -101,10 +101,15 @@ export async function listSignupApplications(db: D1Database, filters: SignupRevi
     binds.push(q, q, q, q, q);
   }
 
-  const countRow = await db
-    .prepare(`SELECT COUNT(*) as c FROM (${sql})`)
-    .bind(...binds)
-    .first<{ c: number }>();
+  let countSql = `SELECT COUNT(*) as c FROM signup_applications WHERE status = ?`;
+  const countBinds: unknown[] = [status];
+  if (filters.search?.trim()) {
+    const q = `%${filters.search.trim()}%`;
+    countSql += ` AND (name LIKE ? OR store_name LIKE ? OR phone LIKE ? OR address LIKE ? OR distributor_name LIKE ?)`;
+    countBinds.push(q, q, q, q, q);
+  }
+
+  const countRow = await db.prepare(countSql).bind(...countBinds).first<{ c: number }>();
 
   sql += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
   binds.push(pageSize, offset);
@@ -146,6 +151,10 @@ export async function reviewSignupApplication(
   if (user.status !== "pending_approval") throw new Error("User is not pending approval");
 
   const ts = nowIso();
+
+  if (input.action === "reject" && !input.note?.trim()) {
+    throw new Error("Rejection reason is required");
+  }
 
   if (input.action === "reject") {
     await db.batch([

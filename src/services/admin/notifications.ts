@@ -1,7 +1,6 @@
-import { adminStore } from "@/lib/mock/admin/store";
 import type { AdminNotification, AdminNotificationInput, ListFilters, PaginatedResult } from "@/lib/mock/admin/types";
 import type { NotificationCategory } from "@/lib/mock/distributor/types";
-import { delay, matchesQuery, paginate } from "./_utils";
+import { matchesQuery, paginate } from "./_utils";
 
 export type NotificationFilters = ListFilters & {
   category?: NotificationCategory | "all";
@@ -21,11 +20,15 @@ function scopeForAudience(audience: AdminNotification["audience"]) {
   return AUDIENCE_LABELS[audience];
 }
 
+async function getStoreNotifications() {
+  const { adminStore } = await import("@/lib/mock/admin/store");
+  return adminStore.notifications;
+}
+
 export async function listNotifications(
   filters: NotificationFilters = {},
 ): Promise<PaginatedResult<AdminNotification>> {
-  await delay();
-  let items = [...adminStore.notifications];
+  let items = [...(await getStoreNotifications())];
   if (filters.category && filters.category !== "all") {
     items = items.filter((n) => n.category === filters.category);
   }
@@ -38,12 +41,12 @@ export async function listNotifications(
 }
 
 export async function getNotification(id: string): Promise<AdminNotification | null> {
-  await delay();
-  return adminStore.notifications.find((n) => n.id === id) ?? null;
+  const items = await getStoreNotifications();
+  return items.find((n) => n.id === id) ?? null;
 }
 
 export async function composeAnnouncement(input: AdminNotificationInput): Promise<AdminNotification> {
-  await delay();
+  const { adminStore } = await import("@/lib/mock/admin/store");
   const notification: AdminNotification = {
     id: `ntf-${Date.now()}`,
     category: input.category,
@@ -67,7 +70,7 @@ export async function updateNotification(
   id: string,
   patch: Partial<AdminNotificationInput> & { active?: boolean },
 ): Promise<AdminNotification> {
-  await delay();
+  const { adminStore } = await import("@/lib/mock/admin/store");
   const n = adminStore.notifications.find((x) => x.id === id);
   if (!n) throw new Error("Notification not found");
 

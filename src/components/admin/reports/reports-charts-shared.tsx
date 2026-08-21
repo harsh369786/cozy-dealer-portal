@@ -65,11 +65,11 @@ export function RankingSection({
       <BarChart
         data={data}
         layout="vertical"
-        margin={{ left: 8, right: 48, top: 8, bottom: 0 }}
+        margin={{ left: 4, right: 8, top: 8, bottom: 0 }}
       >
         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E8DFD0" />
         <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(v) => inrCompact(v)} />
-        <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={100} />
+        <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={72} tick={{ fontSize: 11 }} />
         <ChartTooltip
           content={({ active, payload }) => {
             if (!active || !payload?.[0]) return null;

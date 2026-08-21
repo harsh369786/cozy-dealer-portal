@@ -16,12 +16,12 @@ export function ChartCard({
   className?: string;
 }) {
   return (
-    <div className={cn("rounded-3xl border border-border bg-card p-4 shadow-soft", className)}>
-      <div className="mb-3">
+    <div className={cn("min-w-0 overflow-hidden rounded-3xl border border-border bg-card p-4 shadow-soft", className)}>
+      <div className="mb-3 min-w-0">
         <h3 className="font-display font-bold">{title}</h3>
-        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+        {description && <p className="break-words text-sm text-muted-foreground">{description}</p>}
       </div>
-      <ChartContainer config={config} className="aspect-auto h-48 w-full md:h-56">
+      <ChartContainer config={config} className="aspect-auto h-48 min-w-0 w-full md:h-56">
         {children}
       </ChartContainer>
     </div>

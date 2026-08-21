@@ -10,7 +10,7 @@ import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { getUser, deleteUser, updateUserStatus } from "@/services/admin/users";
+import { getUser, deleteUser, resendUserInvite, updateUserStatus } from "@/services/admin/users";
 
 export const Route = createFileRoute("/admin/users/$userId")({
   component: UserDetailPage,
@@ -67,7 +67,19 @@ function UserDetailPage() {
   };
 
   const handleResendInvite = async () => {
-    toast.error("Invite resend is not available in the demo API");
+    if (!user) return;
+    setActionLoading(true);
+    try {
+      const result = await resendUserInvite(user.id);
+      toast.success("WhatsApp invite queued", {
+        description: `Invite resent to ${user.phone}.`,
+      });
+      if (result.invitedAt) retry();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to resend invite");
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   if (loading) return <PageSkeleton rows={3} />;

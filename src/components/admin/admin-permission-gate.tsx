@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { Permission } from "@/lib/admin/rbac";
-import { EmptyState } from "@/components/shared/states";
+import { EmptyState, PageSkeleton } from "@/components/shared/states";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
 
 export function AdminPermissionGate({
@@ -14,8 +14,12 @@ export function AdminPermissionGate({
   children: ReactNode;
   fallback?: ReactNode;
 }) {
-  const { can, canAny } = useAdminPermissions();
+  const { can, canAny, loading } = useAdminPermissions();
   const allowed = permission ? can(permission) : permissions ? canAny(...permissions) : true;
+
+  if (loading) {
+    return fallback === undefined ? <PageSkeleton rows={2} /> : null;
+  }
 
   if (!allowed) {
     return (

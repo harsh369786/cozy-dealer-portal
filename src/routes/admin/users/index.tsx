@@ -42,7 +42,7 @@ function statusLabel(status: AdminUser["status"]) {
 function AdminUsersPage() {
   const { tab } = Route.useSearch();
   const navigate = useNavigate();
-  const { can } = useAdminPermissions();
+  const { can, loading: permissionsLoading } = useAdminPermissions();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const roleTab = tab || "all";
@@ -64,6 +64,8 @@ function AdminUsersPage() {
   );
 
   const isSignupTab = roleTab === "signup";
+
+  if (permissionsLoading) return <PageSkeleton rows={4} />;
 
   if (!can("users:read") && !can("signup:review")) {
     return <ErrorState message="You don't have access to user management." />;

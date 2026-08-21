@@ -3,6 +3,7 @@ import { DistributorShell } from "@/components/distributor-shell";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { formatCampaignDate } from "@/lib/campaign-service";
 import { getCampaignById } from "@/services/campaigns";
 
 export const Route = createFileRoute("/distributor/campaigns/$campaignId")({
@@ -35,6 +36,13 @@ function CampaignDetailPage() {
   return (
     <DistributorShell title={data.name} back="/distributor/campaigns" showBell={false}>
       <div className="animate-rise space-y-4">
+        {data.imageUrl && (
+          <img
+            src={data.imageUrl}
+            alt={data.name}
+            className="w-full rounded-3xl border border-border object-cover"
+          />
+        )}
         <div className="flex items-start justify-between gap-3">
           <span className="text-4xl">{data.bannerEmoji}</span>
           <StatusBadge kind="campaign" status={data.status} />
@@ -45,7 +53,7 @@ function CampaignDetailPage() {
         <div className="rounded-3xl border border-border bg-card p-4">
           <p className="text-sm text-muted-foreground">Duration</p>
           <p className="font-semibold">
-            {data.startDate} — {data.endDate}
+            {formatCampaignDate(data.startDate)} — {formatCampaignDate(data.endDate)}
           </p>
           {data.applicableDealers && (
             <p className="mt-3 text-sm text-muted-foreground">
@@ -53,6 +61,12 @@ function CampaignDetailPage() {
             </p>
           )}
         </div>
+        {data.productId && data.status === "active" && (
+          <p className="rounded-2xl border border-primary/20 bg-secondary/40 p-4 text-sm font-semibold text-muted-foreground">
+            Dealers ordering {data.product} during this campaign see the offer highlighted in the
+            app.
+          </p>
+        )}
       </div>
     </DistributorShell>
   );

@@ -5,11 +5,13 @@ import { inr } from "@/lib/demo-data";
 import { StatusBadge } from "./status-badge";
 
 export function OrderCard({ order }: { order: DistributorOrder }) {
+  const rewardPoints = order.items.reduce((sum, item) => sum + (item.points ?? 0), 0);
+
   return (
     <Link
       to="/distributor/orders/$orderId"
       params={{ orderId: order.id }}
-      className="press block rounded-3xl border border-border bg-card p-4 shadow-soft"
+      className="press block rounded-xl border border-border bg-card p-4 shadow-soft"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">

@@ -8,17 +8,16 @@ export function calculateRewardPoints(mrp: number, rewardPercent: number, quanti
 
 export type RewardEligibility = "dealer" | "distributor" | "both";
 
-export async function getActivePriceCampaign(db: D1Database, productId: string, at = new Date()) {
-  const now = at.toISOString();
-  return db
-    .prepare(
-      `SELECT * FROM price_campaigns
-       WHERE product_id = ? AND deleted_at IS NULL
-         AND start_at <= ? AND end_at >= ?
-       ORDER BY start_at DESC LIMIT 1`,
-    )
-    .bind(productId, now, now)
-    .first<{
+import { getActivePriceCampaignRow } from "./campaigns-public";
+
+export async function getActivePriceCampaign(
+  db: D1Database,
+  productId: string,
+  options?: { campaignId?: string; at?: Date },
+) {
+  const row = await getActivePriceCampaignRow(db, productId, options);
+  if (!row) return null;
+  return row as {
       id: string;
       name: string;
       product_id: string;
@@ -28,7 +27,7 @@ export async function getActivePriceCampaign(db: D1Database, productId: string, 
       description: string;
       terms: string | null;
       badge_label: string | null;
-    }>();
+    };
 }
 
 export async function buildPriceQuote(
@@ -37,6 +36,7 @@ export async function buildPriceQuote(
     productId: string;
     quantity: number;
     thickness?: string;
+    campaignId?: string;
   },
 ) {
   const product = await db
@@ -65,7 +65,9 @@ export async function buildPriceQuote(
 
   if (!product || !priceRow) throw new Error("Product not found");
 
-  const campaign = await getActivePriceCampaign(db, input.productId);
+  const campaign = await getActivePriceCampaign(db, input.productId, {
+    campaignId: (input as { campaignId?: string }).campaignId,
+  });
   const dealerPrice = priceRow.dealer_price;
   const campaignPrice = campaign
     ? getCampaignPrice(dealerPrice, campaign.discount_percent)
@@ -97,6 +99,8 @@ export async function buildPriceQuote(
           name: campaign.name,
           badgeLabel: campaign.badge_label,
           discountPercent: campaign.discount_percent,
+          description: campaign.description,
+          terms: campaign.terms,
           startAt: campaign.start_at,
           endAt: campaign.end_at,
         }

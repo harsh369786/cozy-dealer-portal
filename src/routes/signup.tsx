@@ -2,13 +2,17 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { ArrowRight, Check, ChevronLeft, ShieldCheck } from "lucide-react";
 import { z } from "zod";
-import loginBg from "@/assets/login-bg.jpg";
+import { assetPublicPath, STATIC_ASSET_KEYS } from "@/lib/asset-url";
 import { Logo } from "@/components/brand";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { submitSignupApplication } from "@/services/signup";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { ApiError } from "@/lib/api-client";
+
+const loginBg = assetPublicPath(STATIC_ASSET_KEYS.brand.loginBg);
 
 export const Route = createFileRoute("/signup")({
   ssr: true,
@@ -110,6 +114,14 @@ function SignUpPage() {
     try {
       await submitSignupApplication(result.data);
       setSubmitted(true);
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "Could not submit application. Please try again.";
+      toast.error(message);
     } finally {
       setSubmitting(false);
     }

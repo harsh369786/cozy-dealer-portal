@@ -105,10 +105,10 @@ function TrackComplaint() {
         })}
       </ol>
 
-      {order && (
+      {complaint.orderId && (
         <Link
           to="/orders/$orderId"
-          params={{ orderId: order.id }}
+          params={{ orderId: complaint.orderId }}
           className="press mt-2 block rounded-2xl border border-border bg-secondary py-3 text-center text-sm font-bold"
         >
           View order details

@@ -237,7 +237,7 @@ function productInsights(month: string): InsightItem[] {
 
 function campaignInsights(scope: AnalyticsScope): InsightItem[] {
   return scope.campaigns
-    .filter((c) => c.type === "sell" && c.target && c.active)
+    .filter((c) => c.target && c.active)
     .filter((c) => {
       const done = c.done ?? 0;
       const target = c.target ?? 1;

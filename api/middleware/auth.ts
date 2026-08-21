@@ -3,15 +3,18 @@ import type { ApiEnv, AppVariables, SessionUser } from "../types";
 import { buildSessionUser, hasPermission } from "../rbac";
 import type { Permission } from "../types";
 import { SESSION_COOKIE, sha256 } from "../utils";
-import { getDatabase } from "../db/get-db";
+import { getRequestDb } from "../db/get-db";
 
 export async function optionalAuth(c: Context<{ Bindings: ApiEnv; Variables: AppVariables }>, next: Next) {
   const sessionId = getSessionCookie(c);
   if (sessionId) {
-    const user = await resolveSession(c.env, sessionId);
+    const db = await getRequestDb(c);
+    const user = await resolveSession(db, sessionId);
     if (user) {
       c.set("user", user);
       c.set("sessionId", sessionId);
+    } else {
+      c.header("Set-Cookie", clearSessionCookie(isSecureCookie(c)));
     }
   }
   await next();
@@ -20,8 +23,12 @@ export async function optionalAuth(c: Context<{ Bindings: ApiEnv; Variables: App
 export async function requireAuth(c: Context<{ Bindings: ApiEnv; Variables: AppVariables }>, next: Next) {
   const sessionId = getSessionCookie(c);
   if (!sessionId) return c.json({ error: "Unauthorized" }, 401);
-  const user = await resolveSession(c.env, sessionId);
-  if (!user) return c.json({ error: "Unauthorized" }, 401);
+  const db = await getRequestDb(c);
+  const user = await resolveSession(db, sessionId);
+  if (!user) {
+    c.header("Set-Cookie", clearSessionCookie(isSecureCookie(c)));
+    return c.json({ error: "Unauthorized" }, 401);
+  }
   c.set("user", user);
   c.set("sessionId", sessionId);
   await next();
@@ -61,8 +68,7 @@ function getSessionCookie(c: Context) {
   return match?.[1] ?? null;
 }
 
-async function resolveSession(env: ApiEnv, sessionId: string): Promise<SessionUser | null> {
-  const db = await getDatabase(env);
+async function resolveSession(db: D1Database, sessionId: string): Promise<SessionUser | null> {
   const tokenHash = await sha256(sessionId);
   const row = await db
     .prepare(
@@ -97,11 +103,20 @@ async function resolveSession(env: ApiEnv, sessionId: string): Promise<SessionUs
   });
 }
 
-export function setSessionCookie(sessionId: string) {
-  const maxAge = 30 * 24 * 60 * 60;
-  return `${SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`;
+function cookieFlags(secure: boolean) {
+  return secure ? "; Secure" : "";
 }
 
-export function clearSessionCookie() {
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`;
+function isSecureCookie(c: Context) {
+  const env = (c.env as ApiEnv | undefined)?.ENVIRONMENT;
+  return env !== "development" && env !== "local";
+}
+
+export function setSessionCookie(sessionId: string, secure = true) {
+  const maxAge = 30 * 24 * 60 * 60;
+  return `${SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${cookieFlags(secure)}`;
+}
+
+export function clearSessionCookie(secure = true) {
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${cookieFlags(secure)}`;
 }

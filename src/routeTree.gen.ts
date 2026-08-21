@@ -21,6 +21,7 @@ import { Route as RewardsRouteImport } from './routes/rewards'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminCampaignsRouteImport } from './routes/admin/campaigns'
+import { Route as AdminExploreRouteImport } from './routes/admin/explore'
 import { Route as AdminProductsRouteImport } from './routes/admin/products'
 import { Route as AdminRewardsRouteImport } from './routes/admin/rewards'
 import { Route as AdminSettingsRouteImport } from './routes/admin/settings'
@@ -44,6 +45,7 @@ import { Route as AdminCampaignsCampaignIdRouteImport } from './routes/admin/cam
 import { Route as AdminCampaignsNewRouteImport } from './routes/admin/campaigns/new'
 import { Route as AdminComplaintsIndexRouteImport } from './routes/admin/complaints/index'
 import { Route as AdminComplaintsComplaintIdRouteImport } from './routes/admin/complaints/$complaintId'
+import { Route as AdminExploreIndexRouteImport } from './routes/admin/explore/index'
 import { Route as AdminNotificationsIndexRouteImport } from './routes/admin/notifications/index'
 import { Route as AdminOrdersIndexRouteImport } from './routes/admin/orders/index'
 import { Route as AdminOrdersOrderIdRouteImport } from './routes/admin/orders/$orderId'
@@ -127,6 +129,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
 const AdminCampaignsRoute = AdminCampaignsRouteImport.update({
   id: '/campaigns',
   path: '/campaigns',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminExploreRoute = AdminExploreRouteImport.update({
+  id: '/explore',
+  path: '/explore',
   getParentRoute: () => AdminRouteRoute,
 } as any)
 const AdminProductsRoute = AdminProductsRouteImport.update({
@@ -246,6 +253,11 @@ const AdminComplaintsComplaintIdRoute =
     path: '/complaints/$complaintId',
     getParentRoute: () => AdminRouteRoute,
   } as any)
+const AdminExploreIndexRoute = AdminExploreIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminExploreRoute,
+} as any)
 const AdminNotificationsIndexRoute = AdminNotificationsIndexRouteImport.update({
   id: '/notifications/',
   path: '/notifications/',
@@ -385,6 +397,7 @@ export interface FileRoutesByFullPath {
   '/rewards': typeof RewardsRoute
   '/signup': typeof SignupRoute
   '/admin/campaigns': typeof AdminCampaignsRouteWithChildren
+  '/admin/explore': typeof AdminExploreRouteWithChildren
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/admin/rewards': typeof AdminRewardsRouteWithChildren
   '/admin/settings': typeof AdminSettingsRouteWithChildren
@@ -420,6 +433,7 @@ export interface FileRoutesByFullPath {
   '/admin/audit-logs/': typeof AdminAuditLogsIndexRoute
   '/admin/campaigns/': typeof AdminCampaignsIndexRoute
   '/admin/complaints/': typeof AdminComplaintsIndexRoute
+  '/admin/explore/': typeof AdminExploreIndexRoute
   '/admin/notifications/': typeof AdminNotificationsIndexRoute
   '/admin/orders/': typeof AdminOrdersIndexRoute
   '/admin/products/': typeof AdminProductsIndexRoute
@@ -473,6 +487,7 @@ export interface FileRoutesByTo {
   '/admin/audit-logs': typeof AdminAuditLogsIndexRoute
   '/admin/campaigns': typeof AdminCampaignsIndexRoute
   '/admin/complaints': typeof AdminComplaintsIndexRoute
+  '/admin/explore': typeof AdminExploreIndexRoute
   '/admin/notifications': typeof AdminNotificationsIndexRoute
   '/admin/orders': typeof AdminOrdersIndexRoute
   '/admin/products': typeof AdminProductsIndexRoute
@@ -499,6 +514,7 @@ export interface FileRoutesById {
   '/rewards': typeof RewardsRoute
   '/signup': typeof SignupRoute
   '/admin/campaigns': typeof AdminCampaignsRouteWithChildren
+  '/admin/explore': typeof AdminExploreRouteWithChildren
   '/admin/products': typeof AdminProductsRouteWithChildren
   '/admin/rewards': typeof AdminRewardsRouteWithChildren
   '/admin/settings': typeof AdminSettingsRouteWithChildren
@@ -535,6 +551,7 @@ export interface FileRoutesById {
   '/admin/audit-logs/': typeof AdminAuditLogsIndexRoute
   '/admin/campaigns/': typeof AdminCampaignsIndexRoute
   '/admin/complaints/': typeof AdminComplaintsIndexRoute
+  '/admin/explore/': typeof AdminExploreIndexRoute
   '/admin/notifications/': typeof AdminNotificationsIndexRoute
   '/admin/orders/': typeof AdminOrdersIndexRoute
   '/admin/products/': typeof AdminProductsIndexRoute
@@ -562,6 +579,7 @@ export interface FileRouteTypes {
     | '/rewards'
     | '/signup'
     | '/admin/campaigns'
+    | '/admin/explore'
     | '/admin/products'
     | '/admin/rewards'
     | '/admin/settings'
@@ -597,6 +615,7 @@ export interface FileRouteTypes {
     | '/admin/audit-logs/'
     | '/admin/campaigns/'
     | '/admin/complaints/'
+    | '/admin/explore/'
     | '/admin/notifications/'
     | '/admin/orders/'
     | '/admin/products/'
@@ -650,6 +669,7 @@ export interface FileRouteTypes {
     | '/admin/audit-logs'
     | '/admin/campaigns'
     | '/admin/complaints'
+    | '/admin/explore'
     | '/admin/notifications'
     | '/admin/orders'
     | '/admin/products'
@@ -675,6 +695,7 @@ export interface FileRouteTypes {
     | '/rewards'
     | '/signup'
     | '/admin/campaigns'
+    | '/admin/explore'
     | '/admin/products'
     | '/admin/rewards'
     | '/admin/settings'
@@ -711,6 +732,7 @@ export interface FileRouteTypes {
     | '/admin/audit-logs/'
     | '/admin/campaigns/'
     | '/admin/complaints/'
+    | '/admin/explore/'
     | '/admin/notifications/'
     | '/admin/orders/'
     | '/admin/products/'
@@ -826,6 +848,13 @@ declare module '@tanstack/react-router' {
       path: '/campaigns'
       fullPath: '/admin/campaigns'
       preLoaderRoute: typeof AdminCampaignsRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/explore': {
+      id: '/admin/explore'
+      path: '/explore'
+      fullPath: '/admin/explore'
+      preLoaderRoute: typeof AdminExploreRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/products': {
@@ -988,6 +1017,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/complaints/$complaintId'
       preLoaderRoute: typeof AdminComplaintsComplaintIdRouteImport
       parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/explore/': {
+      id: '/admin/explore/'
+      path: '/'
+      fullPath: '/admin/explore/'
+      preLoaderRoute: typeof AdminExploreIndexRouteImport
+      parentRoute: typeof AdminExploreRoute
     }
     '/admin/notifications/': {
       id: '/admin/notifications/'
@@ -1176,6 +1212,18 @@ const AdminCampaignsRouteWithChildren = AdminCampaignsRoute._addFileChildren(
   AdminCampaignsRouteChildren,
 )
 
+interface AdminExploreRouteChildren {
+  AdminExploreIndexRoute: typeof AdminExploreIndexRoute
+}
+
+const AdminExploreRouteChildren: AdminExploreRouteChildren = {
+  AdminExploreIndexRoute: AdminExploreIndexRoute,
+}
+
+const AdminExploreRouteWithChildren = AdminExploreRoute._addFileChildren(
+  AdminExploreRouteChildren,
+)
+
 interface AdminProductsRouteChildren {
   AdminProductsProductIdRoute: typeof AdminProductsProductIdRoute
   AdminProductsNewRoute: typeof AdminProductsNewRoute
@@ -1251,6 +1299,7 @@ const AdminOrdersOrderIdRouteWithChildren =
 
 interface AdminRouteRouteChildren {
   AdminCampaignsRoute: typeof AdminCampaignsRouteWithChildren
+  AdminExploreRoute: typeof AdminExploreRouteWithChildren
   AdminProductsRoute: typeof AdminProductsRouteWithChildren
   AdminRewardsRoute: typeof AdminRewardsRouteWithChildren
   AdminSettingsRoute: typeof AdminSettingsRouteWithChildren
@@ -1268,6 +1317,7 @@ interface AdminRouteRouteChildren {
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminCampaignsRoute: AdminCampaignsRouteWithChildren,
+  AdminExploreRoute: AdminExploreRouteWithChildren,
   AdminProductsRoute: AdminProductsRouteWithChildren,
   AdminRewardsRoute: AdminRewardsRouteWithChildren,
   AdminSettingsRoute: AdminSettingsRouteWithChildren,

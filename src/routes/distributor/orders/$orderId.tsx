@@ -16,8 +16,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useAdminPermissions } from "@/hooks/use-admin-permissions";
 import { inr } from "@/lib/demo-data";
 import { approveOrder, getOrderById, rejectOrder } from "@/services/orders";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/distributor/orders/$orderId")({
   component: OrderDetailPage,
@@ -25,6 +27,9 @@ export const Route = createFileRoute("/distributor/orders/$orderId")({
 
 function OrderDetailPage() {
   const { orderId } = Route.useParams();
+  const { can } = useAdminPermissions();
+  const canApprove = can("orders:approve");
+  const canReject = can("orders:reject");
   const [order, setOrder] = useState<Awaited<ReturnType<typeof getOrderById>>>(null);
   const [approveOpen, setApproveOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -91,10 +96,12 @@ function OrderDetailPage() {
   }
 
   const isPending = order.status === "order_placed";
+  const showOrderActions = isPending && (canApprove || canReject);
+  const totalPoints = order.items.reduce((sum, item) => sum + (item.points ?? 0), 0);
 
   return (
     <DistributorShell title={`#${order.id}`} back="/distributor/orders" showBell={false}>
-      <div className="animate-rise space-y-4 pb-28">
+      <div className={cn("animate-rise space-y-4", showOrderActions ? "pb-28" : "pb-6")}>
         <div className="flex items-start justify-between gap-2">
           <div>
             <p className="font-display text-xl font-bold">{order.dealerName}</p>
@@ -146,6 +153,11 @@ function OrderDetailPage() {
                     <span className="ml-2 text-xs font-normal text-primary">Campaign price</span>
                   )}
                 </p>
+                {item.points ? (
+                  <p className="text-xs font-semibold text-primary">
+                    +{item.points.toLocaleString("en-IN")} reward pts
+                  </p>
+                ) : null}
               </div>
             ))}
           </div>
@@ -164,18 +176,22 @@ function OrderDetailPage() {
         )}
       </div>
 
-      {isPending && (
+      {showOrderActions && (
         <div className="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex w-full max-w-[430px] -translate-x-1/2 gap-3 border-t border-border bg-card/95 px-5 py-3 backdrop-blur md:max-w-3xl lg:max-w-6xl">
-          <Button
-            variant="outline"
-            className="h-12 flex-1 rounded-2xl border-destructive text-destructive"
-            onClick={() => setRejectOpen(true)}
-          >
-            <XCircle className="mr-2 h-4 w-4" /> Reject
-          </Button>
-          <Button className="h-12 flex-1 rounded-2xl" onClick={() => setApproveOpen(true)}>
-            <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
-          </Button>
+          {canReject && (
+            <Button
+              variant="outline"
+              className="h-12 flex-1 rounded-2xl border-destructive text-destructive"
+              onClick={() => setRejectOpen(true)}
+            >
+              <XCircle className="mr-2 h-4 w-4" /> Reject
+            </Button>
+          )}
+          {canApprove && (
+            <Button className="h-12 flex-1 rounded-2xl" onClick={() => setApproveOpen(true)}>
+              <CheckCircle2 className="mr-2 h-4 w-4" /> Approve
+            </Button>
+          )}
         </div>
       )}
 

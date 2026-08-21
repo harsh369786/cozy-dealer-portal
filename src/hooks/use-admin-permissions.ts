@@ -4,21 +4,22 @@ import { hasAnyPermission, hasPermission, permissionsForRole } from "@/lib/admin
 import { useSession } from "@/hooks/use-session";
 
 export function useAdminPermissions() {
-  const { user } = useSession();
+  const { user, loading } = useSession();
 
   const permissions = useMemo<Permission[]>(() => {
+    if (loading) return [];
     if (user?.permissions?.length) return user.permissions as Permission[];
     if (user?.role) return permissionsForRole(user.role);
     return [];
-  }, [user]);
+  }, [loading, user]);
 
-  const isMasterAdmin = user?.role === "master_admin";
+  const isMasterAdmin = !loading && user?.role === "master_admin";
 
   const can = (permission: Permission) =>
-    isMasterAdmin || hasPermission(permissions, permission);
+    !loading && (isMasterAdmin || hasPermission(permissions, permission));
 
   const canAny = (...required: Permission[]) =>
-    isMasterAdmin || hasAnyPermission(permissions, required);
+    !loading && (isMasterAdmin || hasAnyPermission(permissions, required));
 
-  return { permissions, isMasterAdmin, can, canAny, user };
+  return { permissions, isMasterAdmin, can, canAny, user, loading };
 }

@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useAdminPermissions } from "@/hooks/use-admin-permissions";
 import type { AdminNotification, AdminNotificationInput, NotificationAudience } from "@/lib/mock/admin/types";
 import type { NotificationCategory } from "@/lib/mock/distributor/types";
 import {
@@ -154,6 +155,16 @@ function NotificationForm({
 }
 
 function AdminNotificationsPage() {
+  return (
+    <AdminPermissionGate permission="notifications:read">
+      <NotificationsContent />
+    </AdminPermissionGate>
+  );
+}
+
+function NotificationsContent() {
+  const { can } = useAdminPermissions();
+  const canWrite = can("campaigns:write");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<NotificationCategory | "all">("all");
   const [activeTab, setActiveTab] = useState<(typeof ACTIVE_TABS)[number]["value"]>("all");
@@ -248,11 +259,11 @@ function AdminNotificationsPage() {
         title="Notifications"
         description="Control when notifications send, who receives them, and popup behaviour."
         actions={
-          <AdminPermissionGate permission="campaigns:write" fallback={null}>
+          canWrite ? (
             <AdminPrimaryButton onClick={() => { setForm(emptyForm()); setComposeOpen(true); }}>
               Create notification
             </AdminPrimaryButton>
-          </AdminPermissionGate>
+          ) : null
         }
       />
 
@@ -299,11 +310,11 @@ function AdminNotificationsPage() {
                 <Button size="sm" variant="ghost" className="rounded-xl" onClick={() => openEdit(n)}>
                   <Pencil className="h-4 w-4" />
                 </Button>
-                <AdminPermissionGate permission="campaigns:write" fallback={null}>
+                {canWrite && (
                   <Button size="sm" variant="ghost" className="rounded-xl" onClick={() => toggleActive(n)}>
                     <Power className="h-4 w-4" />
                   </Button>
-                </AdminPermissionGate>
+                )}
               </div>
             ),
           },

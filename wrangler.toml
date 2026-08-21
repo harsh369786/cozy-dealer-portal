@@ -21,3 +21,7 @@ crons = ["*/15 * * * *"]
 
 [vars]
 ENVIRONMENT = "staging"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"

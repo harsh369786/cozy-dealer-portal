@@ -43,7 +43,7 @@ export function CampaignPriceBlock({
       </div>
       {hasCampaign && (
         <div className="flex items-end justify-between border-t border-border/60 pt-2">
-          <span className="text-base font-bold">Campaign Price</span>
+          <span className="text-base font-bold">Campaign discount</span>
           <span
             className={cn("font-display font-bold text-primary", compact ? "text-2xl" : "text-3xl")}
           >
@@ -58,7 +58,7 @@ export function CampaignPriceBlock({
 export function CampaignBadge({ label }: { label: string }) {
   return (
     <div className="animate-rise rounded-2xl border border-primary/40 bg-secondary px-4 py-3 text-center">
-      <p className="text-sm font-bold text-primary">🔥 SPECIAL CAMPAIGN PRICE</p>
+      <p className="text-sm font-bold text-primary">🔥 CAMPAIGN DISCOUNT</p>
       <p className="mt-0.5 text-xs font-semibold text-muted-foreground">{label}</p>
     </div>
   );

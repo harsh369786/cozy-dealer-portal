@@ -72,11 +72,8 @@ export type AdminOrderDetail = DistributorOrder & {
   distributorName: string;
 };
 
-export type CampaignType = "price" | "sell" | "distributor";
-
 export type AdminCampaign = {
   id: string;
-  type: CampaignType;
   name: string;
   product: string;
   productId?: string;
@@ -92,10 +89,12 @@ export type AdminCampaign = {
   startDate: string;
   endDate: string;
   status: CampaignStatus;
+  storedStatus?: CampaignStatus;
   badgeLabel?: string;
   active: boolean;
   whatsappTargetDealers: boolean;
   whatsappTargetDistributors: boolean;
+  imageUrl?: string;
 };
 
 export type AdminRewardCatalogItem = {
@@ -104,6 +103,7 @@ export type AdminRewardCatalogItem = {
   name: string;
   pointsRequired: number;
   active: boolean;
+  imageUrl?: string;
 };
 
 export type AdminRewardClaim = {

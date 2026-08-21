@@ -37,7 +37,7 @@ export const Route = createFileRoute("/admin/orders/$orderId")({
 
 function AdminOrderDetailPage() {
   const { orderId } = Route.useParams();
-  const { can } = useAdminPermissions();
+  const { can, isMasterAdmin } = useAdminPermissions();
   const [order, setOrder] = useState<Awaited<ReturnType<typeof getOrder>>>(null);
   const [allowedStatuses, setAllowedStatuses] = useState<OrderStatus[]>([]);
   const [approveOpen, setApproveOpen] = useState(false);
@@ -127,7 +127,13 @@ function AdminOrderDetailPage() {
   if (error || !order) return <ErrorState message={error ?? "Order not found"} onRetry={retry} />;
 
   const isPending = order.status === "order_placed";
-  const canChangeStatus = allowedStatuses.length > 0;
+  const statusOptions: OrderStatus[] = isMasterAdmin
+    ? (["order_placed", "approved", "in_making", "out_for_delivery", "delivered", "cancelled"] as OrderStatus[]).filter(
+        (s) => s !== order.status,
+      )
+    : allowedStatuses;
+  const canChangeStatus = statusOptions.length > 0;
+  const totalPoints = order.items.reduce((sum, item) => sum + (item.points ?? 0), 0);
 
   return (
     <div className="space-y-6">
@@ -167,7 +173,7 @@ function AdminOrderDetailPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={order.status}>{ORDER_STATUS_LABELS[order.status]}</SelectItem>
-                  {allowedStatuses.map((s) => (
+                  {statusOptions.map((s) => (
                     <SelectItem key={s} value={s}>
                       {ORDER_STATUS_LABELS[s]}
                     </SelectItem>
@@ -196,6 +202,10 @@ function AdminOrderDetailPage() {
             <p className="text-muted-foreground">Total</p>
             <p className="font-bold">{inr(order.totalValue)}</p>
           </div>
+          <div>
+            <p className="text-muted-foreground">Reward points</p>
+            <p className="font-bold text-primary">{totalPoints.toLocaleString("en-IN")} pts</p>
+          </div>
           {order.dealerAddress && (
             <div className="sm:col-span-2">
               <p className="text-muted-foreground">Dealer address</p>
@@ -217,6 +227,9 @@ function AdminOrderDetailPage() {
               </p>
               <p className="text-muted-foreground">Qty: {item.quantity}</p>
               <p className="font-bold">{inr(item.campaignPrice ?? item.dealerPrice)}</p>
+              {item.points ? (
+                <p className="text-xs font-semibold text-primary">+{item.points.toLocaleString("en-IN")} reward pts</p>
+              ) : null}
             </div>
           ))}
         </div>

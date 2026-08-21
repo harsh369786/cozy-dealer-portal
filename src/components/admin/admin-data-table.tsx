@@ -49,7 +49,7 @@ export function AdminDataTable<T>({
 
   return (
     <>
-      <div className="hidden overflow-hidden rounded-3xl border border-border bg-card md:block">
+      <div className="hidden overflow-hidden rounded-xl border border-border bg-card md:block">
         <Table>
           <TableHeader>
             <TableRow className="bg-secondary/50 hover:bg-secondary/50">
@@ -102,7 +102,7 @@ export function AdminDataTable<T>({
             key={keyFn(row)}
             type="button"
             onClick={() => onRowClick?.(row)}
-            className="w-full rounded-2xl border border-border bg-card p-4 text-left shadow-soft"
+            className="w-full rounded-xl border border-border bg-card p-4 text-left shadow-soft"
           >
             {selection && (
               <div

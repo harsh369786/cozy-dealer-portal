@@ -31,6 +31,17 @@ export async function createSignupApplication(db: D1Database, input: SignupAppli
     .first();
   if (pendingApp) throw new Error("A pending signup application already exists for this phone number");
 
+  const recentAttempts = await db
+    .prepare(
+      `SELECT COUNT(*) as c FROM signup_applications
+       WHERE phone = ? AND created_at > datetime('now', '-1 hour')`,
+    )
+    .bind(phone)
+    .first<{ c: number }>();
+  if ((recentAttempts?.c ?? 0) >= 3) {
+    throw new Error("Too many signup attempts. Please try again later.");
+  }
+
   const userId = id("user");
   const appId = id("signup");
   const ts = nowIso();
@@ -68,7 +79,7 @@ export async function createSignupApplication(db: D1Database, input: SignupAppli
     type: "system",
     title: "New signup request",
     body: `${input.storeName.trim()} (${input.name.trim()}) is awaiting approval`,
-    link: "/admin/assignments",
+    link: "/admin/users?tab=signup",
   });
 
   return { id: appId, userId };

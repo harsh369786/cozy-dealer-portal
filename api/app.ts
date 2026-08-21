@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { AppError } from "./errors";
 import type { ApiEnv, AppVariables } from "./types";
-import { getDatabase } from "./db/get-db";
+import { getRequestDb } from "./db/get-db";
 import {
   requireAuth,
   requireActiveAccount,
@@ -12,7 +13,15 @@ import {
 import { buildSessionUser } from "./rbac";
 import { id, nowIso, SESSION_DAYS, sha256 } from "./utils";
 import { requestOtp, verifyOtp } from "./services/otp";
-import { buildPriceQuote } from "./services/pricing";
+import {
+  archiveRewardCatalogItem,
+  getRewardCatalogItem,
+  listRewardCatalogAdmin,
+  listRewardClaimsAdmin,
+  saveRewardCatalogItem,
+  undoRewardClaim,
+  updateRewardClaimStatus,
+} from "./services/rewards-admin";
 import {
   createOrder,
   approveOrder,
@@ -50,7 +59,9 @@ import {
 import {
   createAdminUser,
   getAdminUser,
+  getUserCreateOptions,
   listAdminUsers,
+  resendAdminUserInvite,
   softDeleteAdminUser,
   updateAdminUser,
 } from "./services/users";
@@ -65,45 +76,76 @@ import {
 import {
   activateAdminCampaign,
   archiveAdminCampaign,
-  createPriceCampaign,
   getAdminCampaign,
   listAdminCampaigns,
-  updatePriceCampaign,
+  saveAdminCampaign,
 } from "./services/campaigns-admin";
+import { buildAdminAnalyticsFromDb, exploreAdminHierarchy } from "./services/admin-analytics";
+import { mapDealerRow } from "./services/dealers";
+import { redeemRewardClaim } from "./services/reward-redemption";
 import { createSignupApplication } from "./services/signup";
 import { listSignupApplications, reviewSignupApplication } from "./services/signup-review";
+import { buildPriceQuote } from "./services/pricing";
+import { listAuditLogs } from "./services/audit";
+import { fileToImageDataUrl } from "./services/image-data-url";
+import {
+  getPublicCampaignById,
+  listDealerCampaigns,
+  listDistributorCampaigns,
+} from "./services/campaigns-public";
 
 const app = new Hono<{ Bindings: ApiEnv; Variables: AppVariables }>();
 
-app.onError((err, c) => {
-  const message = err instanceof Error ? err.message : "Request failed";
-  const status =
-    message.includes("Unauthorized") || message.includes("Invalid OTP") || message.includes("OTP")
-      ? 400
-      : message.includes("Forbidden")
-        ? 403
-        : message.includes("not registered") || message.includes("not found")
-          ? 400
-          : 500;
-  if (status >= 500) console.error(err);
-  return c.json({ error: message }, status);
+function isProductionEnv(env: ApiEnv) {
+  return env.ENVIRONMENT === "production";
+}
+
+function requireInternalSecret(c: { env: ApiEnv; req: { header: (name: string) => string | undefined } }) {
+  const secret = c.env.CRON_SECRET;
+  if (!secret) return { ok: false as const, status: 503 as const, error: "Internal endpoints not configured" };
+  if (c.req.header("x-cron-secret") !== secret) {
+    return { ok: false as const, status: 401 as const, error: "Unauthorized" };
+  }
+  return { ok: true as const };
+}
+
+app.use("/api/v1/*", async (c, next) => {
+  await getRequestDb(c);
+  await next();
 });
 
-app.use("/api/v1/*", cors({ origin: "*", credentials: true }));
+app.use(
+  "/api/v1/*",
+  cors({
+    origin: (origin) => origin ?? "",
+    credentials: true,
+  }),
+);
+
+app.onError((err, c) => {
+  if (err instanceof AppError) {
+    if (err.statusCode >= 500) console.error(err);
+    return c.json({ error: err.message }, err.statusCode);
+  }
+  const message = err instanceof Error ? err.message : "Request failed";
+  console.error(err);
+  return c.json({ error: message }, 500);
+});
+
 
 app.get("/api/v1/health", (c) => c.json({ ok: true }));
 
 // Auth
 app.post("/api/v1/auth/otp/request", async (c) => {
   const body = await c.req.json<{ phone: string }>();
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const result = await requestOtp(db, body.phone, c.env.ENVIRONMENT);
   return c.json(result);
 });
 
 app.post("/api/v1/auth/otp/verify", async (c) => {
   const body = await c.req.json<{ phone: string; code: string }>();
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const userRow = await verifyOtp(db, body.phone, body.code);
   const sessionId = id("sess");
   const tokenHash = await sha256(sessionId);
@@ -126,20 +168,24 @@ app.post("/api/v1/auth/otp/verify", async (c) => {
     distributor_id: userRow.distributor_id as string | null,
   });
 
-  return c.json({ user }, 200, { "Set-Cookie": setSessionCookie(sessionId) });
+  return c.json({ user }, 200, {
+    "Set-Cookie": setSessionCookie(sessionId, isProductionEnv(c.env)),
+  });
 });
 
 app.post("/api/v1/auth/logout", requireAuth, async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   await db.prepare(`DELETE FROM sessions WHERE id = ?`).bind(c.get("sessionId")).run();
-  return c.json({ ok: true }, 200, { "Set-Cookie": clearSessionCookie() });
+  return c.json({ ok: true }, 200, {
+    "Set-Cookie": clearSessionCookie(isProductionEnv(c.env)),
+  });
 });
 
 app.get("/api/v1/auth/me", requireAuth, (c) => c.json({ user: c.get("user") }));
 
 // Catalog
 app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission("catalog:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const layers = await db.prepare(`SELECT * FROM product_layers ORDER BY sort_order`).all();
   const layerItems = await db.prepare(`SELECT * FROM product_layer_items ORDER BY sort_order`).all();
   const products = await db
@@ -173,7 +219,7 @@ app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission(
 });
 
 app.get("/api/v1/catalog/products/:id", requireAuth, requireActiveAccount, requirePermission("catalog:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const productId = c.req.param("id");
   const product = await db.prepare(`SELECT * FROM products WHERE id = ?`).bind(productId).first();
   if (!product) return c.json({ error: "Not found" }, 404);
@@ -186,7 +232,12 @@ app.get("/api/v1/catalog/products/:id", requireAuth, requireActiveAccount, requi
     .prepare(`SELECT * FROM product_prices WHERE product_id = ? ORDER BY effective_from DESC LIMIT 1`)
     .bind(productId)
     .first();
-  const quote = await buildPriceQuote(db, { productId, quantity: 1 });
+  const campaignId = c.req.query("campaignId");
+  const quote = await buildPriceQuote(db, {
+    productId,
+    quantity: 1,
+    campaignId: campaignId || undefined,
+  });
 
   return c.json({
     ...product,
@@ -201,31 +252,35 @@ app.get("/api/v1/catalog/products/:id", requireAuth, requireActiveAccount, requi
 });
 
 app.post("/api/v1/catalog/price-quote", requireAuth, requireActiveAccount, requirePermission("catalog:read"), async (c) => {
-  const body = await c.req.json<{ productId: string; quantity: number; thickness?: string }>();
-  const db = await getDatabase(c.env);
+  const body = await c.req.json<{ productId: string; quantity: number; thickness?: string; campaignId?: string }>();
+  const db = await getRequestDb(c);
   const quote = await buildPriceQuote(db, body);
   return c.json(quote);
 });
 
 // Orders
 app.post("/api/v1/orders", requireAuth, requireActiveAccount, requirePermission("orders:create"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json();
   const order = await createOrder(db, c.get("user"), body, c.env);
   return c.json(order, 201);
 });
 
 app.get("/api/v1/orders", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   const search = c.req.query("search");
   const status = c.req.query("status");
+  const fromDate = c.req.query("fromDate");
+  const toDate = c.req.query("toDate");
   const page = c.req.query("page");
   const pageSize = c.req.query("pageSize");
 
   const opts = {
     status,
     search,
+    fromDate,
+    toDate,
     page: page ? Number(page) : undefined,
     pageSize: pageSize ? Number(pageSize) : undefined,
   };
@@ -244,7 +299,7 @@ app.get("/api/v1/orders", requireAuth, requireActiveAccount, requirePermission("
 });
 
 app.get("/api/v1/orders/:id", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const orderId = c.req.param("id");
   if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
   const order = await getOrderById(db, orderId);
@@ -253,7 +308,7 @@ app.get("/api/v1/orders/:id", requireAuth, requireActiveAccount, requirePermissi
 });
 
 app.post("/api/v1/orders/:id/approve", requireAuth, requireActiveAccount, requirePermission("orders:approve"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const orderId = c.req.param("id");
   if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
   const order = await approveOrder(db, orderId, c.get("user"), c.env);
@@ -261,7 +316,7 @@ app.post("/api/v1/orders/:id/approve", requireAuth, requireActiveAccount, requir
 });
 
 app.patch("/api/v1/orders/:id/status", requireAuth, requireActiveAccount, async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const orderId = c.req.param("id");
   const body = await c.req.json<{ status: string }>();
   if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
@@ -273,14 +328,16 @@ app.patch("/api/v1/orders/:id/status", requireAuth, requireActiveAccount, async 
     "out_for_delivery",
     "delivered",
   ];
-  if (status === "approved") {
-    if (!user.permissions.includes("orders:approve")) return c.json({ error: "Forbidden" }, 403);
-  } else if (fulfillmentStatuses.includes(status)) {
-    if (!user.permissions.includes("orders:status:fulfillment")) {
+  if (user.role !== "master_admin") {
+    if (status === "approved") {
+      if (!user.permissions.includes("orders:approve")) return c.json({ error: "Forbidden" }, 403);
+    } else if (fulfillmentStatuses.includes(status)) {
+      if (!user.permissions.includes("orders:status:fulfillment")) {
+        return c.json({ error: "Forbidden" }, 403);
+      }
+    } else {
       return c.json({ error: "Forbidden" }, 403);
     }
-  } else {
-    return c.json({ error: "Forbidden" }, 403);
   }
 
   const order = await updateOrderStatus(db, orderId, status, user, c.env);
@@ -288,7 +345,7 @@ app.patch("/api/v1/orders/:id/status", requireAuth, requireActiveAccount, async 
 });
 
 app.get("/api/v1/orders/:id/status-options", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const orderId = c.req.param("id");
   if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
   const row = await db.prepare(`SELECT status FROM orders WHERE id = ?`).bind(orderId).first<{ status: string }>();
@@ -297,7 +354,7 @@ app.get("/api/v1/orders/:id/status-options", requireAuth, requireActiveAccount, 
 });
 
 app.post("/api/v1/orders/:id/reject", requireAuth, requireActiveAccount, requirePermission("orders:reject"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const orderId = c.req.param("id");
   const body = await c.req.json<{ reason: string }>();
   if (!body.reason?.trim()) return c.json({ error: "Reason required" }, 400);
@@ -307,7 +364,7 @@ app.post("/api/v1/orders/:id/reject", requireAuth, requireActiveAccount, require
 });
 
 app.post("/api/v1/orders/:id/cancel", requireAuth, requireActiveAccount, requirePermission("orders:cancel"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const orderId = c.req.param("id");
   const body = await c.req.json<{ reason?: string }>().catch(() => ({ reason: undefined }));
   if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
@@ -316,7 +373,7 @@ app.post("/api/v1/orders/:id/cancel", requireAuth, requireActiveAccount, require
 });
 
 app.get("/api/v1/dealers/:id/orders", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const dealerId = c.req.param("id");
   if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
   return c.json(await listOrders(db, { dealerIds: [dealerId] }));
@@ -324,7 +381,7 @@ app.get("/api/v1/dealers/:id/orders", requireAuth, requireActiveAccount, require
 
 // Dealers
 app.get("/api/v1/dealers", requireAuth, requireActiveAccount, requirePermission("dealers:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   const search = c.req.query("search");
   const scope = await getAssignedDealerIds(db, user);
@@ -342,26 +399,28 @@ app.get("/api/v1/dealers", requireAuth, requireActiveAccount, requirePermission(
     binds.push(q, q, q);
   }
   const { results } = await db.prepare(sql).bind(...binds).all();
-  return c.json(results.map(mapDealerRow));
+  return c.json(await Promise.all(results.map((row) => mapDealerRow(db, row))));
 });
 
 app.get("/api/v1/dealers/:id", requireAuth, requireActiveAccount, requirePermission("dealers:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const dealerId = c.req.param("id");
   if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
   const row = await db.prepare(`SELECT * FROM dealers WHERE id = ?`).bind(dealerId).first();
   if (!row) return c.json({ error: "Not found" }, 404);
-  return c.json(mapDealerRow(row));
+  return c.json(await mapDealerRow(db, row));
 });
 
 app.get("/api/v1/dealers/:id/performance", requireAuth, requireActiveAccount, requirePermission("dealers:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const dealerId = c.req.param("id");
   if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
   const { results } = await db
     .prepare(
       `SELECT strftime('%Y-%m', placed_at) as month, COUNT(*) as orders, SUM(total_value) as orderValue
-       FROM orders WHERE dealer_id = ? AND deleted_at IS NULL GROUP BY month ORDER BY month DESC LIMIT 6`,
+       FROM orders WHERE dealer_id = ? AND deleted_at IS NULL
+         AND status NOT IN ('rejected', 'cancelled')
+       GROUP BY month ORDER BY month DESC LIMIT 6`,
     )
     .bind(dealerId)
     .all();
@@ -369,7 +428,7 @@ app.get("/api/v1/dealers/:id/performance", requireAuth, requireActiveAccount, re
 });
 
 app.get("/api/v1/dealers/:id/reward-claims", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const dealerId = c.req.param("id");
   if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
   const { results } = await db
@@ -392,68 +451,79 @@ app.get("/api/v1/dealers/:id/reward-claims", requireAuth, requireActiveAccount, 
 
 // Campaigns
 app.get("/api/v1/campaigns", requireAuth, requireActiveAccount, requirePermission("campaigns:read"), async (c) => {
-  const db = await getDatabase(c.env);
-  const tab = c.req.query("tab") ?? "active";
-  const sell = await db.prepare(`SELECT * FROM sell_campaigns WHERE deleted_at IS NULL`).all();
-  const filtered = sell.results.filter((c) => c.status === tab);
-  return c.json(
-    filtered.map((c) => ({
-      id: c.id,
-      title: c.title,
-      emoji: c.emoji,
-      goal: c.goal_text,
-      reward: c.reward_text,
-      done: c.done_count,
-      target: c.target_count,
-      starts: c.starts_at,
-      ends: c.ends_at,
-      status: c.status,
+  const db = await getRequestDb(c);
+  const tab = (c.req.query("tab") ?? "active") as "active" | "upcoming" | "expired";
+  const campaigns = await listDealerCampaigns(db, tab);
+  return c.json({
+    campaigns: campaigns.map((campaign) => ({
+      id: campaign.id,
+      name: campaign.name,
+      productId: campaign.productId,
+      productName: campaign.productName,
+      discountPercent: campaign.discountPercent,
+      description: campaign.description,
+      badgeLabel: campaign.badgeLabel,
+      startDate: campaign.startDate,
+      endDate: campaign.endDate,
+      status: campaign.status,
+      imageUrl: campaign.imageUrl,
+      target: campaign.target,
+      done: campaign.done,
     })),
-  );
+  });
+});
+
+app.get("/api/v1/campaigns/:id", requireAuth, requireActiveAccount, requirePermission("campaigns:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const campaign = await getPublicCampaignById(db, c.req.param("id"));
+  if (!campaign) return c.json({ error: "Campaign not found" }, 404);
+  return c.json(campaign);
 });
 
 app.get("/api/v1/distributor/campaigns", requireAuth, requireActiveAccount, requirePermission("campaigns:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
-  const tab = c.req.query("tab");
-  let sql = `SELECT * FROM distributor_campaigns WHERE deleted_at IS NULL`;
-  const binds: unknown[] = [];
-  if (user.distributorId) {
-    sql += ` AND distributor_id = ?`;
-    binds.push(user.distributorId);
-  }
-  if (tab) {
-    sql += ` AND status = ?`;
-    binds.push(tab);
-  }
-  const { results } = await db.prepare(sql).bind(...binds).all();
+  const tab = c.req.query("tab") as "active" | "upcoming" | "expired" | undefined;
+  const campaigns = await listDistributorCampaigns(db, user.distributorId, tab);
   return c.json(
-    results.map((c) => ({
-      id: c.id,
-      distributorId: c.distributor_id,
-      name: c.name,
-      product: c.product_name,
-      discountLabel: c.discount_label,
-      description: c.description,
-      startDate: c.start_date,
-      endDate: c.end_date,
-      status: c.status,
-      bannerEmoji: c.banner_emoji,
+    campaigns.map((campaign) => ({
+      id: campaign.id,
+      distributorId: campaign.distributorId ?? "",
+      name: campaign.name,
+      product: campaign.productName ?? "All products",
+      productId: campaign.productId,
+      discountLabel:
+        campaign.badgeLabel ??
+        (campaign.discountPercent ? `${campaign.discountPercent}% off` : "Campaign offer"),
+      description: campaign.description,
+      startDate: campaign.startDate,
+      endDate: campaign.endDate,
+      status: campaign.status,
+      bannerEmoji: "📣",
+      imageUrl: campaign.imageUrl,
     })),
   );
 });
 
 // Rewards
 app.get("/api/v1/rewards/catalog", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const { results } = await db
     .prepare(`SELECT * FROM reward_catalog WHERE deleted_at IS NULL AND active = 1`)
     .all();
-  return c.json(results.map((r) => ({ id: r.id, name: r.name, emoji: r.emoji, points: r.points_required })));
+  return c.json(
+    results.map((r) => ({
+      id: r.id,
+      name: r.name,
+      emoji: r.emoji,
+      points: r.points_required,
+      imageUrl: (r.image_url as string) ?? undefined,
+    })),
+  );
 });
 
 app.get("/api/v1/rewards/balance", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   if (!user.dealerId) return c.json({ balance: 0, nextRewardAt: 3000 });
   const last = await db
@@ -467,7 +537,7 @@ app.get("/api/v1/rewards/balance", requireAuth, requireActiveAccount, requirePer
 });
 
 app.get("/api/v1/rewards/ledger", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   if (!user.dealerId) return c.json([]);
   const { results } = await db
@@ -478,7 +548,7 @@ app.get("/api/v1/rewards/ledger", requireAuth, requireActiveAccount, requirePerm
 });
 
 app.get("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   if (!user.dealerId) return c.json([]);
   const { results } = await db
@@ -491,64 +561,51 @@ app.get("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePerm
       name: r.name,
       emoji: r.emoji,
       claimed: r.claimed_at,
-      status: r.status === "delivered" ? "Delivered" : "Pending",
+      status: r.status,
       delivered: r.delivered_at,
     })),
   );
 });
 
 app.post("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePermission("rewards:redeem"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   if (!user.dealerId) return c.json({ error: "Dealer required" }, 400);
   const body = await c.req.json<{ rewardId: string }>();
-  const reward = await db.prepare(`SELECT * FROM reward_catalog WHERE id = ?`).bind(body.rewardId).first();
+  const reward = await db.prepare(`SELECT * FROM reward_catalog WHERE id = ?`).bind(body.rewardId).first<{
+    id: string;
+    name: string;
+    emoji: string;
+    points_required: number;
+  }>();
   if (!reward) return c.json({ error: "Reward not found" }, 404);
 
-  const last = await db
-    .prepare(`SELECT balance_after FROM points_ledger WHERE dealer_id = ? ORDER BY occurred_at DESC LIMIT 1`)
-    .bind(user.dealerId)
-    .first<{ balance_after: number }>();
-  const balance = last?.balance_after ?? 0;
-  if (balance < reward.points_required) return c.json({ error: "Insufficient points" }, 400);
+  try {
+    const { claimId } = await redeemRewardClaim(db, user.dealerId, reward);
+    const dealer = await db
+      .prepare(`SELECT store_name FROM dealers WHERE id = ?`)
+      .bind(user.dealerId)
+      .first<{ store_name: string }>();
 
-  const claimId = id("rc");
-  const claimedAt = nowIso();
-  await db
-    .prepare(
-      `INSERT INTO reward_claims (id, dealer_id, reward_catalog_id, name, emoji, points_spent, status, claimed_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
-    )
-    .bind(claimId, user.dealerId, reward.id, reward.name, reward.emoji, reward.points_required, claimedAt)
-    .run();
+    await notifyMasterAdmins(db, {
+      category: "system",
+      type: "system",
+      title: "Reward claim submitted",
+      body: `${dealer?.store_name ?? "Dealer"} claimed ${reward.name} (${reward.points_required} pts)`,
+      link: "/admin/rewards/claims",
+    });
 
-  await db
-    .prepare(
-      `INSERT INTO points_ledger (id, dealer_id, delta, balance_after, label, reference_type, reference_id, occurred_at)
-       VALUES (?, ?, ?, ?, ?, 'reward_claim', ?, ?)`,
-    )
-    .bind(id("pl"), user.dealerId, -reward.points_required, balance - reward.points_required, reward.name, claimId, claimedAt)
-    .run();
-
-  const dealer = await db
-    .prepare(`SELECT store_name FROM dealers WHERE id = ?`)
-    .bind(user.dealerId)
-    .first<{ store_name: string }>();
-
-  await notifyMasterAdmins(db, {
-    category: "system",
-    type: "system",
-    title: "Reward claim submitted",
-    body: `${dealer?.store_name ?? "Dealer"} claimed ${reward.name as string} (${reward.points_required} pts)`,
-    link: "/admin/rewards/claims",
-  });
-
-  return c.json({ id: claimId, status: "pending" }, 201);
+    return c.json({ id: claimId, status: "pending" }, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Redemption failed";
+    if (message.includes("Insufficient")) return c.json({ error: message }, 400);
+    throw err;
+  }
 });
 
 // Complaints
 app.post("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermission("complaints:create"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json<{ orderId: string; description: string; category?: string }>();
   const user = c.get("user");
   if (!user.dealerId) return c.json({ error: "Dealer required" }, 400);
@@ -593,7 +650,7 @@ app.post("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermiss
 });
 
 app.get("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermission("complaints:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   let sql = `SELECT c.*, d.store_name as dealer_name FROM complaints c JOIN dealers d ON d.id = c.dealer_id WHERE c.deleted_at IS NULL`;
   const binds: unknown[] = [];
@@ -622,10 +679,47 @@ app.get("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermissi
   );
 });
 
-app.patch("/api/v1/complaints/:id", requireAuth, requireActiveAccount, requirePermission("complaints:update"), async (c) => {
-  const db = await getDatabase(c.env);
+app.get("/api/v1/complaints/:id", requireAuth, requireActiveAccount, requirePermission("complaints:read"), async (c) => {
+  const db = await getRequestDb(c);
   const user = c.get("user");
-  if (user.role !== "master_admin") return c.json({ error: "Forbidden" }, 403);
+  const complaintId = c.req.param("id");
+  if (!(await canAccessComplaint(db, user, complaintId))) return c.json({ error: "Forbidden" }, 403);
+
+  const row = await db
+    .prepare(
+      `SELECT c.*, d.store_name as dealer_name, dist.name as distributor_name
+       FROM complaints c
+       JOIN dealers d ON d.id = c.dealer_id
+       JOIN distributors dist ON dist.id = c.distributor_id
+       WHERE c.id = ? AND c.deleted_at IS NULL`,
+    )
+    .bind(complaintId)
+    .first<Record<string, unknown>>();
+  if (!row) return c.json({ error: "Not found" }, 404);
+
+  return c.json({
+    id: row.id,
+    orderId: row.order_id,
+    dealerId: row.dealer_id,
+    dealerName: row.dealer_name,
+    distributorName: row.distributor_name,
+    category: row.category,
+    description: row.description,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    history: [
+      { label: "Submitted", at: row.created_at },
+      ...(row.status !== "pending"
+        ? [{ label: "Status updated", at: row.updated_at, note: `Now ${String(row.status).replace(/_/g, " ")}` }]
+        : []),
+    ],
+  });
+});
+
+app.patch("/api/v1/complaints/:id", requireAuth, requireActiveAccount, requirePermission("complaints:update"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
   const complaintId = c.req.param("id");
   if (!(await canAccessComplaint(db, user, complaintId))) return c.json({ error: "Forbidden" }, 403);
   const body = await c.req.json<{ status: string }>();
@@ -653,25 +747,25 @@ app.patch("/api/v1/complaints/:id", requireAuth, requireActiveAccount, requirePe
 
 // Notifications
 app.get("/api/v1/notifications", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   return c.json(await listNotifications(db, c.get("user").id));
 });
 
 app.patch("/api/v1/notifications/:id/read", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   await db.prepare(`UPDATE notifications SET read = 1 WHERE id = ? AND recipient_user_id = ?`).bind(c.req.param("id"), c.get("user").id).run();
   return c.json({ ok: true });
 });
 
 app.post("/api/v1/notifications/read-all", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   await db.prepare(`UPDATE notifications SET read = 1 WHERE recipient_user_id = ?`).bind(c.get("user").id).run();
   return c.json({ ok: true });
 });
 
 // Reports
 app.get("/api/v1/reports/dashboard", requireAuth, requireActiveAccount, requirePermission("reports:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   const reportScope = await resolveReportScope(db, user);
   if (!reportScope.allowed) return c.json({ error: "Forbidden" }, 403);
@@ -709,21 +803,59 @@ app.get("/api/v1/reports/dashboard", requireAuth, requireActiveAccount, requireP
     .bind(...complaintBinds)
     .first<{ c: number }>();
 
+  const monthOrderBinds: unknown[] = [];
+  let monthOrderSql = `SELECT COUNT(*) as orders, COALESCE(SUM(total_value), 0) as sales
+    FROM orders WHERE deleted_at IS NULL
+      AND status NOT IN ('rejected', 'cancelled')
+      AND strftime('%Y-%m', placed_at) = strftime('%Y-%m', 'now')`;
+  monthOrderSql += appendDealerScopeSql(reportScope.dealerIds, "dealer_id", monthOrderBinds);
+  const monthStats = await db
+    .prepare(monthOrderSql)
+    .bind(...monthOrderBinds)
+    .first<{ orders: number; sales: number }>();
+
+  const prevMonthBinds: unknown[] = [];
+  let prevMonthSql = `SELECT COALESCE(SUM(total_value), 0) as sales
+    FROM orders WHERE deleted_at IS NULL
+      AND status NOT IN ('rejected', 'cancelled')
+      AND strftime('%Y-%m', placed_at) = strftime('%Y-%m', 'now', '-1 month')`;
+  prevMonthSql += appendDealerScopeSql(reportScope.dealerIds, "dealer_id", prevMonthBinds);
+  const prevMonth = await db
+    .prepare(prevMonthSql)
+    .bind(...prevMonthBinds)
+    .first<{ sales: number }>();
+
+  const pointsBinds: unknown[] = [];
+  let pointsSql = `SELECT COALESCE(SUM(pl.delta), 0) as pts
+    FROM points_ledger pl JOIN dealers d ON d.id = pl.dealer_id
+    WHERE pl.delta > 0 AND strftime('%Y-%m', pl.occurred_at) = strftime('%Y-%m', 'now')`;
+  pointsSql += appendDealerScopeSql(reportScope.dealerIds, "d.id", pointsBinds);
+  const pointsRow = await db.prepare(pointsSql).bind(...pointsBinds).first<{ pts: number }>();
+
+  const monthlySales = monthStats?.sales ?? 0;
+  const prevMonthSales = prevMonth?.sales ?? 0;
+  const salesGrowth =
+    prevMonthSales > 0
+      ? Math.round(((monthlySales - prevMonthSales) / prevMonthSales) * 100)
+      : monthlySales > 0
+        ? 100
+        : 0;
+
   return c.json({
     totalDealers: dealers?.c ?? 0,
     activeDealers: active?.c ?? 0,
-    ordersThisMonth: 0,
-    monthlySales: 0,
+    ordersThisMonth: monthStats?.orders ?? 0,
+    monthlySales,
     pendingApprovals: pending?.c ?? 0,
     openComplaints: complaints?.c ?? 0,
-    rewardPointsGenerated: 0,
-    salesGrowth: 0,
-    prevMonthSales: 0,
+    rewardPointsGenerated: pointsRow?.pts ?? 0,
+    salesGrowth,
+    prevMonthSales,
   });
 });
 
 app.get("/api/v1/reports/monthly-sales", requireAuth, requireActiveAccount, requirePermission("reports:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   const reportScope = await resolveReportScope(db, user);
   if (!reportScope.allowed) return c.json({ error: "Forbidden" }, 403);
@@ -737,7 +869,7 @@ app.get("/api/v1/reports/monthly-sales", requireAuth, requireActiveAccount, requ
 });
 
 app.get("/api/v1/reports/product-sales", requireAuth, requireActiveAccount, requirePermission("reports:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   const reportScope = await resolveReportScope(db, user);
   if (!reportScope.allowed) return c.json({ error: "Forbidden" }, 403);
@@ -752,20 +884,55 @@ app.get("/api/v1/reports/product-sales", requireAuth, requireActiveAccount, requ
 });
 
 app.get("/api/v1/reports/dealer-performance", requireAuth, requireActiveAccount, requirePermission("reports:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   const reportScope = await resolveReportScope(db, user);
   if (!reportScope.allowed) return c.json({ error: "Forbidden" }, 403);
 
+  const period = c.req.query("period") ?? "month";
   const now = new Date();
-  const currentMonth = now.toLocaleString("en-IN", { month: "short", year: "numeric" });
-  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const previousMonth = prev.toLocaleString("en-IN", { month: "short", year: "numeric" });
+  let currentStart: Date;
+  let currentEnd = now;
+  let previousStart: Date;
+  let previousEnd: Date;
 
-  const binds: unknown[] = [];
+  if (period === "week") {
+    currentStart = new Date(now);
+    currentStart.setDate(now.getDate() - 7);
+    previousEnd = new Date(currentStart);
+    previousStart = new Date(previousEnd);
+    previousStart.setDate(previousEnd.getDate() - 7);
+  } else if (period === "quarter") {
+    currentStart = new Date(now);
+    currentStart.setMonth(now.getMonth() - 3);
+    previousEnd = new Date(currentStart);
+    previousStart = new Date(previousEnd);
+    previousStart.setMonth(previousEnd.getMonth() - 3);
+  } else if (period === "year") {
+    currentStart = new Date(now);
+    currentStart.setFullYear(now.getFullYear() - 1);
+    previousEnd = new Date(currentStart);
+    previousStart = new Date(previousEnd);
+    previousStart.setFullYear(previousEnd.getFullYear() - 1);
+  } else {
+    currentStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    previousStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    previousEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
+  }
+
+  const currentMonth = currentStart.toLocaleString("en-IN", { month: "short", year: "numeric" });
+  const previousMonth = previousStart.toLocaleString("en-IN", { month: "short", year: "numeric" });
+
+  const binds: unknown[] = [currentStart.toISOString(), currentEnd.toISOString(), previousStart.toISOString(), previousEnd.toISOString()];
   let dealerFilter = "";
   if (reportScope.dealerIds !== "all") {
     dealerFilter = appendDealerScopeSql(reportScope.dealerIds, "d.id", binds);
+  }
+
+  const dealerIdFilter = c.req.query("dealerId");
+  if (dealerIdFilter) {
+    dealerFilter += ` AND d.id = ?`;
+    binds.push(dealerIdFilter);
   }
 
   const sql = `
@@ -781,15 +948,13 @@ app.get("/api/v1/reports/dealer-performance", requireAuth, requireActiveAccount,
     LEFT JOIN (
       SELECT dealer_id, SUM(total_value) AS sales, COUNT(*) AS orders
       FROM orders
-      WHERE deleted_at IS NULL
-        AND strftime('%Y-%m', placed_at) = strftime('%Y-%m', 'now')
+      WHERE deleted_at IS NULL AND placed_at >= ? AND placed_at <= ?
       GROUP BY dealer_id
     ) cur ON cur.dealer_id = d.id
     LEFT JOIN (
       SELECT dealer_id, SUM(total_value) AS sales, COUNT(*) AS orders
       FROM orders
-      WHERE deleted_at IS NULL
-        AND strftime('%Y-%m', placed_at) = strftime('%Y-%m', date('now', '-1 month'))
+      WHERE deleted_at IS NULL AND placed_at >= ? AND placed_at <= ?
       GROUP BY dealer_id
     ) prev ON prev.dealer_id = d.id
     WHERE d.deleted_at IS NULL${dealerFilter}
@@ -844,7 +1009,7 @@ app.get("/api/v1/reports/dealer-performance", requireAuth, requireActiveAccount,
 
 // Signup
 app.post("/api/v1/signup/applications", async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json();
   try {
     const result = await createSignupApplication(db, {
@@ -876,7 +1041,7 @@ admin.use("*", async (c, next) => {
 });
 
 admin.get("/users", requirePermission("users:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   return c.json(
     await listAdminUsers(db, {
       search: c.req.query("search"),
@@ -888,18 +1053,26 @@ admin.get("/users", requirePermission("users:read"), async (c) => {
   );
 });
 
+admin.get("/users/create-options", requirePermission("users:write"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(await getUserCreateOptions(db));
+});
+
 admin.get("/users/:id", requirePermission("users:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = await getAdminUser(db, c.req.param("id"));
   if (!user) return c.json({ error: "User not found" }, 404);
   return c.json(user);
 });
 
 admin.post("/users", requirePermission("users:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json();
   try {
-    const user = await createAdminUser(db, body, c.get("user").id);
+    const user = await createAdminUser(db, body, c.get("user").id, c.get("user").role, {
+      env: c.env,
+      portalBaseUrl: new URL(c.req.url).origin,
+    });
     return c.json(user, 201);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Create failed";
@@ -907,8 +1080,23 @@ admin.post("/users", requirePermission("users:write"), async (c) => {
   }
 });
 
+admin.post("/users/:id/resend-invite", requirePermission("users:write"), async (c) => {
+  const db = await getRequestDb(c);
+  try {
+    const result = await resendAdminUserInvite(db, c.req.param("id"), c.get("user").id, {
+      env: c.env,
+      portalBaseUrl: new URL(c.req.url).origin,
+    });
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Resend failed";
+    const status = message.includes("not found") ? 404 : 400;
+    return c.json({ error: message }, status);
+  }
+});
+
 admin.patch("/users/:id", requirePermission("users:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json();
   try {
     const user = await updateAdminUser(db, c.req.param("id"), body, c.get("user").id);
@@ -921,7 +1109,7 @@ admin.patch("/users/:id", requirePermission("users:write"), async (c) => {
 });
 
 admin.delete("/users/:id", requirePermission("users:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   try {
     return c.json(await softDeleteAdminUser(db, c.req.param("id"), c.get("user").id));
   } catch (err) {
@@ -932,7 +1120,7 @@ admin.delete("/users/:id", requirePermission("users:write"), async (c) => {
 });
 
 admin.get("/products", requirePermission("catalog:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   return c.json(
     await listAdminProducts(db, {
       search: c.req.query("search"),
@@ -945,14 +1133,14 @@ admin.get("/products", requirePermission("catalog:read"), async (c) => {
 });
 
 admin.get("/products/:id", requirePermission("catalog:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const product = await getAdminProduct(db, c.req.param("id"));
   if (!product) return c.json({ error: "Product not found" }, 404);
   return c.json(product);
 });
 
 admin.post("/products", requirePermission("catalog:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json();
   try {
     const product = await createAdminProduct(db, body, c.get("user").id);
@@ -964,7 +1152,7 @@ admin.post("/products", requirePermission("catalog:write"), async (c) => {
 });
 
 admin.patch("/products/:id", requirePermission("catalog:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json();
   try {
     const product = await updateAdminProduct(db, c.req.param("id"), body, c.get("user").id);
@@ -977,7 +1165,7 @@ admin.patch("/products/:id", requirePermission("catalog:write"), async (c) => {
 });
 
 admin.patch("/products/:id/archive", requirePermission("catalog:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   try {
     return c.json(await archiveAdminProduct(db, c.req.param("id"), c.get("user").id));
   } catch (err) {
@@ -987,7 +1175,7 @@ admin.patch("/products/:id/archive", requirePermission("catalog:write"), async (
 });
 
 admin.patch("/products/:id/restore", requirePermission("catalog:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   try {
     return c.json(await restoreAdminProduct(db, c.req.param("id"), c.get("user").id));
   } catch (err) {
@@ -997,13 +1185,10 @@ admin.patch("/products/:id/restore", requirePermission("catalog:write"), async (
 });
 
 admin.get("/campaigns", requirePermission("campaigns:read"), async (c) => {
-  const db = await getDatabase(c.env);
-  const type = c.req.query("type");
+  const db = await getRequestDb(c);
   return c.json(
     await listAdminCampaigns(db, {
       search: c.req.query("search"),
-      type:
-        type === "price" || type === "sell" || type === "distributor" ? type : "all",
       status: c.req.query("status"),
       active: (c.req.query("active") as "all" | "active" | "inactive") ?? "all",
       page: Number(c.req.query("page") ?? 1),
@@ -1013,17 +1198,17 @@ admin.get("/campaigns", requirePermission("campaigns:read"), async (c) => {
 });
 
 admin.get("/campaigns/:id", requirePermission("campaigns:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const campaign = await getAdminCampaign(db, c.req.param("id"));
   if (!campaign) return c.json({ error: "Campaign not found" }, 404);
   return c.json(campaign);
 });
 
 admin.post("/campaigns", requirePermission("campaigns:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json();
   try {
-    const campaign = await createPriceCampaign(db, body, c.get("user").id);
+    const campaign = await saveAdminCampaign(db, body, c.get("user").id);
     return c.json(campaign, 201);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Create failed";
@@ -1032,10 +1217,10 @@ admin.post("/campaigns", requirePermission("campaigns:write"), async (c) => {
 });
 
 admin.patch("/campaigns/:id", requirePermission("campaigns:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json();
   try {
-    const campaign = await updatePriceCampaign(db, c.req.param("id"), body, c.get("user").id);
+    const campaign = await saveAdminCampaign(db, body, c.get("user").id, c.req.param("id"));
     return c.json(campaign);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Update failed";
@@ -1044,7 +1229,7 @@ admin.patch("/campaigns/:id", requirePermission("campaigns:write"), async (c) =>
 });
 
 admin.patch("/campaigns/:id/archive", requirePermission("campaigns:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   try {
     return c.json(await archiveAdminCampaign(db, c.req.param("id"), c.get("user").id));
   } catch (err) {
@@ -1054,7 +1239,7 @@ admin.patch("/campaigns/:id/archive", requirePermission("campaigns:write"), asyn
 });
 
 admin.patch("/campaigns/:id/activate", requirePermission("campaigns:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   try {
     return c.json(await activateAdminCampaign(db, c.req.param("id"), c.get("user").id));
   } catch (err) {
@@ -1063,20 +1248,188 @@ admin.patch("/campaigns/:id/activate", requirePermission("campaigns:write"), asy
   }
 });
 
-admin.get("/rewards", requirePermission("campaigns:read"), async (c) => {
-  const db = await getDatabase(c.env);
-  const { results } = await db.prepare(`SELECT * FROM reward_catalog`).all();
+admin.post("/campaigns/upload-image", requirePermission("campaigns:write"), async (c) => {
+  const form = await c.req.formData();
+  const file = form.get("file");
+  if (!(file instanceof File)) return c.json({ error: "No image file provided" }, 400);
+  try {
+    const imageUrl = await fileToImageDataUrl(file);
+    return c.json({ imageUrl });
+  } catch (err) {
+    if (err instanceof AppError) return c.json({ error: err.message }, err.statusCode);
+    const message = err instanceof Error ? err.message : "Upload failed";
+    return c.json({ error: message }, 400);
+  }
+});
+
+admin.get("/analytics", requirePermission("reports:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(
+    await buildAdminAnalyticsFromDb(db, {
+      month: c.req.query("month"),
+      fromMonth: c.req.query("fromMonth"),
+      toMonth: c.req.query("toMonth"),
+      distributorId: c.req.query("distributorId"),
+      salesExecutiveId: c.req.query("salesExecutiveId"),
+      dealerId: c.req.query("dealerId"),
+      product: c.req.query("product"),
+      search: c.req.query("search"),
+    }),
+  );
+});
+
+admin.get("/explore", requirePermission("reports:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(
+    await exploreAdminHierarchy(db, {
+      level: c.req.query("level") as "distributors" | "dealers" | "orders" | undefined,
+      distributorId: c.req.query("distributorId"),
+      dealerId: c.req.query("dealerId"),
+      search: c.req.query("search"),
+      from: c.req.query("from"),
+      to: c.req.query("to"),
+    }),
+  );
+});
+
+admin.get("/system-notifications", requirePermission("settings:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const category = c.req.query("category");
+  const binds: unknown[] = [];
+  let sql = `SELECT n.*, u.name as recipient_name FROM notifications n
+    LEFT JOIN users u ON u.id = n.recipient_user_id WHERE 1=1`;
+  if (category && category !== "all") {
+    sql += ` AND n.category = ?`;
+    binds.push(category);
+  }
+  sql += ` ORDER BY n.created_at DESC LIMIT 100`;
+  const { results } = await db.prepare(sql).bind(...binds).all();
   return c.json(results);
 });
 
+admin.patch("/system-notifications/:id", requirePermission("settings:write"), async (c) => {
+  const db = await getRequestDb(c);
+  const body = await c.req.json<{ title?: string; body?: string }>();
+  await db
+    .prepare(`UPDATE notifications SET title = COALESCE(?, title), body = COALESCE(?, body) WHERE id = ?`)
+    .bind(body.title ?? null, body.body ?? null, c.req.param("id"))
+    .run();
+  return c.json({ ok: true });
+});
+
+admin.delete("/system-notifications/:id", requirePermission("settings:write"), async (c) => {
+  const db = await getRequestDb(c);
+  await db.prepare(`DELETE FROM notifications WHERE id = ?`).bind(c.req.param("id")).run();
+  return c.json({ ok: true });
+});
+
+admin.get("/rewards", requirePermission("rewards:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const items = await listRewardCatalogAdmin(db);
+  return c.json({ items, total: items.length, page: 1, pageSize: items.length, totalPages: 1 });
+});
+
+admin.get("/rewards/:id", requirePermission("rewards:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const item = await getRewardCatalogItem(db, c.req.param("id"));
+  if (!item) return c.json({ error: "Not found" }, 404);
+  return c.json(item);
+});
+
+admin.post("/rewards", requirePermission("catalog:write"), async (c) => {
+  const db = await getRequestDb(c);
+  const body = await c.req.json<{
+    id?: string;
+    name: string;
+    emoji: string;
+    pointsRequired: number;
+    active?: boolean;
+    imageUrl?: string | null;
+  }>();
+  try {
+    const item = await saveRewardCatalogItem(db, body, c.get("user").id);
+    return c.json(item, 201);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Create failed" }, 400);
+  }
+});
+
+admin.patch("/rewards/:id", requirePermission("catalog:write"), async (c) => {
+  const db = await getRequestDb(c);
+  const body = await c.req.json<{
+    name: string;
+    emoji: string;
+    pointsRequired: number;
+    active?: boolean;
+    imageUrl?: string | null;
+  }>();
+  try {
+    const item = await saveRewardCatalogItem(db, { ...body, id: c.req.param("id") }, c.get("user").id);
+    return c.json(item);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Update failed" }, 400);
+  }
+});
+
+admin.delete("/rewards/:id", requirePermission("catalog:write"), async (c) => {
+  const db = await getRequestDb(c);
+  await archiveRewardCatalogItem(db, c.req.param("id"), c.get("user").id);
+  return c.json({ ok: true });
+});
+
+admin.post("/rewards/upload-image", requirePermission("catalog:write"), async (c) => {
+  const form = await c.req.formData();
+  const file = form.get("file");
+  if (!(file instanceof File)) return c.json({ error: "No image file provided" }, 400);
+  try {
+    const imageUrl = await fileToImageDataUrl(file);
+    return c.json({ imageUrl });
+  } catch (err) {
+    if (err instanceof AppError) return c.json({ error: err.message }, err.statusCode);
+    const message = err instanceof Error ? err.message : "Upload failed";
+    return c.json({ error: message }, 400);
+  }
+});
+
+admin.get("/reward-claims", requirePermission("rewards:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(
+    await listRewardClaimsAdmin(db, {
+      status: c.req.query("status"),
+      search: c.req.query("search"),
+      page: Number(c.req.query("page") ?? 1),
+      pageSize: Number(c.req.query("pageSize") ?? 10),
+    }),
+  );
+});
+
+admin.patch("/reward-claims/:id", requirePermission("rewards:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const body = await c.req.json<{ status: "pending" | "delivered" }>();
+  try {
+    return c.json(await updateRewardClaimStatus(db, c.req.param("id"), body.status, c.get("user").id));
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Update failed" }, 400);
+  }
+});
+
+admin.post("/reward-claims/:id/undo", requirePermission("catalog:write"), async (c) => {
+  const db = await getRequestDb(c);
+  try {
+    return c.json(await undoRewardClaim(db, c.req.param("id"), c.get("user").id));
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Undo failed" }, 400);
+  }
+});
+
 admin.get("/settings", requirePermission("settings:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const { results } = await db.prepare(`SELECT * FROM system_settings`).all();
   return c.json(results);
 });
 
 admin.patch("/settings/:key", requirePermission("settings:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json<{ value: string }>();
   await db
     .prepare(`INSERT INTO system_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`)
@@ -1086,7 +1439,7 @@ admin.patch("/settings/:key", requirePermission("settings:write"), async (c) => 
 });
 
 admin.get("/assignments", requirePermission("assignments:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const unassigned = c.req.query("unassigned");
   const result = await listAssignmentRows(db, {
     search: c.req.query("search"),
@@ -1103,17 +1456,17 @@ admin.get("/assignments", requirePermission("assignments:read"), async (c) => {
 });
 
 admin.get("/assignments/summary", requirePermission("assignments:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   return c.json(await getAssignmentSummary(db));
 });
 
 admin.get("/assignments/options", requirePermission("assignments:read"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   return c.json(await getAssignmentOptions(db));
 });
 
 admin.patch("/assignments/dealers/:dealerId", requirePermission("assignments:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json<{
     distributorId?: string | null;
     salesExecutiveUserId?: string | null;
@@ -1129,7 +1482,7 @@ admin.patch("/assignments/dealers/:dealerId", requirePermission("assignments:wri
 });
 
 admin.post("/assignments/bulk", requirePermission("assignments:write"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json<{
     dealerIds: string[];
     distributorId?: string | null;
@@ -1145,13 +1498,12 @@ admin.post("/assignments/bulk", requirePermission("assignments:write"), async (c
 });
 
 admin.get("/audit-logs", requirePermission("audit:read"), async (c) => {
-  const db = await getDatabase(c.env);
-  const { results } = await db.prepare(`SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100`).all();
-  return c.json(results);
+  const db = await getRequestDb(c);
+  return c.json(await listAuditLogs(db, { limit: Number(c.req.query("limit") ?? 200) }));
 });
 
 admin.get("/signup-applications", requirePermission("signup:review"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   return c.json(
     await listSignupApplications(db, {
       search: c.req.query("search"),
@@ -1163,7 +1515,7 @@ admin.get("/signup-applications", requirePermission("signup:review"), async (c) 
 });
 
 admin.patch("/signup-applications/:id", requirePermission("signup:review"), async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const body = await c.req.json();
   try {
     const result = await reviewSignupApplication(db, c.req.param("id"), body, c.get("user").id);
@@ -1178,13 +1530,17 @@ app.route("/api/v1/admin", admin);
 
 // Internal / cron
 app.post("/api/v1/internal/cron/reminders", async (c) => {
-  const db = await getDatabase(c.env);
+  const auth = requireInternalSecret(c);
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status);
+  const db = await getRequestDb(c);
   await scanPendingOrderReminders(db);
   return c.json({ ok: true });
 });
 
 app.post("/api/v1/internal/whatsapp/process", async (c) => {
-  const db = await getDatabase(c.env);
+  const auth = requireInternalSecret(c);
+  if (!auth.ok) return c.json({ error: auth.error }, auth.status);
+  const db = await getRequestDb(c);
   const body = await c.req.json<{ outboxId: string }>();
   await processWhatsappOutbox(db, body.outboxId);
   return c.json({ ok: true });
@@ -1192,7 +1548,7 @@ app.post("/api/v1/internal/whatsapp/process", async (c) => {
 
 // Salespeople for dealer
 app.get("/api/v1/dealer/salespeople", requireAuth, requireActiveAccount, async (c) => {
-  const db = await getDatabase(c.env);
+  const db = await getRequestDb(c);
   const user = c.get("user");
   if (!user.dealerId) return c.json([]);
   const { results } = await db
@@ -1201,31 +1557,6 @@ app.get("/api/v1/dealer/salespeople", requireAuth, requireActiveAccount, async (
     .all();
   return c.json(results);
 });
-
-function mapDealerRow(row: Record<string, unknown>) {
-  return {
-    id: row.id,
-    distributorId: row.distributor_id,
-    code: row.code,
-    name: row.store_name,
-    contactName: row.contact_name,
-    location: row.location,
-    address: row.address,
-    phone: row.phone,
-    email: row.email,
-    gstNumber: row.gst_number,
-    active: Boolean(row.active),
-    rewardPoints: 0,
-    totalSales: 0,
-    monthSales: 0,
-    prevMonthSales: 0,
-    orderCount: 0,
-    pendingOrders: 0,
-    openComplaints: 0,
-    salesGrowth: 0,
-    lastOrderDate: "",
-  };
-}
 
 export async function handleApiRequest(
   request: Request,

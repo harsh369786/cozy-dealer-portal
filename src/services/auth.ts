@@ -3,8 +3,7 @@ import { api } from "@/lib/api-client";
 
 export function getHomePath(role: UserRole): string {
   if (role === "master_admin" || role === "admin_staff") return "/admin";
-  if (role === "distributor") return "/distributor/dashboard";
-  if (role === "sales_executive") return "/distributor/dealers";
+  if (role === "distributor" || role === "sales_executive") return "/distributor/dashboard";
   return "/home";
 }
 
@@ -17,10 +16,29 @@ const SESSION_CACHE_TTL_MS = 30_000;
 
 let sessionCache: { user: SessionUser | null; at: number } | null = null;
 let sessionInflight: Promise<SessionUser | null> | null = null;
+let onSessionInvalidate: (() => void) | null = null;
+
+export function registerSessionInvalidateHandler(handler: () => void) {
+  onSessionInvalidate = handler;
+}
 
 export function invalidateSessionCache() {
   sessionCache = null;
   sessionInflight = null;
+  onSessionInvalidate?.();
+}
+
+export function peekCachedUser(): SessionUser | null {
+  if (!hasFreshSessionCache()) return null;
+  return sessionCache!.user;
+}
+
+export function hasFreshSessionCache(): boolean {
+  return sessionCache != null && Date.now() - sessionCache.at < SESSION_CACHE_TTL_MS;
+}
+
+export function hasCachedSession(): boolean {
+  return hasFreshSessionCache();
 }
 
 export async function requestOtp(phone: string): Promise<void> {

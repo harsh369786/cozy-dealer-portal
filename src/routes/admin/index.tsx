@@ -26,8 +26,8 @@ function AdminDashboardPage() {
   const navigate = useNavigate();
   const { data, loading, error, retry } = useAsyncData(() => getAdminDashboard(), []);
 
-  if (loading) return <PageSkeleton rows={4} />;
-  if (error || !data) return <ErrorState message={error ?? "Failed to load dashboard"} onRetry={retry} />;
+  if (loading && !data) return <PageSkeleton rows={4} />;
+  if ((error || !data) && !loading) return <ErrorState message={error ?? "Failed to load dashboard"} onRetry={retry} />;
 
   const { stats } = data;
 
@@ -39,13 +39,48 @@ function AdminDashboardPage() {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Sales (MTD)" value={inrCompact(stats.monthlySales)} icon={TrendingUp} />
-        <StatCard label="Orders" value={stats.totalOrders} icon={ShoppingBag} />
-        <StatCard label="Dealers" value={stats.totalDealers} icon={Store} />
-        <StatCard label="Distributors" value={stats.totalDistributors} icon={Users} />
-        <StatCard label="Pending approvals" value={stats.pendingApprovals} icon={Package} />
-        <StatCard label="Open complaints" value={stats.openComplaints} icon={AlertTriangle} />
-        <StatCard label="Active campaigns" value={stats.activeCampaigns} icon={Megaphone} />
+        <StatCard
+          label="Sales (MTD)"
+          value={inrCompact(stats.monthlySales)}
+          icon={TrendingUp}
+          onClick={() => navigate({ to: "/admin/explore", search: { metric: "sales" } })}
+        />
+        <StatCard
+          label="Orders"
+          value={stats.totalOrders}
+          icon={ShoppingBag}
+          onClick={() => navigate({ to: "/admin/explore", search: { metric: "orders" } })}
+        />
+        <StatCard
+          label="Dealers"
+          value={stats.totalDealers}
+          icon={Store}
+          onClick={() => navigate({ to: "/admin/explore", search: { metric: "sales" } })}
+        />
+        <StatCard
+          label="Distributors"
+          value={stats.totalDistributors}
+          icon={Users}
+          onClick={() => navigate({ to: "/admin/explore", search: { metric: "sales" } })}
+        />
+        <StatCard
+          label="Pending approvals"
+          value={stats.pendingApprovals}
+          icon={Package}
+          onClick={() => navigate({ to: "/admin/orders", search: { status: "order_placed" } })}
+        />
+        <StatCard
+          label="Open complaints"
+          value={stats.openComplaints}
+          icon={AlertTriangle}
+          onClick={() => navigate({ to: "/admin/complaints" })}
+        />
+        <StatCard
+          label="Active campaigns"
+          value={stats.activeCampaigns}
+          icon={Megaphone}
+          onClick={() => navigate({ to: "/admin/campaigns" })}
+        />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">

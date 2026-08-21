@@ -3,9 +3,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { ApiError } from "@/lib/api-client";
-import loginBg from "@/assets/login-bg.jpg";
+import { assetPublicPath, STATIC_ASSET_KEYS } from "@/lib/asset-url";
 import { Logo } from "@/components/brand";
 import { getHomePath, getPostLoginPath, requestOtp, verifyOtp } from "@/services/auth";
+
+const loginBg = assetPublicPath(STATIC_ASSET_KEYS.brand.loginBg);
 
 export const Route = createFileRoute("/")({
   ssr: true,

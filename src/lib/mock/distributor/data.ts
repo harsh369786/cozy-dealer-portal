@@ -540,7 +540,7 @@ export const seedComplaints: DistributorComplaint[] = [
   {
     id: "CMP-10245",
     distributorId: DISTRIBUTOR_ID,
-    orderId: "BR-1019",
+    orderId: "BR-10245",
     dealerId: "dlr-patil",
     dealerName: "Patil Mattress Gallery",
     category: "Product defect",
@@ -552,7 +552,7 @@ export const seedComplaints: DistributorComplaint[] = [
   {
     id: "CMP-10238",
     distributorId: DISTRIBUTOR_ID,
-    orderId: "BR-0998",
+    orderId: "BR-10243",
     dealerId: "dlr-sharma",
     dealerName: "Sharma Furnishings",
     category: "Delivery",
@@ -564,7 +564,7 @@ export const seedComplaints: DistributorComplaint[] = [
   {
     id: "CMP-10231",
     distributorId: DISTRIBUTOR_ID,
-    orderId: "BR-0985",
+    orderId: "BR-10242",
     dealerId: "dlr-kulkarni",
     dealerName: "Kulkarni Sleep Studio",
     category: "Wrong item",

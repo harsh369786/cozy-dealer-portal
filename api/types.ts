@@ -48,14 +48,16 @@ export type SessionUser = {
 
 export type ApiEnv = {
   DB: D1Database;
-  ASSETS?: R2Bucket;
+  ASSETS?: Fetcher;
   WHATSAPP_QUEUE?: Queue;
   JWT_SECRET?: string;
   ENVIRONMENT?: string;
+  CRON_SECRET?: string;
   Bindings?: ApiEnv;
 };
 
 export type AppVariables = {
   user: SessionUser;
   sessionId: string;
+  db: D1Database;
 };

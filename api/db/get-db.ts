@@ -41,3 +41,15 @@ export async function getDatabase(env?: ApiEnv | null): Promise<D1Database> {
   if (bindings?.DB) return bindings.DB;
   throw new Error("Database binding DB is not configured");
 }
+
+export async function getRequestDb(c: {
+  env: ApiEnv;
+  get: (key: "db") => D1Database | undefined;
+  set: (key: "db", value: D1Database) => void;
+}): Promise<D1Database> {
+  const cached = c.get("db");
+  if (cached) return cached;
+  const db = await getDatabase(c.env);
+  c.set("db", db);
+  return db;
+}

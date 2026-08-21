@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { assetPublicPath, STATIC_ASSET_KEYS } from "@/lib/asset-url";
 import { cn } from "@/lib/utils";
 
-const LOGO_SRC = "/backrest-logo.jpeg";
+const LOGO_SRC = assetPublicPath(STATIC_ASSET_KEYS.brand.logo);
 
 export function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
   const height = { sm: "h-9", md: "h-12", lg: "h-24" }[size];

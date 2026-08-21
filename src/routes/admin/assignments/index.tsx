@@ -27,6 +27,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
 import type { SignupApplication } from "@/lib/mock/admin/types";
 import type { UserRole } from "@/lib/mock/distributor/types";
@@ -69,7 +70,8 @@ function AdminAssignmentsPage() {
   const activeTab: AssignmentTab =
     tab === "sales_executive" ? "sales_executive" : tab === "approvals" ? "approvals" : "distributor";
 
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebouncedValue(searchInput, 350);
   const [page, setPage] = useState(1);
   const [distributorFilter, setDistributorFilter] = useState<string>("all");
   const [seFilter, setSeFilter] = useState<string>("all");
@@ -245,9 +247,13 @@ function AdminAssignmentsPage() {
 
   const saveReject = async () => {
     if (!reviewSignupRow) return;
+    if (!rejectNote.trim()) {
+      toast.error("Rejection reason is required");
+      return;
+    }
     setSaving(true);
     try {
-      await reviewSignup(reviewSignupRow.id, { action: "reject", note: rejectNote || null });
+      await reviewSignup(reviewSignupRow.id, { action: "reject", note: rejectNote.trim() });
       toast.success("Signup rejected");
       setRejectOpen(false);
       setReviewSignupRow(null);
@@ -454,19 +460,20 @@ function AdminAssignmentsPage() {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-2">
-                <Label>Note (optional)</Label>
+                <Label>Rejection reason (required)</Label>
                 <Textarea
                   value={rejectNote}
                   onChange={(e) => setRejectNote(e.target.value)}
-                  className="min-h-24 rounded-2xl"
-                  placeholder="Reason for rejection (internal)"
+                  className="min-h-24 rounded-lg"
+                  placeholder="Explain why this signup was rejected"
+                  required
                 />
               </div>
               <DialogFooter className="flex-col gap-2 sm:flex-row sm:gap-0">
                 <Button variant="outline" className="rounded-2xl" onClick={() => setRejectOpen(false)}>
                   Cancel
                 </Button>
-                <Button variant="destructive" className="rounded-2xl" disabled={saving} onClick={() => void saveReject()}>
+                <Button variant="destructive" className="rounded-2xl" disabled={saving || !rejectNote.trim()} onClick={() => void saveReject()}>
                   Reject signup
                 </Button>
               </DialogFooter>
@@ -517,9 +524,9 @@ function AdminAssignmentsPage() {
         )}
 
         <AdminFiltersBar
-          search={search}
+          search={searchInput}
           onSearchChange={(v) => {
-            setSearch(v);
+            setSearchInput(v);
             setPage(1);
           }}
           searchPlaceholder="Search dealers…"
@@ -713,7 +720,7 @@ function AdminAssignmentsPage() {
         />
 
         <Dialog open={bulkOpen} onOpenChange={setBulkOpen}>
-          <DialogContent className="rounded-3xl sm:max-w-md">
+          <DialogContent className="rounded-xl sm:max-w-md">
             <DialogHeader>
               <DialogTitle>
                 Bulk assign {activeTab === "distributor" ? "distributor" : "sales executive"}
@@ -723,7 +730,7 @@ function AdminAssignmentsPage() {
             <div className="space-y-2">
               <Label>{activeTab === "distributor" ? "Distributor" : "Sales executive"}</Label>
               <Select value={bulkValue} onValueChange={setBulkValue}>
-                <SelectTrigger className="rounded-2xl">
+                <SelectTrigger className="rounded-lg">
                   <SelectValue placeholder="Choose assignee" />
                 </SelectTrigger>
                 <SelectContent>

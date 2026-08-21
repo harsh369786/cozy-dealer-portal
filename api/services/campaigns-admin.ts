@@ -1,12 +1,16 @@
 import { id, nowIso } from "../utils";
+import { normalizeStoredImageUrl } from "./image-data-url";
 import { writeAuditLog } from "./audit";
 import { notifyCampaignPublished } from "./notification-events";
-
-export type CampaignType = "price" | "sell" | "distributor";
+import {
+  getEffectiveCampaignStatus,
+  isCampaignLive,
+  normalizeCampaignDate,
+  readCampaignDate,
+} from "./campaign-utils";
 
 export type AdminCampaignRow = {
   id: string;
-  type: CampaignType;
   name: string;
   product: string;
   productId?: string;
@@ -21,24 +25,24 @@ export type AdminCampaignRow = {
   startDate: string;
   endDate: string;
   status: string;
+  storedStatus: string;
   badgeLabel?: string;
   active: boolean;
   whatsappTargetDealers: boolean;
   whatsappTargetDistributors: boolean;
+  imageUrl?: string;
 };
 
 export type CampaignFilters = {
   search?: string;
-  type?: CampaignType | "all";
   status?: string;
   active?: "all" | "active" | "inactive";
   page?: number;
   pageSize?: number;
 };
 
-export type PriceCampaignInput = {
+export type CampaignInput = {
   id?: string;
-  type?: CampaignType;
   name: string;
   productId?: string;
   product?: string;
@@ -52,128 +56,70 @@ export type PriceCampaignInput = {
   active?: boolean;
   whatsappTargetDealers?: boolean;
   whatsappTargetDistributors?: boolean;
+  imageUrl?: string | null;
 };
 
-function isActiveStatus(status: string) {
-  return status === "active" || status === "upcoming";
+function isActiveStatus(status: string, startDate: string, endDate: string) {
+  return isCampaignLive(status, startDate, endDate);
 }
 
 async function sendCampaignNotifications(db: D1Database, campaign: AdminCampaignRow) {
-  if (!isActiveStatus(campaign.status)) return;
-
-  if (campaign.type === "price") {
-    await notifyCampaignPublished(db, {
-      campaignId: campaign.id,
-      name: campaign.name,
-      productName: campaign.product,
-      discountPercent: campaign.discountPercent,
-      targetDealers: campaign.whatsappTargetDealers,
-      targetDistributors: campaign.whatsappTargetDistributors,
-      distributorId: campaign.distributorId ?? null,
-    });
-    return;
-  }
+  if (campaign.status === "expired") return;
+  if (campaign.status !== "active" && campaign.status !== "upcoming") return;
 
   await notifyCampaignPublished(db, {
     campaignId: campaign.id,
     name: campaign.name,
     productName: campaign.product,
     discountPercent: campaign.discountPercent,
-    targetDealers: campaign.type === "distributor",
-    targetDistributors: campaign.type === "distributor" || campaign.type === "sell",
+    targetDealers: campaign.whatsappTargetDealers,
+    targetDistributors: campaign.whatsappTargetDistributors,
     distributorId: campaign.distributorId ?? null,
   });
 }
 
-function mapPriceCampaign(r: Record<string, unknown>): AdminCampaignRow {
-  const status = r.status as string;
+function mapCampaign(r: Record<string, unknown>): AdminCampaignRow {
+  const storedStatus = r.status as string;
+  const startDate = readCampaignDate(r.start_at);
+  const endDate = readCampaignDate(r.end_at);
+  const status = getEffectiveCampaignStatus(storedStatus, startDate, endDate);
+  const productName = (r.product_name as string) ?? undefined;
+  const productId = (r.product_id as string) ?? undefined;
   return {
     id: r.id as string,
-    type: "price",
     name: r.name as string,
-    product: (r.product_name as string) ?? (r.product_id as string),
-    productId: r.product_id as string,
-    discountPercent: r.discount_percent as number,
-    description: (r.description as string) ?? "",
-    startDate: (r.start_at as string)?.slice(0, 10) ?? "",
-    endDate: (r.end_at as string)?.slice(0, 10) ?? "",
-    status,
-    badgeLabel: (r.badge_label as string) ?? undefined,
-    active: isActiveStatus(status) && !r.deleted_at,
-    whatsappTargetDealers: Boolean(r.whatsapp_target_dealers ?? 1),
-    whatsappTargetDistributors: Boolean(r.whatsapp_target_distributors ?? 0),
-  };
-}
-
-function mapSellCampaign(r: Record<string, unknown>): AdminCampaignRow {
-  const status = r.status as string;
-  return {
-    id: r.id as string,
-    type: "sell",
-    name: r.title as string,
-    product: "All products",
-    goal: r.goal_text as string,
-    reward: r.reward_text as string,
-    target: r.target_count as number,
-    done: r.done_count as number,
-    description: r.goal_text as string,
-    startDate: (r.starts_at as string)?.slice(0, 10) ?? "",
-    endDate: (r.ends_at as string)?.slice(0, 10) ?? "",
-    status,
-    active: isActiveStatus(status) && !r.deleted_at,
-    whatsappTargetDealers: Boolean(r.whatsapp_target_dealers ?? 1),
-    whatsappTargetDistributors: Boolean(r.whatsapp_target_distributors ?? 0),
-  };
-}
-
-function mapDistributorCampaign(r: Record<string, unknown>): AdminCampaignRow {
-  const status = r.status as string;
-  return {
-    id: r.id as string,
-    type: "distributor",
-    name: r.name as string,
-    product: r.product_name as string,
-    distributorId: r.distributor_id as string,
+    product: productName ?? productId ?? "All products",
+    productId,
+    discountPercent: Number(r.discount_percent ?? 0) || undefined,
+    target: (r.target_count as number) ?? undefined,
+    done: (r.done_count as number) ?? undefined,
+    distributorId: (r.distributor_id as string) ?? undefined,
     distributorName: (r.distributor_name as string) ?? undefined,
-    description: r.description as string,
-    startDate: r.start_date as string,
-    endDate: r.end_date as string,
+    description: (r.description as string) ?? "",
+    startDate,
+    endDate,
     status,
-    badgeLabel: r.discount_label as string,
-    active: isActiveStatus(status) && !r.deleted_at,
+    storedStatus,
+    badgeLabel: (r.badge_label as string) ?? undefined,
+    active: isActiveStatus(storedStatus, startDate, endDate) && !r.deleted_at,
     whatsappTargetDealers: Boolean(r.whatsapp_target_dealers ?? 1),
     whatsappTargetDistributors: Boolean(r.whatsapp_target_distributors ?? 0),
+    imageUrl: (r.image_url as string) ?? undefined,
   };
 }
 
 async function loadCampaign(db: D1Database, campaignId: string): Promise<AdminCampaignRow | null> {
-  const price = await db
+  const row = await db
     .prepare(
-      `SELECT pc.*, p.name as product_name FROM price_campaigns pc
+      `SELECT pc.*, p.name as product_name, d.name as distributor_name
+       FROM price_campaigns pc
        LEFT JOIN products p ON p.id = pc.product_id
+       LEFT JOIN distributors d ON d.id = pc.distributor_id
        WHERE pc.id = ? AND pc.deleted_at IS NULL`,
     )
     .bind(campaignId)
     .first<Record<string, unknown>>();
-  if (price) return mapPriceCampaign(price);
-
-  const sell = await db
-    .prepare(`SELECT * FROM sell_campaigns WHERE id = ? AND deleted_at IS NULL`)
-    .bind(campaignId)
-    .first<Record<string, unknown>>();
-  if (sell) return mapSellCampaign(sell);
-
-  const dist = await db
-    .prepare(
-      `SELECT dc.*, d.name as distributor_name FROM distributor_campaigns dc
-       LEFT JOIN distributors d ON d.id = dc.distributor_id
-       WHERE dc.id = ? AND dc.deleted_at IS NULL`,
-    )
-    .bind(campaignId)
-    .first<Record<string, unknown>>();
-  if (dist) return mapDistributorCampaign(dist);
-
-  return null;
+  return row ? mapCampaign(row) : null;
 }
 
 function matchesSearch(row: AdminCampaignRow, search?: string) {
@@ -188,37 +134,17 @@ export async function listAdminCampaigns(db: D1Database, filters: CampaignFilter
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
 
-  const items: AdminCampaignRow[] = [];
-  const type = filters.type ?? "all";
+  const { results } = await db
+    .prepare(
+      `SELECT pc.*, p.name as product_name, d.name as distributor_name
+       FROM price_campaigns pc
+       LEFT JOIN products p ON p.id = pc.product_id
+       LEFT JOIN distributors d ON d.id = pc.distributor_id
+       WHERE pc.deleted_at IS NULL`,
+    )
+    .all();
 
-  if (type === "all" || type === "price") {
-    const { results } = await db
-      .prepare(
-        `SELECT pc.*, p.name as product_name FROM price_campaigns pc
-         LEFT JOIN products p ON p.id = pc.product_id
-         WHERE pc.deleted_at IS NULL`,
-      )
-      .all();
-    items.push(...results.map(mapPriceCampaign));
-  }
-  if (type === "all" || type === "sell") {
-    const { results } = await db
-      .prepare(`SELECT * FROM sell_campaigns WHERE deleted_at IS NULL`)
-      .all();
-    items.push(...results.map(mapSellCampaign));
-  }
-  if (type === "all" || type === "distributor") {
-    const { results } = await db
-      .prepare(
-        `SELECT dc.*, d.name as distributor_name FROM distributor_campaigns dc
-         LEFT JOIN distributors d ON d.id = dc.distributor_id
-         WHERE dc.deleted_at IS NULL`,
-      )
-      .all();
-    items.push(...results.map(mapDistributorCampaign));
-  }
-
-  let filtered = items.filter((c) => matchesSearch(c, filters.search));
+  let filtered = results.map(mapCampaign).filter((c) => matchesSearch(c, filters.search));
   if (filters.status && filters.status !== "all") {
     filtered = filtered.filter((c) => c.status === filters.status);
   }
@@ -242,44 +168,55 @@ export async function getAdminCampaign(db: D1Database, campaignId: string) {
   return loadCampaign(db, campaignId);
 }
 
-export async function createPriceCampaign(
+async function resolveProductId(
   db: D1Database,
-  input: PriceCampaignInput,
-  actorUserId: string,
-) {
+  input: CampaignInput,
+  fallbackId?: string,
+): Promise<string | null> {
+  if (input.productId) return input.productId;
+  if (fallbackId) return fallbackId;
+  const productName = input.product?.trim();
+  if (!productName || productName.toLowerCase() === "all products") return null;
+  const product = await db
+    .prepare(`SELECT id FROM products WHERE name = ? AND deleted_at IS NULL LIMIT 1`)
+    .bind(productName)
+    .first<{ id: string }>();
+  return product?.id ?? null;
+}
+
+function resolveCampaignImageUrl(input: CampaignInput, before?: AdminCampaignRow): string | null {
+  if ("imageUrl" in input) return normalizeStoredImageUrl(input.imageUrl);
+  return before?.imageUrl ? normalizeStoredImageUrl(before.imageUrl) : null;
+}
+
+export async function createCampaign(db: D1Database, input: CampaignInput, actorUserId: string) {
   if (!input.name?.trim()) throw new Error("Campaign name is required");
-  if (!input.productId && !input.product) throw new Error("Product is required");
 
-  let productId = input.productId;
-  if (!productId && input.product) {
-    const product = await db
-      .prepare(`SELECT id FROM products WHERE name = ? AND deleted_at IS NULL LIMIT 1`)
-      .bind(input.product)
-      .first<{ id: string }>();
-    productId = product?.id;
-  }
-  if (!productId) throw new Error("Product not found");
-
+  const productId = await resolveProductId(db, input);
   const campaignId = input.id ?? id("pc");
   const status = input.status ?? "active";
+  const startDate = normalizeCampaignDate(input.startDate);
+  const endDate = normalizeCampaignDate(input.endDate);
   await db
     .prepare(
-      `INSERT INTO price_campaigns (id, name, product_id, discount_percent, start_at, end_at, description, terms, badge_label, status, whatsapp_target_dealers, whatsapp_target_distributors)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO price_campaigns (id, name, product_id, discount_percent, start_at, end_at, description, terms, badge_label, status, whatsapp_target_dealers, whatsapp_target_distributors, image_r2_key, image_url)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       campaignId,
       input.name.trim(),
       productId,
       input.discountPercent ?? 0,
-      input.startDate,
-      input.endDate,
+      startDate,
+      endDate,
       input.description ?? "",
       input.terms ?? null,
       input.badgeLabel ?? null,
       status,
       input.whatsappTargetDealers === false ? 0 : 1,
       input.whatsappTargetDistributors ? 1 : 0,
+      null,
+      resolveCampaignImageUrl(input),
     )
     .run();
 
@@ -287,7 +224,7 @@ export async function createPriceCampaign(
   await writeAuditLog(db, {
     actorUserId,
     action: "campaign.create",
-    entityType: "price_campaign",
+    entityType: "campaign",
     entityId: campaignId,
     after: created,
   });
@@ -295,43 +232,40 @@ export async function createPriceCampaign(
   return created!;
 }
 
-export async function updatePriceCampaign(
+export async function updateCampaign(
   db: D1Database,
   campaignId: string,
-  input: PriceCampaignInput,
+  input: CampaignInput,
   actorUserId: string,
 ) {
   const before = await loadCampaign(db, campaignId);
-  if (!before || before.type !== "price") throw new Error("Price campaign not found");
+  if (!before) throw new Error("Campaign not found");
 
-  let productId = input.productId ?? before.productId;
-  if (!productId && input.product) {
-    const product = await db
-      .prepare(`SELECT id FROM products WHERE name = ? AND deleted_at IS NULL LIMIT 1`)
-      .bind(input.product)
-      .first<{ id: string }>();
-    productId = product?.id;
-  }
+  const productId = await resolveProductId(db, input, before.productId);
+  const startDate = normalizeCampaignDate(input.startDate);
+  const endDate = normalizeCampaignDate(input.endDate);
 
   await db
     .prepare(
       `UPDATE price_campaigns SET name = ?, product_id = ?, discount_percent = ?, start_at = ?, end_at = ?,
        description = ?, terms = ?, badge_label = ?, status = ?,
-       whatsapp_target_dealers = ?, whatsapp_target_distributors = ?
+       whatsapp_target_dealers = ?, whatsapp_target_distributors = ?, image_r2_key = ?, image_url = ?
        WHERE id = ? AND deleted_at IS NULL`,
     )
     .bind(
       input.name.trim(),
       productId,
       input.discountPercent ?? before.discountPercent ?? 0,
-      input.startDate,
-      input.endDate,
+      startDate,
+      endDate,
       input.description ?? before.description,
       input.terms ?? null,
       input.badgeLabel ?? before.badgeLabel ?? null,
-      input.status ?? before.status,
+      input.status ?? before.storedStatus,
       input.whatsappTargetDealers === false ? 0 : 1,
       input.whatsappTargetDistributors ? 1 : 0,
+      null,
+      resolveCampaignImageUrl(input, before),
       campaignId,
     )
     .run();
@@ -340,7 +274,7 @@ export async function updatePriceCampaign(
   await writeAuditLog(db, {
     actorUserId,
     action: "campaign.update",
-    entityType: "price_campaign",
+    entityType: "campaign",
     entityId: campaignId,
     before,
     after,
@@ -353,27 +287,15 @@ export async function archiveAdminCampaign(db: D1Database, campaignId: string, a
   if (!before) throw new Error("Campaign not found");
 
   const ts = nowIso();
-  if (before.type === "price") {
-    await db
-      .prepare(`UPDATE price_campaigns SET status = 'expired', deleted_at = ? WHERE id = ?`)
-      .bind(ts, campaignId)
-      .run();
-  } else if (before.type === "sell") {
-    await db
-      .prepare(`UPDATE sell_campaigns SET status = 'expired', deleted_at = ? WHERE id = ?`)
-      .bind(ts, campaignId)
-      .run();
-  } else {
-    await db
-      .prepare(`UPDATE distributor_campaigns SET status = 'expired', deleted_at = ? WHERE id = ?`)
-      .bind(ts, campaignId)
-      .run();
-  }
+  await db
+    .prepare(`UPDATE price_campaigns SET status = 'expired', deleted_at = ? WHERE id = ?`)
+    .bind(ts, campaignId)
+    .run();
 
   await writeAuditLog(db, {
     actorUserId,
     action: "campaign.archive",
-    entityType: before.type + "_campaign",
+    entityType: "campaign",
     entityId: campaignId,
     before,
     after: { status: "expired", deletedAt: ts },
@@ -385,28 +307,16 @@ export async function activateAdminCampaign(db: D1Database, campaignId: string, 
   const before = await loadCampaign(db, campaignId);
   if (!before) throw new Error("Campaign not found");
 
-  if (before.type === "price") {
-    await db
-      .prepare(`UPDATE price_campaigns SET status = 'active', deleted_at = NULL WHERE id = ?`)
-      .bind(campaignId)
-      .run();
-  } else if (before.type === "sell") {
-    await db
-      .prepare(`UPDATE sell_campaigns SET status = 'active', deleted_at = NULL WHERE id = ?`)
-      .bind(campaignId)
-      .run();
-  } else {
-    await db
-      .prepare(`UPDATE distributor_campaigns SET status = 'active', deleted_at = NULL WHERE id = ?`)
-      .bind(campaignId)
-      .run();
-  }
+  await db
+    .prepare(`UPDATE price_campaigns SET status = 'active', deleted_at = NULL WHERE id = ?`)
+    .bind(campaignId)
+    .run();
 
   const after = await loadCampaign(db, campaignId);
   await writeAuditLog(db, {
     actorUserId,
     action: "campaign.activate",
-    entityType: before.type + "_campaign",
+    entityType: "campaign",
     entityId: campaignId,
     before,
     after,
@@ -414,3 +324,19 @@ export async function activateAdminCampaign(db: D1Database, campaignId: string, 
   if (after) await sendCampaignNotifications(db, after);
   return after!;
 }
+
+export async function saveAdminCampaign(
+  db: D1Database,
+  input: Record<string, unknown>,
+  actorUserId: string,
+  existingId?: string,
+) {
+  const payload = input as CampaignInput;
+  if (existingId) return updateCampaign(db, existingId, payload, actorUserId);
+  return createCampaign(db, payload, actorUserId);
+}
+
+/** @deprecated Use createCampaign */
+export const createPriceCampaign = createCampaign;
+/** @deprecated Use updateCampaign */
+export const updatePriceCampaign = updateCampaign;

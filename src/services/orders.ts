@@ -4,6 +4,8 @@ import { api } from "@/lib/api-client";
 type OrdersQuery = {
   status?: OrderStatus | "order_placed" | "pending_approval";
   search?: string;
+  fromDate?: string;
+  toDate?: string;
   page?: number;
   pageSize?: number;
 };
@@ -20,6 +22,8 @@ function buildOrdersQuery(params: OrdersQuery = {}) {
   const qs = new URLSearchParams();
   if (params.status) qs.set("status", params.status);
   if (params.search) qs.set("search", params.search);
+  if (params.fromDate) qs.set("fromDate", params.fromDate);
+  if (params.toDate) qs.set("toDate", params.toDate);
   if (params.page) qs.set("page", String(params.page));
   if (params.pageSize) qs.set("pageSize", String(params.pageSize));
   const query = qs.toString();
@@ -62,8 +66,12 @@ export async function listOrdersPage(
   };
 }
 
-export async function getPendingOrders(simulateError = false): Promise<DistributorOrder[]> {
-  return getOrders(simulateError, { status: "order_placed" });
+export async function getPendingOrders(
+  simulateError = false,
+  params: Omit<OrdersQuery, "status"> = {},
+): Promise<DistributorOrder[]> {
+  const res = await listOrdersPage({ ...params, status: "order_placed", page: params.page ?? 1, pageSize: params.pageSize ?? 20 });
+  return res.items;
 }
 
 export async function getOrderById(
@@ -115,10 +123,12 @@ export type DealerOrderListItem = {
   quantity: number;
   dealer: string;
   status: string;
+  rawStatus: OrderStatus;
   placed: string;
   amount: number;
   step: number;
   detail: string;
+  rewardPoints: number;
 };
 
 function statusStep(status: string): number {
@@ -166,10 +176,12 @@ function mapDealerOrder(o: DistributorOrder): DealerOrderListItem {
     quantity: o.totalItems,
     dealer: o.storeName ?? o.dealerName,
     status: statusLabel(o.status),
+    rawStatus: o.status,
     placed: o.placedAt,
     amount: o.totalValue,
     step: statusStep(o.status),
     detail: o.items.map((i) => `${i.quantity} × ${i.size} × ${i.thickness}`).join(", "),
+    rewardPoints: o.items.reduce((sum, i) => sum + (i.points ?? 0), 0),
   };
 }
 

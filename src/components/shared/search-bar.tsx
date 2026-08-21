@@ -17,7 +17,7 @@ export function SearchBar({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-11 rounded-2xl border-border bg-card pl-10 pr-10 text-base shadow-soft"
+        className="h-11 rounded-lg border-border bg-card pl-10 pr-10 text-base shadow-soft"
       />
       {value && (
         <button

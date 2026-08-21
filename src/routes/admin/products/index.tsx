@@ -8,6 +8,7 @@ import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { Badge } from "@/components/ui/badge";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { inr } from "@/lib/demo-data";
 import { listProducts } from "@/services/admin/products";
 
@@ -18,7 +19,8 @@ export const Route = createFileRoute("/admin/products/")({
 function AdminProductsPage() {
   const navigate = useNavigate();
   const { can } = useAdminPermissions();
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebouncedValue(searchInput, 350);
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
 
@@ -27,8 +29,8 @@ function AdminProductsPage() {
     [search, status, page],
   );
 
-  if (loading) return <PageSkeleton rows={4} />;
-  if (error || !data) return <ErrorState message={error ?? "Failed to load products"} onRetry={retry} />;
+  if (loading && !data) return <PageSkeleton rows={4} />;
+  if (error && !data) return <ErrorState message={error ?? "Failed to load products"} onRetry={retry} />;
 
   return (
     <div>
@@ -44,7 +46,14 @@ function AdminProductsPage() {
         }
       />
 
-      <AdminFiltersBar search={search} onSearchChange={(v) => { setSearch(v); setPage(1); }} searchPlaceholder="Search products…">
+      <AdminFiltersBar
+        search={searchInput}
+        onSearchChange={(v) => {
+          setSearchInput(v);
+          setPage(1);
+        }}
+        searchPlaceholder="Search products…"
+      >
         <AdminFilterTabs
           value={status}
           onChange={(v) => { setStatus(v); setPage(1); }}
@@ -57,7 +66,7 @@ function AdminProductsPage() {
       </AdminFiltersBar>
 
       <AdminDataTable
-        data={data.items}
+        data={data?.items ?? []}
         keyFn={(p) => p.id}
         onRowClick={(p) => navigate({ to: "/admin/products/$productId", params: { productId: p.id } })}
         emptyTitle="No products found"
@@ -78,7 +87,9 @@ function AdminProductsPage() {
         ]}
       />
 
-      <AdminPagination page={data.page} totalPages={data.totalPages} onPageChange={setPage} />
+      {data && (
+        <AdminPagination page={data.page} totalPages={data.totalPages} onPageChange={setPage} />
+      )}
     </div>
   );
 }

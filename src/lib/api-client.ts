@@ -48,4 +48,14 @@ export const api = {
   patch: <T>(path: string, body?: unknown) =>
     apiRequest<T>(path, { method: "PATCH", body: JSON.stringify(body ?? {}) }),
   delete: <T>(path: string) => apiRequest<T>(path, { method: "DELETE" }),
+  upload: async <T>(path: string, formData: FormData): Promise<T> => {
+    const url = `${API_BASE}${path}`;
+    const res = await fetch(url, {
+      method: "POST",
+      credentials: "include",
+      body: formData,
+    });
+    if (!res.ok) throw new ApiError(await parseError(res), res.status);
+    return res.json() as Promise<T>;
+  },
 };
