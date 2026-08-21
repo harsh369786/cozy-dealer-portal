@@ -8,6 +8,7 @@ export function useSession() {
 
   const refresh = useCallback(async () => {
     setLoading(true);
+    auth.invalidateSessionCache();
     const current = await auth.getCurrentUser();
     setUser(current);
     setLoading(false);

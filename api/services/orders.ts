@@ -558,11 +558,101 @@ export async function getOrderById(db: D1Database, orderId: string) {
   };
 }
 
+async function batchOrderItems(db: D1Database, orderIds: string[]) {
+  const map = new Map<string, Record<string, unknown>[]>();
+  if (!orderIds.length) return map;
+
+  const placeholders = orderIds.map(() => "?").join(",");
+  const { results } = await db
+    .prepare(`SELECT * FROM order_items WHERE order_id IN (${placeholders}) ORDER BY order_id, id`)
+    .bind(...orderIds)
+    .all<Record<string, unknown>>();
+
+  for (const item of results) {
+    const orderId = item.order_id as string;
+    const list = map.get(orderId) ?? [];
+    list.push(item);
+    map.set(orderId, list);
+  }
+  return map;
+}
+
+function mapListOrderRow(
+  order: Record<string, unknown>,
+  items: Record<string, unknown>[],
+) {
+  const status = normalizeLegacyStatus(order.status as string);
+  const placedAt = order.placed_at as string;
+  const pendingHours =
+    status === "order_placed"
+      ? Math.floor((Date.now() - new Date(placedAt).getTime()) / 3600000)
+      : 0;
+
+  return {
+    id: order.id,
+    distributorId: order.distributor_id,
+    distributorName: order.distributor_name,
+    dealerId: order.dealer_id,
+    dealerName: order.dealer_name,
+    dealerCode: order.dealer_code,
+    storeName: order.dealer_name,
+    contactName: order.contact_name,
+    dealerAddress: order.dealer_address,
+    status,
+    placedAt: formatInLabel(placedAt),
+    approvedAt: order.approved_at ? formatInLabel(order.approved_at as string) : undefined,
+    rejectedAt: order.rejected_at ? formatInLabel(order.rejected_at as string) : undefined,
+    rejectionReason: order.rejection_reason,
+    customerName: order.customer_name,
+    customerPhone: order.customer_phone,
+    totalItems: order.total_items,
+    totalValue: order.total_value,
+    pendingHours,
+    items: items.map((i) => ({
+      model: i.product_name,
+      size: i.size_requested ?? i.size_standard ?? "",
+      thickness: i.thickness ?? "—",
+      quantity: i.quantity,
+      farma: Boolean(i.perma),
+      farmaDetails: i.perma_notes,
+      mrp: i.mrp,
+      dealerPrice: i.dealer_price,
+      campaignPrice: i.campaign_price,
+      freeItems: i.free_items,
+      points: i.points_earned,
+      notes: i.notes,
+    })),
+    timeline: [],
+  };
+}
+
+export type ListOrdersOptions = {
+  dealerIds?: string[];
+  distributorId?: string;
+  status?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export type PaginatedOrders = {
+  items: Awaited<ReturnType<typeof mapListOrderRow>>[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
 export async function listOrders(
   db: D1Database,
-  opts: { dealerIds?: string[]; distributorId?: string; status?: string; search?: string },
-) {
-  let sql = `SELECT o.id FROM orders o JOIN dealers d ON d.id = o.dealer_id WHERE o.deleted_at IS NULL`;
+  opts: ListOrdersOptions,
+): Promise<PaginatedOrders | Awaited<ReturnType<typeof mapListOrderRow>>[]> {
+  let sql = `SELECT o.*, d.store_name as dealer_name, d.code as dealer_code, d.address as dealer_address, d.contact_name,
+                    dist.name as distributor_name
+             FROM orders o
+             JOIN dealers d ON d.id = o.dealer_id
+             JOIN distributors dist ON dist.id = o.distributor_id
+             WHERE o.deleted_at IS NULL`;
   const binds: unknown[] = [];
 
   if (opts.dealerIds?.length) {
@@ -591,15 +681,44 @@ export async function listOrders(
     const q = `%${opts.search}%`;
     binds.push(q, q, q);
   }
-  sql += ` ORDER BY o.placed_at DESC`;
 
-  const { results } = await db.prepare(sql).bind(...binds).all<{ id: string }>();
-  const orders = [];
-  for (const r of results) {
-    const o = await getOrderById(db, r.id);
-    if (o) orders.push(o);
+  const paginate = opts.page != null || opts.pageSize != null;
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 50));
+
+  let total = 0;
+  if (paginate) {
+    const countSql = sql.replace(
+      /^SELECT o\.\*, d\.store_name as dealer_name.*?FROM orders o/s,
+      "SELECT COUNT(*) as total FROM orders o",
+    );
+    const countRow = await db
+      .prepare(countSql)
+      .bind(...binds)
+      .first<{ total: number }>();
+    total = countRow?.total ?? 0;
+    sql += ` ORDER BY o.placed_at DESC LIMIT ? OFFSET ?`;
+    binds.push(pageSize, (page - 1) * pageSize);
+  } else {
+    sql += ` ORDER BY o.placed_at DESC`;
   }
-  return orders;
+
+  const { results } = await db.prepare(sql).bind(...binds).all<Record<string, unknown>>();
+  const orderIds = results.map((row) => row.id as string);
+  const itemsByOrder = await batchOrderItems(db, orderIds);
+  const items = results.map((row) =>
+    mapListOrderRow(row, itemsByOrder.get(row.id as string) ?? []),
+  );
+
+  if (!paginate) return items;
+
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
 
 export function getAllowedStatusTargets(actor: SessionUser, currentStatus: string): OrderStatus[] {

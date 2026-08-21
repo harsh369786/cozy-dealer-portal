@@ -4,6 +4,7 @@ import type { ApiEnv, AppVariables } from "./types";
 import { getDatabase } from "./db/get-db";
 import {
   requireAuth,
+  requireActiveAccount,
   requirePermission,
   setSessionCookie,
   clearSessionCookie,
@@ -63,6 +64,8 @@ import {
   listAdminCampaigns,
   updatePriceCampaign,
 } from "./services/campaigns-admin";
+import { createSignupApplication } from "./services/signup";
+import { listSignupApplications, reviewSignupApplication } from "./services/signup-review";
 
 const app = new Hono<{ Bindings: ApiEnv; Variables: AppVariables }>();
 
@@ -112,6 +115,7 @@ app.post("/api/v1/auth/otp/verify", async (c) => {
     name: userRow.name as string,
     phone: userRow.phone as string,
     role: userRow.role as AppVariables["user"]["role"],
+    status: userRow.status as AppVariables["user"]["status"],
     dealer_id: userRow.dealer_id as string | null,
     distributor_id: userRow.distributor_id as string | null,
   });
@@ -128,7 +132,7 @@ app.post("/api/v1/auth/logout", requireAuth, async (c) => {
 app.get("/api/v1/auth/me", requireAuth, (c) => c.json({ user: c.get("user") }));
 
 // Catalog
-app.get("/api/v1/catalog", requireAuth, requirePermission("catalog:read"), async (c) => {
+app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission("catalog:read"), async (c) => {
   const db = await getDatabase(c.env);
   const layers = await db.prepare(`SELECT * FROM product_layers ORDER BY sort_order`).all();
   const layerItems = await db.prepare(`SELECT * FROM product_layer_items ORDER BY sort_order`).all();
@@ -162,7 +166,7 @@ app.get("/api/v1/catalog", requireAuth, requirePermission("catalog:read"), async
   return c.json({ mattressLayers, foldable, pillows: pillowProducts, products: products.results });
 });
 
-app.get("/api/v1/catalog/products/:id", requireAuth, requirePermission("catalog:read"), async (c) => {
+app.get("/api/v1/catalog/products/:id", requireAuth, requireActiveAccount, requirePermission("catalog:read"), async (c) => {
   const db = await getDatabase(c.env);
   const productId = c.req.param("id");
   const product = await db.prepare(`SELECT * FROM products WHERE id = ?`).bind(productId).first();
@@ -190,7 +194,7 @@ app.get("/api/v1/catalog/products/:id", requireAuth, requirePermission("catalog:
   });
 });
 
-app.post("/api/v1/catalog/price-quote", requireAuth, requirePermission("catalog:read"), async (c) => {
+app.post("/api/v1/catalog/price-quote", requireAuth, requireActiveAccount, requirePermission("catalog:read"), async (c) => {
   const body = await c.req.json<{ productId: string; quantity: number; thickness?: string }>();
   const db = await getDatabase(c.env);
   const quote = await buildPriceQuote(db, body);
@@ -198,14 +202,14 @@ app.post("/api/v1/catalog/price-quote", requireAuth, requirePermission("catalog:
 });
 
 // Orders
-app.post("/api/v1/orders", requireAuth, requirePermission("orders:create"), async (c) => {
+app.post("/api/v1/orders", requireAuth, requireActiveAccount, requirePermission("orders:create"), async (c) => {
   const db = await getDatabase(c.env);
   const body = await c.req.json();
   const order = await createOrder(db, c.get("user"), body, c.env);
   return c.json(order, 201);
 });
 
-app.get("/api/v1/orders", requireAuth, requirePermission("orders:read"), async (c) => {
+app.get("/api/v1/orders", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   const search = c.req.query("search");
@@ -233,7 +237,7 @@ app.get("/api/v1/orders", requireAuth, requirePermission("orders:read"), async (
   return c.json(await listOrders(db, { ...opts, dealerIds: scope }));
 });
 
-app.get("/api/v1/orders/:id", requireAuth, requirePermission("orders:read"), async (c) => {
+app.get("/api/v1/orders/:id", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
   const db = await getDatabase(c.env);
   const orderId = c.req.param("id");
   if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
@@ -242,7 +246,7 @@ app.get("/api/v1/orders/:id", requireAuth, requirePermission("orders:read"), asy
   return c.json(order);
 });
 
-app.post("/api/v1/orders/:id/approve", requireAuth, requirePermission("orders:approve"), async (c) => {
+app.post("/api/v1/orders/:id/approve", requireAuth, requireActiveAccount, requirePermission("orders:approve"), async (c) => {
   const db = await getDatabase(c.env);
   const orderId = c.req.param("id");
   if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
@@ -250,7 +254,7 @@ app.post("/api/v1/orders/:id/approve", requireAuth, requirePermission("orders:ap
   return c.json(order);
 });
 
-app.patch("/api/v1/orders/:id/status", requireAuth, async (c) => {
+app.patch("/api/v1/orders/:id/status", requireAuth, requireActiveAccount, async (c) => {
   const db = await getDatabase(c.env);
   const orderId = c.req.param("id");
   const body = await c.req.json<{ status: string }>();
@@ -277,7 +281,7 @@ app.patch("/api/v1/orders/:id/status", requireAuth, async (c) => {
   return c.json(order);
 });
 
-app.get("/api/v1/orders/:id/status-options", requireAuth, requirePermission("orders:read"), async (c) => {
+app.get("/api/v1/orders/:id/status-options", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
   const db = await getDatabase(c.env);
   const orderId = c.req.param("id");
   if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
@@ -286,7 +290,7 @@ app.get("/api/v1/orders/:id/status-options", requireAuth, requirePermission("ord
   return c.json({ allowed: getAllowedStatusTargets(c.get("user"), row.status) });
 });
 
-app.post("/api/v1/orders/:id/reject", requireAuth, requirePermission("orders:reject"), async (c) => {
+app.post("/api/v1/orders/:id/reject", requireAuth, requireActiveAccount, requirePermission("orders:reject"), async (c) => {
   const db = await getDatabase(c.env);
   const orderId = c.req.param("id");
   const body = await c.req.json<{ reason: string }>();
@@ -296,7 +300,7 @@ app.post("/api/v1/orders/:id/reject", requireAuth, requirePermission("orders:rej
   return c.json(order);
 });
 
-app.post("/api/v1/orders/:id/cancel", requireAuth, requirePermission("orders:cancel"), async (c) => {
+app.post("/api/v1/orders/:id/cancel", requireAuth, requireActiveAccount, requirePermission("orders:cancel"), async (c) => {
   const db = await getDatabase(c.env);
   const orderId = c.req.param("id");
   const body = await c.req.json<{ reason?: string }>().catch(() => ({ reason: undefined }));
@@ -305,7 +309,7 @@ app.post("/api/v1/orders/:id/cancel", requireAuth, requirePermission("orders:can
   return c.json(order);
 });
 
-app.get("/api/v1/dealers/:id/orders", requireAuth, requirePermission("orders:read"), async (c) => {
+app.get("/api/v1/dealers/:id/orders", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
   const db = await getDatabase(c.env);
   const dealerId = c.req.param("id");
   if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
@@ -313,7 +317,7 @@ app.get("/api/v1/dealers/:id/orders", requireAuth, requirePermission("orders:rea
 });
 
 // Dealers
-app.get("/api/v1/dealers", requireAuth, requirePermission("dealers:read"), async (c) => {
+app.get("/api/v1/dealers", requireAuth, requireActiveAccount, requirePermission("dealers:read"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   const search = c.req.query("search");
@@ -335,7 +339,7 @@ app.get("/api/v1/dealers", requireAuth, requirePermission("dealers:read"), async
   return c.json(results.map(mapDealerRow));
 });
 
-app.get("/api/v1/dealers/:id", requireAuth, requirePermission("dealers:read"), async (c) => {
+app.get("/api/v1/dealers/:id", requireAuth, requireActiveAccount, requirePermission("dealers:read"), async (c) => {
   const db = await getDatabase(c.env);
   const dealerId = c.req.param("id");
   if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
@@ -344,7 +348,7 @@ app.get("/api/v1/dealers/:id", requireAuth, requirePermission("dealers:read"), a
   return c.json(mapDealerRow(row));
 });
 
-app.get("/api/v1/dealers/:id/performance", requireAuth, requirePermission("dealers:read"), async (c) => {
+app.get("/api/v1/dealers/:id/performance", requireAuth, requireActiveAccount, requirePermission("dealers:read"), async (c) => {
   const db = await getDatabase(c.env);
   const dealerId = c.req.param("id");
   if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
@@ -358,7 +362,7 @@ app.get("/api/v1/dealers/:id/performance", requireAuth, requirePermission("deale
   return c.json(results);
 });
 
-app.get("/api/v1/dealers/:id/reward-claims", requireAuth, requirePermission("rewards:read"), async (c) => {
+app.get("/api/v1/dealers/:id/reward-claims", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
   const db = await getDatabase(c.env);
   const dealerId = c.req.param("id");
   if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
@@ -381,7 +385,7 @@ app.get("/api/v1/dealers/:id/reward-claims", requireAuth, requirePermission("rew
 });
 
 // Campaigns
-app.get("/api/v1/campaigns", requireAuth, requirePermission("campaigns:read"), async (c) => {
+app.get("/api/v1/campaigns", requireAuth, requireActiveAccount, requirePermission("campaigns:read"), async (c) => {
   const db = await getDatabase(c.env);
   const tab = c.req.query("tab") ?? "active";
   const sell = await db.prepare(`SELECT * FROM sell_campaigns WHERE deleted_at IS NULL`).all();
@@ -402,7 +406,7 @@ app.get("/api/v1/campaigns", requireAuth, requirePermission("campaigns:read"), a
   );
 });
 
-app.get("/api/v1/distributor/campaigns", requireAuth, requirePermission("campaigns:read"), async (c) => {
+app.get("/api/v1/distributor/campaigns", requireAuth, requireActiveAccount, requirePermission("campaigns:read"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   const tab = c.req.query("tab");
@@ -434,7 +438,7 @@ app.get("/api/v1/distributor/campaigns", requireAuth, requirePermission("campaig
 });
 
 // Rewards
-app.get("/api/v1/rewards/catalog", requireAuth, requirePermission("rewards:read"), async (c) => {
+app.get("/api/v1/rewards/catalog", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
   const db = await getDatabase(c.env);
   const { results } = await db
     .prepare(`SELECT * FROM reward_catalog WHERE deleted_at IS NULL AND active = 1`)
@@ -442,7 +446,7 @@ app.get("/api/v1/rewards/catalog", requireAuth, requirePermission("rewards:read"
   return c.json(results.map((r) => ({ id: r.id, name: r.name, emoji: r.emoji, points: r.points_required })));
 });
 
-app.get("/api/v1/rewards/balance", requireAuth, requirePermission("rewards:read"), async (c) => {
+app.get("/api/v1/rewards/balance", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   if (!user.dealerId) return c.json({ balance: 0, nextRewardAt: 3000 });
@@ -456,7 +460,7 @@ app.get("/api/v1/rewards/balance", requireAuth, requirePermission("rewards:read"
   return c.json({ balance: last?.balance_after ?? 0, nextRewardAt: next?.points_required ?? 3000 });
 });
 
-app.get("/api/v1/rewards/ledger", requireAuth, requirePermission("rewards:read"), async (c) => {
+app.get("/api/v1/rewards/ledger", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   if (!user.dealerId) return c.json([]);
@@ -467,7 +471,7 @@ app.get("/api/v1/rewards/ledger", requireAuth, requirePermission("rewards:read")
   return c.json(results);
 });
 
-app.get("/api/v1/rewards/claims", requireAuth, requirePermission("rewards:read"), async (c) => {
+app.get("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   if (!user.dealerId) return c.json([]);
@@ -487,7 +491,7 @@ app.get("/api/v1/rewards/claims", requireAuth, requirePermission("rewards:read")
   );
 });
 
-app.post("/api/v1/rewards/claims", requireAuth, requirePermission("rewards:redeem"), async (c) => {
+app.post("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePermission("rewards:redeem"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   if (!user.dealerId) return c.json({ error: "Dealer required" }, 400);
@@ -524,7 +528,7 @@ app.post("/api/v1/rewards/claims", requireAuth, requirePermission("rewards:redee
 });
 
 // Complaints
-app.post("/api/v1/complaints", requireAuth, requirePermission("complaints:create"), async (c) => {
+app.post("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermission("complaints:create"), async (c) => {
   const db = await getDatabase(c.env);
   const body = await c.req.json<{ orderId: string; description: string; category?: string }>();
   const user = c.get("user");
@@ -549,7 +553,7 @@ app.post("/api/v1/complaints", requireAuth, requirePermission("complaints:create
   return c.json({ id: complaintId }, 201);
 });
 
-app.get("/api/v1/complaints", requireAuth, requirePermission("complaints:read"), async (c) => {
+app.get("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermission("complaints:read"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   let sql = `SELECT c.*, d.store_name as dealer_name FROM complaints c JOIN dealers d ON d.id = c.dealer_id WHERE c.deleted_at IS NULL`;
@@ -579,7 +583,7 @@ app.get("/api/v1/complaints", requireAuth, requirePermission("complaints:read"),
   );
 });
 
-app.patch("/api/v1/complaints/:id", requireAuth, requirePermission("complaints:update"), async (c) => {
+app.patch("/api/v1/complaints/:id", requireAuth, requireActiveAccount, requirePermission("complaints:update"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   if (user.role !== "master_admin") return c.json({ error: "Forbidden" }, 403);
@@ -594,25 +598,25 @@ app.patch("/api/v1/complaints/:id", requireAuth, requirePermission("complaints:u
 });
 
 // Notifications
-app.get("/api/v1/notifications", requireAuth, requirePermission("notifications:read"), async (c) => {
+app.get("/api/v1/notifications", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
   const db = await getDatabase(c.env);
   return c.json(await listNotifications(db, c.get("user").id));
 });
 
-app.patch("/api/v1/notifications/:id/read", requireAuth, requirePermission("notifications:read"), async (c) => {
+app.patch("/api/v1/notifications/:id/read", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
   const db = await getDatabase(c.env);
   await db.prepare(`UPDATE notifications SET read = 1 WHERE id = ? AND recipient_user_id = ?`).bind(c.req.param("id"), c.get("user").id).run();
   return c.json({ ok: true });
 });
 
-app.post("/api/v1/notifications/read-all", requireAuth, requirePermission("notifications:read"), async (c) => {
+app.post("/api/v1/notifications/read-all", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
   const db = await getDatabase(c.env);
   await db.prepare(`UPDATE notifications SET read = 1 WHERE recipient_user_id = ?`).bind(c.get("user").id).run();
   return c.json({ ok: true });
 });
 
 // Reports
-app.get("/api/v1/reports/dashboard", requireAuth, requirePermission("reports:read"), async (c) => {
+app.get("/api/v1/reports/dashboard", requireAuth, requireActiveAccount, requirePermission("reports:read"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   const reportScope = await resolveReportScope(db, user);
@@ -664,7 +668,7 @@ app.get("/api/v1/reports/dashboard", requireAuth, requirePermission("reports:rea
   });
 });
 
-app.get("/api/v1/reports/monthly-sales", requireAuth, requirePermission("reports:read"), async (c) => {
+app.get("/api/v1/reports/monthly-sales", requireAuth, requireActiveAccount, requirePermission("reports:read"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   const reportScope = await resolveReportScope(db, user);
@@ -678,7 +682,7 @@ app.get("/api/v1/reports/monthly-sales", requireAuth, requirePermission("reports
   return c.json(results);
 });
 
-app.get("/api/v1/reports/product-sales", requireAuth, requirePermission("reports:read"), async (c) => {
+app.get("/api/v1/reports/product-sales", requireAuth, requireActiveAccount, requirePermission("reports:read"), async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   const reportScope = await resolveReportScope(db, user);
@@ -697,20 +701,27 @@ app.get("/api/v1/reports/product-sales", requireAuth, requirePermission("reports
 app.post("/api/v1/signup/applications", async (c) => {
   const db = await getDatabase(c.env);
   const body = await c.req.json();
-  const appId = id("signup");
-  await db
-    .prepare(
-      `INSERT INTO signup_applications (id, name, birthday, store_name, phone, address, gst_number, distributor_name)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(appId, body.name, body.birthday, body.storeName, body.phone, body.address, body.gstNumber ?? null, body.distributorName)
-    .run();
-  return c.json({ id: appId }, 201);
+  try {
+    const result = await createSignupApplication(db, {
+      name: body.name,
+      birthday: body.birthday,
+      storeName: body.storeName,
+      phone: body.phone,
+      address: body.address,
+      gstNumber: body.gstNumber ?? null,
+      distributorName: body.distributorName,
+    });
+    return c.json(result, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Signup failed";
+    return c.json({ error: message }, 400);
+  }
 });
 
 // Admin routes
 const admin = new Hono<{ Bindings: ApiEnv; Variables: AppVariables }>();
 admin.use("*", requireAuth);
+admin.use("*", requireActiveAccount);
 admin.use("*", async (c, next) => {
   const user = c.get("user");
   if (user.role !== "master_admin" && user.role !== "admin_staff") {
@@ -996,8 +1007,26 @@ admin.get("/audit-logs", requirePermission("audit:read"), async (c) => {
 
 admin.get("/signup-applications", requirePermission("signup:review"), async (c) => {
   const db = await getDatabase(c.env);
-  const { results } = await db.prepare(`SELECT * FROM signup_applications WHERE status = 'pending'`).all();
-  return c.json(results);
+  return c.json(
+    await listSignupApplications(db, {
+      search: c.req.query("search"),
+      status: c.req.query("status") ?? "pending",
+      page: Number(c.req.query("page") ?? 1),
+      pageSize: Number(c.req.query("pageSize") ?? 20),
+    }),
+  );
+});
+
+admin.patch("/signup-applications/:id", requirePermission("signup:review"), async (c) => {
+  const db = await getDatabase(c.env);
+  const body = await c.req.json();
+  try {
+    const result = await reviewSignupApplication(db, c.req.param("id"), body, c.get("user").id);
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Review failed";
+    return c.json({ error: message }, 400);
+  }
 });
 
 app.route("/api/v1/admin", admin);
@@ -1017,7 +1046,7 @@ app.post("/api/v1/internal/whatsapp/process", async (c) => {
 });
 
 // Salespeople for dealer
-app.get("/api/v1/dealer/salespeople", requireAuth, async (c) => {
+app.get("/api/v1/dealer/salespeople", requireAuth, requireActiveAccount, async (c) => {
   const db = await getDatabase(c.env);
   const user = c.get("user");
   if (!user.dealerId) return c.json([]);

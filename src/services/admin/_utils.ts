@@ -1,6 +1,6 @@
 import type { ListFilters, PaginatedResult } from "@/lib/mock/admin/types";
 
-export const MOCK_DELAY_MS = 200;
+export const MOCK_DELAY_MS = 0;
 
 export function delay(ms = MOCK_DELAY_MS) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));

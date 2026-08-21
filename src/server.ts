@@ -11,6 +11,30 @@ type ServerEntry = {
   fetch: (request: Request, env: unknown, ctx: unknown) => Promise<Response> | Response;
 };
 
+const PWA_PATHS = new Set([
+  "/manifest.webmanifest",
+  "/sw.js",
+  "/favicon.png",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+]);
+
+function withPwaHeaders(pathname: string, response: Response): Response {
+  if (!response.ok) return response;
+  const headers = new Headers(response.headers);
+  if (pathname === "/sw.js") {
+    headers.set("Service-Worker-Allowed", "/");
+    headers.set("Cache-Control", "no-cache");
+    headers.set("Content-Type", "text/javascript; charset=utf-8");
+  } else if (pathname === "/manifest.webmanifest") {
+    headers.set("Content-Type", "application/manifest+json; charset=utf-8");
+    headers.set("Cache-Control", "public, max-age=86400");
+  } else if (pathname.startsWith("/icons/") || pathname === "/favicon.png") {
+    headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  }
+  return new Response(response.body, { status: response.status, headers });
+}
+
 let serverEntryPromise: Promise<ServerEntry> | undefined;
 
 async function getServerEntry(): Promise<ServerEntry> {
@@ -63,7 +87,11 @@ export default {
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);
-      return await normalizeCatastrophicSsrResponse(response);
+      const normalized = await normalizeCatastrophicSsrResponse(response);
+      if (PWA_PATHS.has(url.pathname)) {
+        return withPwaHeaders(url.pathname, normalized);
+      }
+      return normalized;
     } catch (error) {
       console.error(error);
       return new Response(renderErrorPage(), {

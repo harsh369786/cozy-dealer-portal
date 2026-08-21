@@ -1,9 +1,9 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { lazy, Suspense } from "react";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
 import { InsightsPanel } from "@/components/admin/reports/insights-panel";
 import { ReportsBreadcrumb } from "@/components/admin/reports/reports-breadcrumb";
-import { ReportsCharts } from "@/components/admin/reports/reports-charts";
 import { ReportsFilterBar } from "@/components/admin/reports/reports-filter-bar";
 import { ReportsKpiGrid } from "@/components/admin/reports/reports-kpi-grid";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,10 @@ import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
 import type { AnalyticsFilters } from "@/lib/admin/analytics";
 import { getAdminAnalytics } from "@/services/admin/reports";
+
+const ReportsCharts = lazy(() =>
+  import("@/components/admin/reports/reports-charts").then((m) => ({ default: m.ReportsCharts })),
+);
 
 export const Route = createFileRoute("/admin/reports/")({
   validateSearch: (s: Record<string, unknown>): AnalyticsFilters => ({
@@ -89,7 +93,9 @@ function AdminReportsPage() {
         <>
           <InsightsPanel report={data} onDrillDown={applyFilters} />
           <ReportsKpiGrid report={data} />
-          <ReportsCharts report={data} onDrillDown={applyFilters} />
+          <Suspense fallback={<PageSkeleton rows={4} />}>
+            <ReportsCharts report={data} onDrillDown={applyFilters} />
+          </Suspense>
         </>
       )}
     </div>

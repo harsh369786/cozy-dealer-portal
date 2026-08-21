@@ -1,17 +1,16 @@
 import type { AdminOrderDetail, AdminOrderListItem, ListFilters, PaginatedResult } from "@/lib/mock/admin/types";
 import type { DistributorOrder, OrderStatus } from "@/lib/mock/distributor/types";
 import { ORDER_STATUS_LABELS } from "@/components/shared/order-timeline";
-import { api } from "@/lib/api-client";
 import {
   approveOrder as apiApprove,
   cancelOrder as apiCancel,
   getOrderById,
   getOrderStatusOptions,
-  getOrders,
+  listOrdersPage,
   rejectOrder as apiReject,
   updateOrderStatus as apiUpdateStatus,
 } from "@/services/orders";
-import { delay, paginate } from "./_utils";
+import { delay } from "./_utils";
 
 export type OrderFilters = ListFilters & {
   status?: OrderStatus | "all";
@@ -32,28 +31,32 @@ function toListItem(order: DistributorOrder & { distributorName?: string }): Adm
 }
 
 export async function listOrders(filters: OrderFilters = {}): Promise<PaginatedResult<AdminOrderListItem>> {
-  await delay(50);
-  let items = await getOrders();
-  if (filters.status && filters.status !== "all") {
-    items = items.filter((o) => o.status === filters.status);
-  }
+  await delay(0);
+  const page = Math.max(1, filters.page ?? 1);
+  const pageSize = filters.pageSize ?? 10;
+  const result = await listOrdersPage({
+    page,
+    pageSize,
+    search: filters.search,
+    status: filters.status && filters.status !== "all" ? filters.status : undefined,
+  });
+
+  let items = result.items;
   if (filters.distributorId) {
     items = items.filter((o) => o.distributorId === filters.distributorId);
   }
-  if (filters.search) {
-    const q = filters.search.toLowerCase();
-    items = items.filter(
-      (o) =>
-        o.id.toLowerCase().includes(q) ||
-        o.dealerName.toLowerCase().includes(q) ||
-        o.dealerCode.toLowerCase().includes(q),
-    );
-  }
-  return paginate(items.map(toListItem), filters);
+
+  return {
+    items: items.map(toListItem),
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+    totalPages: result.totalPages,
+  };
 }
 
 export async function getOrder(id: string): Promise<AdminOrderDetail | null> {
-  await delay(50);
+  await delay(0);
   const order = await getOrderById(id);
   if (!order) return null;
   return order as AdminOrderDetail;

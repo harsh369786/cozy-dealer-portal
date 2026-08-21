@@ -111,6 +111,17 @@ export async function createDevDatabase(): Promise<D1Database> {
     db.exec(migration4);
   }
 
+  const migration5Path = join(root, "migrations", "0005_signup_user_status.sql");
+  const hasPendingApprovalStatus = db
+    .prepare(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name='users' AND sql LIKE '%pending_approval%'",
+    )
+    .get();
+  if (!hasPendingApprovalStatus && existsSync(migration5Path)) {
+    const migration5 = readFileSync(migration5Path, "utf8");
+    db.exec(migration5);
+  }
+
   const seeded = db.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number };
   const d1 = createD1(db);
   if (seeded.c === 0) {

@@ -1,14 +1,69 @@
 import type { DistributorOrder, OrderStatus } from "@/lib/mock/distributor/types";
 import { api } from "@/lib/api-client";
 
-export async function getOrders(simulateError = false): Promise<DistributorOrder[]> {
+type OrdersQuery = {
+  status?: OrderStatus | "order_placed" | "pending_approval";
+  search?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+type PaginatedOrdersResponse = {
+  items: DistributorOrder[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+};
+
+function buildOrdersQuery(params: OrdersQuery = {}) {
+  const qs = new URLSearchParams();
+  if (params.status) qs.set("status", params.status);
+  if (params.search) qs.set("search", params.search);
+  if (params.page) qs.set("page", String(params.page));
+  if (params.pageSize) qs.set("pageSize", String(params.pageSize));
+  const query = qs.toString();
+  return query ? `?${query}` : "";
+}
+
+export async function getOrders(
+  simulateError = false,
+  params: OrdersQuery = {},
+): Promise<DistributorOrder[]> {
   if (simulateError) throw new Error("Failed to load orders");
-  return api.get<DistributorOrder[]>("/api/v1/orders");
+  const paginate = params.page != null || params.pageSize != null;
+  const res = await api.get<DistributorOrder[] | PaginatedOrdersResponse>(
+    `/api/v1/orders${buildOrdersQuery(params)}`,
+  );
+  if (paginate && res && typeof res === "object" && "items" in res) {
+    return res.items;
+  }
+  return res as DistributorOrder[];
+}
+
+export async function listOrdersPage(
+  params: OrdersQuery = {},
+): Promise<PaginatedOrdersResponse> {
+  const res = await api.get<DistributorOrder[] | PaginatedOrdersResponse>(
+    `/api/v1/orders${buildOrdersQuery({ page: 1, pageSize: 10, ...params })}`,
+  );
+  if (res && typeof res === "object" && "items" in res) {
+    return res;
+  }
+  const items = res as DistributorOrder[];
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 10;
+  return {
+    items,
+    total: items.length,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(items.length / pageSize)),
+  };
 }
 
 export async function getPendingOrders(simulateError = false): Promise<DistributorOrder[]> {
-  const all = await getOrders(simulateError);
-  return all.filter((o) => o.status === "order_placed");
+  return getOrders(simulateError, { status: "order_placed" });
 }
 
 export async function getOrderById(
@@ -102,7 +157,7 @@ function statusLabel(status: string): string {
 }
 
 export async function getDealerOrders(): Promise<DealerOrderListItem[]> {
-  const orders = await api.get<DistributorOrder[]>("/api/v1/orders");
+  const orders = await getOrders();
   return orders.map((o) => {
     const item = o.items[0];
     return {

@@ -8,6 +8,11 @@ export function getHomePath(role: UserRole): string {
   return "/home";
 }
 
+export function getPostLoginPath(user: SessionUser): string {
+  if (user.status === "pending_approval") return "/pending-approval";
+  return getHomePath(user.role);
+}
+
 const SESSION_CACHE_TTL_MS = 30_000;
 
 let sessionCache: { user: SessionUser | null; at: number } | null = null;
@@ -62,4 +67,8 @@ export function isLoggedIn(): boolean {
 
 export function getRole(): UserRole | null {
   return sessionCache?.user?.role ?? null;
+}
+
+export function isPendingApproval(user: SessionUser | null | undefined): boolean {
+  return user?.status === "pending_approval";
 }
