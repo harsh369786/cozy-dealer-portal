@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ShoppingCart,
   Package,
@@ -11,53 +12,57 @@ import {
 import { AppShell, Section } from "@/components/app-shell";
 import { CampaignPopup } from "@/components/campaign-popup";
 import { CampaignPriceBlock } from "@/components/campaign-price";
-import { CountUp, ProgressBar } from "@/components/brand";
+import { ProgressBar } from "@/components/brand";
 import type { PriceCampaign } from "@/lib/campaign-service";
 import {
   formatCampaignDate,
-  getActivePriceCampaign,
   getCampaignPrice,
 } from "@/lib/campaign-service";
 import { requireRoles } from "@/lib/auth-guard";
 import { resolveAssetUrl } from "@/lib/asset-url";
-import { campaigns, dealer, getProduct, inr, products } from "@/lib/demo-data";
-import { firstName, isDemoDealer } from "@/lib/demo-users";
+import { useFormat } from "@/hooks/use-format";
+import i18n from "@/lib/i18n";
 import { useSession } from "@/hooks/use-session";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { PageSkeleton } from "@/components/shared/states";
-import {
-  getDealerNotifications,
+import { getDealerNotifications,
   markNotificationRead,
   type AppNotification,
 } from "@/services/dealer-notifications";
+import { resolveDealerNotificationLink } from "@/lib/notification-links";
+import { localizeNotification } from "@/lib/localize-notification";
+import { isCampaignUnseen } from "@/lib/notifications";
+import { DealerRewardsCard } from "@/components/shared/dealer-rewards-card";
+import { useDealerRewards } from "@/hooks/use-dealer-rewards";
 import { getDealerById } from "@/services/dealers";
-import { getRewardBalance, getRewardCatalog } from "@/services/rewards";
 import { getCatalog, getProductDetail } from "@/services/catalog";
 import { getDealerCampaigns, type DealerCampaign } from "@/services/campaigns";
 import type { SessionUser } from "@/lib/mock/distributor/types";
 import { cn } from "@/lib/utils";
 
+const DemoHomePage = lazy(() => import("@/components/demo-home-page"));
+
 export const Route = createFileRoute("/home")({
   beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
-      { title: "Dealer Home — BackRest" },
+      { title: i18n.t("dealer.meta.homeTitle") },
       {
         name: "description",
-        content: "Your points, quick actions, featured products and live campaigns.",
+        content: i18n.t("dealer.meta.homeDescription"),
       },
-      { property: "og:title", content: "Dealer Home — BackRest" },
-      { property: "og:description", content: "Points, orders and campaigns at a glance." },
+      { property: "og:title", content: i18n.t("dealer.meta.homeTitle") },
+      { property: "og:description", content: i18n.t("dealer.meta.homeDescription") },
     ],
   }),
   component: HomePage,
 });
 
 const quick = [
-  { to: "/products", label: "Order Products", icon: ShoppingCart },
-  { to: "/orders", label: "My Orders", icon: Package },
-  { to: "/rewards", label: "Rewards", icon: Gift },
-  { to: "/campaigns", label: "Campaigns", icon: Megaphone },
+  { to: "/products", labelKey: "nav.dealer.orderProducts", icon: ShoppingCart },
+  { to: "/orders", labelKey: "nav.dealer.myOrders", icon: Package },
+  { to: "/rewards", labelKey: "nav.dealer.rewards", icon: Gift },
+  { to: "/campaigns", labelKey: "nav.dealer.campaigns", icon: Megaphone },
 ] as const;
 
 type FeaturedProduct = {
@@ -66,23 +71,30 @@ type FeaturedProduct = {
   image?: string;
   mrp?: number;
   price?: number;
+  unitPrice?: number;
+  campaignPrice?: number | null;
   points?: number;
 };
 
 type ProductionHomeData = {
   dealerProfile: Awaited<ReturnType<typeof getDealerById>>;
-  balance: { balance: number; nextRewardAt: number };
-  nextReward: { name: string; emoji: string; points: number } | null;
   featured: FeaturedProduct[];
   activeCampaigns: DealerCampaign[];
 };
 
+function firstName(fullName: string | undefined | null): string {
+  const trimmed = String(fullName ?? "").trim();
+  return trimmed ? (trimmed.split(/\s+/)[0] ?? trimmed) : "there";
+}
+
+function isDemoDealerPhone(phone: string | undefined | null): boolean {
+  return String(phone ?? "").replace(/\D/g, "").slice(-10) === "9876543210";
+}
+
 async function loadProductionHome(user: SessionUser): Promise<ProductionHomeData> {
-  const [dealerProfile, balance, catalog, rewardCatalog, campaignsRes] = await Promise.all([
+  const [dealerProfile, catalog, campaignsRes] = await Promise.all([
     user.dealerId ? getDealerById(user.dealerId) : Promise.resolve(null),
-    getRewardBalance(),
     getCatalog(),
-    getRewardCatalog(),
     getDealerCampaigns("active"),
   ]);
 
@@ -100,19 +112,16 @@ async function loadProductionHome(user: SessionUser): Promise<ProductionHomeData
           image: (p.image_url as string) ?? undefined,
           mrp: p.mrp as number | undefined,
           price: p.price as number | undefined,
+          unitPrice: p.unitPrice as number | undefined,
+          campaignPrice: (p.campaignPrice as number | null | undefined) ?? null,
           points: p.points as number | undefined,
         }))
         .catch(() => null),
     ),
   );
 
-  const nextReward =
-    rewardCatalog.find((r) => r.points > balance.balance) ?? rewardCatalog[0] ?? null;
-
   return {
     dealerProfile,
-    balance,
-    nextReward,
     featured: featuredDetails.filter((p): p is FeaturedProduct => p != null),
     activeCampaigns: campaignsRes.campaigns,
   };
@@ -129,14 +138,25 @@ function HomePage() {
     );
   }
 
-  if (isDemoDealer(user.phone)) {
-    return <DemoHomePage user={user} />;
+  if (import.meta.env.DEV && isDemoDealerPhone(user.phone)) {
+    return (
+      <Suspense
+        fallback={
+          <AppShell>
+            <PageSkeleton rows={4} />
+          </AppShell>
+        }
+      >
+        <DemoHomePage user={user} />
+      </Suspense>
+    );
   }
 
   return <ProductionHomePage user={user} />;
 }
 
 function ProductionHomePage({ user }: { user: SessionUser }) {
+  const { t } = useTranslation();
   const { data, loading } = useAsyncData(
     () => loadProductionHome(user),
     [user.id, user.dealerId],
@@ -153,7 +173,7 @@ function ProductionHomePage({ user }: { user: SessionUser }) {
   if (!data) {
     return (
       <AppShell>
-        <p className="text-sm text-muted-foreground">Could not load your dashboard.</p>
+        <p className="text-sm text-muted-foreground">{t("common.couldNotLoadDashboard")}</p>
       </AppShell>
     );
   }
@@ -166,6 +186,7 @@ function HomeHeader({
   storeName,
   address,
   notifs,
+  notifsLoading,
   showNotifs,
   onToggleNotifs,
   onMarkRead,
@@ -174,17 +195,21 @@ function HomeHeader({
   storeName?: string;
   address?: string;
   notifs: AppNotification[];
+  notifsLoading?: boolean;
   showNotifs: boolean;
   onToggleNotifs: () => void;
   onMarkRead: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const unread = notifs.filter((n) => !n.read).length;
 
   return (
     <>
       <div className="animate-rise flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="font-display text-2xl font-bold">Good morning, {greetingName} 👋</h1>
+          <h1 className="font-display text-2xl font-bold">
+            {t("common.goodMorning", { name: greetingName })}
+          </h1>
           {storeName ? (
             <p className="mt-1 text-sm font-semibold text-foreground">{storeName}</p>
           ) : null}
@@ -195,7 +220,7 @@ function HomeHeader({
         <button
           onClick={onToggleNotifs}
           className="press relative grid h-11 w-11 shrink-0 place-items-center rounded-full bg-secondary"
-          aria-label="Notifications"
+          aria-label={t("common.notifications")}
         >
           <Bell className="h-5 w-5 text-primary" />
           {unread > 0 && (
@@ -206,34 +231,62 @@ function HomeHeader({
         </button>
       </div>
 
-      {showNotifs && notifs.length > 0 && (
+      {showNotifs && (
         <div className="animate-rise mt-4 space-y-2 rounded-3xl border border-border bg-card p-3 shadow-soft">
-          {notifs.map((n) => (
+          {notifsLoading ? (
+            <>
+              <div className="h-16 animate-pulse rounded-2xl bg-secondary/80" aria-hidden />
+              <div className="h-16 animate-pulse rounded-2xl bg-secondary/80" aria-hidden />
+            </>
+          ) : notifs.length > 0 ? (
+          notifs.map((n) => {
+            const resolved = resolveDealerNotificationLink(n.link);
+            const localized = localizeNotification(n, t);
+            return (
             <div
               key={n.id}
               className={cn("rounded-2xl border border-border p-3", !n.read && "bg-secondary/60")}
             >
-              <p className="text-sm font-bold">{n.title}</p>
-              <p className="mt-1 text-xs text-muted-foreground">{n.body}</p>
+              <p className="text-sm font-bold">{localized.title}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{localized.body}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Link
-                  to={n.link}
+                  to={resolved.to}
+                  params={resolved.params}
+                  search={resolved.search}
                   onClick={() => onMarkRead(n.id)}
                   className="text-xs font-bold text-primary"
                 >
-                  Open
+                  {t("common.open")}
                 </Link>
               </div>
             </div>
-          ))}
+            );
+          })
+          ) : (
+            <p className="text-sm text-muted-foreground">{t("distributor.noNotifications")}</p>
+          )}
         </div>
       )}
     </>
   );
 }
 
+function HomeRewardsSection() {
+  const { summary, loading } = useDealerRewards();
+
+  if (loading && !summary) {
+    return <div className="mt-5 h-44 animate-pulse rounded-3xl bg-secondary/80" aria-hidden />;
+  }
+  if (!summary) return null;
+
+  return <DealerRewardsCard summary={summary} className="animate-rise mt-5" />;
+}
+
 function ProductionHomeContent({ user, data }: { user: SessionUser; data: ProductionHomeData }) {
-  const { dealerProfile, balance, nextReward, featured, activeCampaigns } = data;
+  const { t } = useTranslation();
+  const { formatCurrency } = useFormat();
+  const { dealerProfile, featured, activeCampaigns } = data;
   const greetingName = firstName(user.name);
   const storeName = dealerProfile?.name;
   const address = dealerProfile?.address ?? dealerProfile?.location;
@@ -247,15 +300,16 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
   const [popupCampaign, setPopupCampaign] = useState<PriceCampaign | null>(null);
   const [showNotifs, setShowNotifs] = useState(false);
   const [notifs, setNotifs] = useState<AppNotification[]>([]);
-
-  const points = balance.balance;
-  const nextTarget = nextReward?.points ?? balance.nextRewardAt;
-  const remaining = Math.max(0, nextTarget - points);
-  const pct = nextTarget > 0 ? Math.min(100, (points / nextTarget) * 100) : 0;
+  const [notifsLoading, setNotifsLoading] = useState(false);
 
   useEffect(() => {
-    getDealerNotifications().then(setNotifs).catch(() => setNotifs([]));
-  }, []);
+    if (!showNotifs) return;
+    setNotifsLoading(true);
+    getDealerNotifications()
+      .then(setNotifs)
+      .catch(() => setNotifs([]))
+      .finally(() => setNotifsLoading(false));
+  }, [showNotifs]);
 
   useEffect(() => {
     if (!priceCampaign?.productId) return;
@@ -274,6 +328,7 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
 
   useEffect(() => {
     if (!priceCampaign?.productId || !priceCampaign.discountPercent) return;
+    if (!isCampaignUnseen(priceCampaign.id, user.id)) return;
     setPopupCampaign({
       id: priceCampaign.id,
       name: priceCampaign.name,
@@ -284,7 +339,7 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
       description: priceCampaign.description,
       badgeLabel: priceCampaign.badgeLabel,
     });
-  }, [priceCampaign]);
+  }, [priceCampaign, user.id]);
 
   const campaignPrice =
     priceProduct?.price && priceCampaign?.discountPercent
@@ -294,7 +349,12 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
   return (
     <AppShell>
       {popupCampaign && (
-        <CampaignPopup campaign={popupCampaign} onDismiss={() => setPopupCampaign(null)} />
+        <CampaignPopup
+          campaign={popupCampaign}
+          userId={user.id}
+          productName={priceProduct?.name}
+          onDismiss={() => setPopupCampaign(null)}
+        />
       )}
 
       <HomeHeader
@@ -302,6 +362,7 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
         storeName={storeName}
         address={address}
         notifs={notifs}
+        notifsLoading={notifsLoading}
         showNotifs={showNotifs}
         onToggleNotifs={() => setShowNotifs((s) => !s)}
         onMarkRead={async (id) => {
@@ -311,31 +372,11 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
         }}
       />
 
-      <Link
-        to="/rewards"
-        className="press animate-rise mt-5 block overflow-hidden rounded-3xl border border-border surface-gradient p-5 shadow-lift"
-      >
-        <p className="text-sm font-semibold text-muted-foreground">Your reward points</p>
-        <p className="mt-1 font-display text-5xl font-bold">
-          <CountUp value={points} />
-          <span className="ml-2 text-lg font-semibold text-muted-foreground">Points</span>
-        </p>
-        <ProgressBar value={pct} className="mt-4" />
-        <p className="mt-3 text-sm">
-          {nextReward ? (
-            <>
-              <span className="font-bold">{remaining} points</span> away from {nextReward.name}{" "}
-              {nextReward.emoji}
-            </>
-          ) : (
-            <span className="text-muted-foreground">Start ordering to earn reward points</span>
-          )}
-        </p>
-      </Link>
+      <HomeRewardsSection />
 
-      <Section title="Quick Actions">
+      <Section title={t("common.quickActions")}>
         <div className="grid grid-cols-2 gap-3">
-          {quick.map(({ to, label, icon: Icon }) => (
+          {quick.map(({ to, labelKey, icon: Icon }) => (
             <Link
               key={to}
               to={to}
@@ -344,7 +385,7 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
               <span className="grid h-10 w-10 place-items-center rounded-xl bg-secondary">
                 <Icon className="h-5 w-5 text-primary" />
               </span>
-              <span className="text-base font-bold">{label}</span>
+              <span className="text-base font-bold">{t(labelKey)}</span>
             </Link>
           ))}
         </div>
@@ -352,10 +393,10 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
 
       {featured.length > 0 && (
         <Section
-          title="Featured Products"
+          title={t("common.featuredProducts")}
           action={
             <Link to="/products" className="text-sm font-bold text-primary">
-              See all
+              {t("common.seeAll")}
             </Link>
           }
         >
@@ -376,19 +417,34 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
                   />
                 ) : (
                   <div className="grid h-32 place-items-center bg-secondary text-sm text-muted-foreground">
-                    No image
+                    {t("common.noImage")}
                   </div>
                 )}
                 <div className="p-3">
                   <p className="text-base font-bold leading-snug">{p.name}</p>
                   {p.price != null && (
-                    <p className="mt-1 text-sm text-muted-foreground">From {inr(p.price)}</p>
+                    <div className="mt-1">
+                      {p.campaignPrice != null && p.campaignPrice < p.price ? (
+                        <>
+                          <p className="text-sm text-muted-foreground line-through">
+                            {t("common.dealerLabel", { price: formatCurrency(p.price) })}
+                          </p>
+                          <p className="text-sm font-bold text-primary">{formatCurrency(p.campaignPrice)}</p>
+                        </>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          {t("common.from")} {formatCurrency(p.unitPrice ?? p.price)}
+                        </p>
+                      )}
+                    </div>
                   )}
                   {p.points != null && (
-                    <p className="mt-1 text-sm font-semibold text-primary">Earn {p.points} points</p>
+                    <p className="mt-1 text-sm font-semibold text-primary">
+                      {t("common.earn")} {p.points} {t("common.points")}
+                    </p>
                   )}
                   <span className="press mt-3 block rounded-xl brand-gradient py-2.5 text-center text-sm font-bold text-primary-foreground">
-                    Order
+                    {t("common.order")}
                   </span>
                 </div>
               </Link>
@@ -398,7 +454,7 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
       )}
 
       {priceCampaign && priceProduct && campaignPrice && (
-        <Section title="Campaign highlight">
+        <Section title={t("common.campaignHighlight")}>
           <Link
             to="/products/$productId"
             params={{ productId: priceProduct.id }}
@@ -407,7 +463,9 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
           >
             <p className="font-display text-xl font-bold">{priceCampaign.name}</p>
             <p className="mt-1 text-sm text-muted-foreground">
-              {priceProduct.name} · {priceCampaign.badgeLabel ?? `${priceCampaign.discountPercent}% off`}
+              {priceProduct.name} ·{" "}
+              {priceCampaign.badgeLabel ??
+                t("common.percentOff", { percent: priceCampaign.discountPercent })}
             </p>
             <div className="mt-4">
               <CampaignPriceBlock
@@ -418,14 +476,14 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
               />
             </div>
             <p className="mt-3 text-xs text-muted-foreground">
-              Valid until {formatCampaignDate(priceCampaign.endDate)}
+              {t("common.validUntil")} {formatCampaignDate(priceCampaign.endDate)}
             </p>
           </Link>
         </Section>
       )}
 
       {volumeCampaign && volumeCampaign.target && (
-        <Section title="Sell & Earn">
+        <Section title={t("common.sellAndEarn")}>
           <Link
             to="/campaigns"
             className="press block rounded-3xl border border-border bg-card p-5 shadow-soft"
@@ -441,187 +499,18 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
             />
             <div className="mt-2 flex items-center justify-between text-sm">
               <span className="font-semibold">
-                {volumeCampaign.done ?? 0} / {volumeCampaign.target} sold
+                {t("common.soldProgress", {
+                  done: volumeCampaign.done ?? 0,
+                  target: volumeCampaign.target,
+                })}
               </span>
               <span className="flex items-center gap-1 font-bold text-primary">
-                View Campaign <ChevronRight className="h-4 w-4" />
+                {t("common.viewCampaign")} <ChevronRight className="h-4 w-4" />
               </span>
             </div>
           </Link>
         </Section>
       )}
-    </AppShell>
-  );
-}
-
-function DemoHomePage({ user }: { user: SessionUser | null }) {
-  const remaining = dealer.nextRewardAt - dealer.points;
-  const pct = (dealer.points / dealer.nextRewardAt) * 100;
-  const volumeCampaign = campaigns[1]!;
-  const priceCampaign = getActivePriceCampaign("latexo");
-  const latexo = getProduct("latexo");
-  const campaignPrice = priceCampaign
-    ? getCampaignPrice(latexo.price, priceCampaign.discountPercent)
-    : null;
-
-  const [popupCampaign, setPopupCampaign] = useState<PriceCampaign | null>(null);
-  const [showNotifs, setShowNotifs] = useState(false);
-  const [notifs, setNotifs] = useState<AppNotification[]>([]);
-
-  useEffect(() => {
-    getDealerNotifications().then(setNotifs).catch(() => setNotifs([]));
-    const campaign = getActivePriceCampaign("latexo");
-    if (campaign) setPopupCampaign(campaign);
-  }, []);
-
-  const greetingName = user?.name ? firstName(user.name) : dealer.name;
-
-  return (
-    <AppShell>
-      {popupCampaign && (
-        <CampaignPopup campaign={popupCampaign} onDismiss={() => setPopupCampaign(null)} />
-      )}
-
-      <HomeHeader
-        greetingName={greetingName}
-        storeName={dealer.shop.split(",")[0]?.trim() ?? dealer.shop}
-        address={dealer.shop.includes(",") ? dealer.shop.split(",").slice(1).join(",").trim() : undefined}
-        notifs={notifs}
-        showNotifs={showNotifs}
-        onToggleNotifs={() => setShowNotifs((s) => !s)}
-        onMarkRead={async (id) => {
-          await markNotificationRead(id);
-          setNotifs((prev) => prev.map((x) => (x.id === id ? { ...x, read: true } : x)));
-          setShowNotifs(false);
-        }}
-      />
-
-      <Link
-        to="/rewards"
-        className="press animate-rise mt-5 block overflow-hidden rounded-3xl border border-border surface-gradient p-5 shadow-lift"
-      >
-        <p className="text-sm font-semibold text-muted-foreground">Your reward points</p>
-        <p className="mt-1 font-display text-5xl font-bold">
-          <CountUp value={dealer.points} />
-          <span className="ml-2 text-lg font-semibold text-muted-foreground">Points</span>
-        </p>
-        <ProgressBar value={pct} className="mt-4" />
-        <p className="mt-3 text-sm">
-          <span className="font-bold">{remaining} points</span> away from your next reward
-        </p>
-        <div className="mt-4 flex items-center justify-between rounded-2xl bg-card/70 px-4 py-3">
-          <span className="text-sm font-semibold">Next Reward: {dealer.nextReward} 🎁</span>
-          <span className="flex items-center gap-1 text-sm font-bold text-primary">
-            View Rewards <ChevronRight className="h-4 w-4" />
-          </span>
-        </div>
-      </Link>
-
-      <Section title="Quick Actions">
-        <div className="grid grid-cols-2 gap-3">
-          {quick.map(({ to, label, icon: Icon }) => (
-            <Link
-              key={to}
-              to={to}
-              className="press flex min-h-24 flex-col justify-between rounded-2xl border border-border bg-card p-4 shadow-soft"
-            >
-              <span className="grid h-10 w-10 place-items-center rounded-xl bg-secondary">
-                <Icon className="h-5 w-5 text-primary" />
-              </span>
-              <span className="text-base font-bold">{label}</span>
-            </Link>
-          ))}
-        </div>
-      </Section>
-
-      <Section
-        title="Featured Products"
-        action={
-          <Link to="/products" className="text-sm font-bold text-primary">
-            See all
-          </Link>
-        }
-      >
-        <div className="scrollbar-none -mx-5 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth-touch px-5 pb-2">
-          {products.slice(0, 3).map((p) => (
-            <Link
-              key={p.id}
-              to="/products/$productId"
-              params={{ productId: p.id }}
-              className="press w-56 shrink-0 snap-start overflow-hidden rounded-2xl border border-border bg-card shadow-soft"
-            >
-              <img
-                src={resolveAssetUrl(p.image)}
-                alt={p.name}
-                loading="lazy"
-                width={800}
-                height={800}
-                className="h-32 w-full object-cover"
-              />
-              <div className="p-3">
-                <p className="text-base font-bold leading-snug">{p.name}</p>
-                <p className="mt-1 text-sm text-muted-foreground">From {inr(p.price)}</p>
-                <p className="mt-1 text-sm font-semibold text-primary">Earn {p.points} points</p>
-                <span className="press mt-3 block rounded-xl brand-gradient py-2.5 text-center text-sm font-bold text-primary-foreground">
-                  Order
-                </span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </Section>
-
-      {priceCampaign && campaignPrice && (
-        <Section title="Mattress of the Week">
-          <Link
-            to="/products/$productId"
-            params={{ productId: "latexo" }}
-            className="press block overflow-hidden rounded-3xl border border-primary/30 bg-card p-5 shadow-soft"
-          >
-            <p className="font-display text-xl font-bold">{priceCampaign.name}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {latexo.name} · {priceCampaign.badgeLabel}
-            </p>
-            <div className="mt-4">
-              <CampaignPriceBlock
-                mrp={latexo.mrp}
-                dealerPrice={latexo.price}
-                campaignPrice={campaignPrice}
-                compact
-              />
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Valid until {formatCampaignDate(priceCampaign.endAt)}
-            </p>
-            <span className="mt-4 flex items-center gap-1 text-sm font-bold text-primary">
-              View Campaign <ChevronRight className="h-4 w-4" />
-            </span>
-          </Link>
-        </Section>
-      )}
-
-      <Section title="Sell & Earn">
-        <Link
-          to="/campaigns"
-          className="press block rounded-3xl border border-border bg-card p-5 shadow-soft"
-        >
-          <p className="font-display text-xl font-bold">{volumeCampaign.title}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{volumeCampaign.goal}</p>
-          <p className="mt-3 text-lg font-bold text-primary">+{volumeCampaign.reward}</p>
-          <ProgressBar
-            value={(volumeCampaign.done / volumeCampaign.target) * 100}
-            className="mt-3"
-          />
-          <div className="mt-2 flex items-center justify-between text-sm">
-            <span className="font-semibold">
-              {volumeCampaign.done} / {volumeCampaign.target} sold
-            </span>
-            <span className="flex items-center gap-1 font-bold text-primary">
-              View Campaign <ChevronRight className="h-4 w-4" />
-            </span>
-          </div>
-        </Link>
-      </Section>
     </AppShell>
   );
 }

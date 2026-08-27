@@ -1,22 +1,24 @@
 import { id, normalizePhone, nowIso } from "../utils";
-import { notifySignupReviewers } from "./notification-events";
+import { notifySignupReviewers, withNotificationI18n } from "./notification-events";
+import { findActiveUserByPhone, findDeletedUserIdByPhone } from "./user-phone";
 
 export type SignupApplicationInput = {
   name: string;
   birthday: string;
-  storeName: string;
+  storeName?: string | null;
   phone: string;
   address: string;
   gstNumber?: string | null;
-  distributorName: string;
+  distributorName?: string | null;
 };
 
 export async function createSignupApplication(db: D1Database, input: SignupApplicationInput) {
   const phone = normalizePhone(input.phone);
-  const existing = await db
-    .prepare(`SELECT id, status FROM users WHERE phone = ? AND deleted_at IS NULL`)
-    .bind(phone)
-    .first<{ id: string; status: string }>();
+  const contactName = input.name.trim();
+  const storeName = input.storeName?.trim() || contactName;
+  const gstNumber = input.gstNumber?.trim() || null;
+  const distributorName = input.distributorName?.trim() || "";
+  const existing = await findActiveUserByPhone(db, phone);
 
   if (existing) {
     if (existing.status === "pending_approval") {
@@ -42,44 +44,79 @@ export async function createSignupApplication(db: D1Database, input: SignupAppli
     throw new Error("Too many signup attempts. Please try again later.");
   }
 
-  const userId = id("user");
+  const reuseUserId = await findDeletedUserIdByPhone(db, phone);
+  const userId = reuseUserId ?? id("user");
   const appId = id("signup");
   const ts = nowIso();
 
-  await db.batch([
-    db
-      .prepare(
-        `INSERT INTO users (id, phone, name, role, status, created_at, updated_at)
-         VALUES (?, ?, ?, 'dealer', 'pending_approval', ?, ?)`,
-      )
-      .bind(userId, phone, input.name.trim(), ts, ts),
-    db
-      .prepare(
-        `INSERT INTO signup_applications (
-           id, user_id, name, birthday, store_name, phone, address, gst_number, distributor_name, status, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
-      )
-      .bind(
-        appId,
-        userId,
-        input.name.trim(),
-        input.birthday,
-        input.storeName.trim(),
-        phone,
-        input.address.trim(),
-        input.gstNumber ?? null,
-        input.distributorName.trim(),
-        ts,
-        ts,
-      ),
-  ]);
+  if (reuseUserId) {
+    await db.batch([
+      db
+        .prepare(
+          `UPDATE users SET phone = ?, name = ?, role = 'dealer', status = 'pending_approval',
+           deleted_at = NULL, updated_at = ? WHERE id = ?`,
+        )
+        .bind(phone, contactName, ts, reuseUserId),
+      db
+        .prepare(
+          `INSERT INTO signup_applications (
+             id, user_id, name, birthday, store_name, phone, address, gst_number, distributor_name, status, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+        )
+        .bind(
+          appId,
+          reuseUserId,
+          contactName,
+          input.birthday,
+          storeName,
+          phone,
+          input.address.trim(),
+          gstNumber,
+          distributorName,
+          ts,
+          ts,
+        ),
+    ]);
+  } else {
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO users (id, phone, name, role, status, created_at, updated_at)
+           VALUES (?, ?, ?, 'dealer', 'pending_approval', ?, ?)`,
+        )
+        .bind(userId, phone, contactName, ts, ts),
+      db
+        .prepare(
+          `INSERT INTO signup_applications (
+             id, user_id, name, birthday, store_name, phone, address, gst_number, distributor_name, status, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+        )
+        .bind(
+          appId,
+          userId,
+          contactName,
+          input.birthday,
+          storeName,
+          phone,
+          input.address.trim(),
+          gstNumber,
+          distributorName,
+          ts,
+          ts,
+        ),
+    ]);
+  }
 
   await notifySignupReviewers(db, {
     category: "system",
     type: "system",
     title: "New signup request",
-    body: `${input.storeName.trim()} (${input.name.trim()}) is awaiting approval`,
+    body: `${storeName} (${contactName}) is awaiting approval`,
     link: "/admin/users?tab=signup",
+    ...withNotificationI18n("notifications.newSignupRequest.title", "notifications.newSignupRequest.body", {
+      storeName,
+      contactName,
+    }),
   });
 
   return { id: appId, userId };

@@ -60,11 +60,14 @@ export async function scanPendingOrderReminders(db: D1Database) {
     if (existing) continue;
 
     const distUsers = await db
-      .prepare(`SELECT id FROM users WHERE distributor_id = ? AND role = 'distributor'`)
+      .prepare(
+        `SELECT id FROM users WHERE distributor_id = ? AND role = 'distributor' AND status = 'active' AND deleted_at IS NULL`,
+      )
       .bind(order.distributor_id)
       .all<{ id: string }>();
 
     const { createNotification } = await import("./notifications");
+    const { withNotificationI18n } = await import("./notification-events");
     for (const u of distUsers.results) {
       await createNotification(db, {
         recipientUserId: u.id,
@@ -74,6 +77,11 @@ export async function scanPendingOrderReminders(db: D1Database) {
         body: `Order ${order.id} has been pending for over ${hours} hours`,
         link: `/distributor/orders/${order.id}`,
         isReminder: true,
+        ...withNotificationI18n(
+          "notifications.orderPendingApproval.title",
+          "notifications.orderPendingApproval.body",
+          { orderId: order.id, hours },
+        ),
       });
     }
 

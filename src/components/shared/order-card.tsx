@@ -1,10 +1,13 @@
 import { Link } from "@tanstack/react-router";
 import { Calendar, ChevronRight, Clock, MapPin } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { DistributorOrder } from "@/lib/mock/distributor/types";
-import { inr } from "@/lib/demo-data";
+import { useFormat } from "@/hooks/use-format";
 import { StatusBadge } from "./status-badge";
 
 export function OrderCard({ order }: { order: DistributorOrder }) {
+  const { t } = useTranslation();
+  const { formatCurrency, formatTimestamp } = useFormat();
   const rewardPoints = order.items.reduce((sum, item) => sum + (item.points ?? 0), 0);
 
   return (
@@ -25,11 +28,13 @@ export function OrderCard({ order }: { order: DistributorOrder }) {
       </div>
       <p className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
         <Calendar className="h-3.5 w-3.5 shrink-0 text-primary" />
-        <span>{order.placedAt}</span>
+        <span>{formatTimestamp(order.placedAt)}</span>
       </p>
       <div className="mt-2 flex items-center justify-between text-sm">
-        <span className="font-semibold">{inr(order.totalValue)}</span>
-        <span className="text-muted-foreground">{order.totalItems} items</span>
+        <span className="font-semibold">{formatCurrency(order.totalValue)}</span>
+        <span className="text-muted-foreground">
+          {order.totalItems} {t("common.items")}
+        </span>
       </div>
       {order.dealerAddress && (
         <p className="mt-2 flex items-start gap-1 text-xs text-muted-foreground">
@@ -40,11 +45,11 @@ export function OrderCard({ order }: { order: DistributorOrder }) {
       {order.status === "order_placed" && order.pendingHours > 0 && (
         <p className="mt-2 flex items-center gap-1 text-xs font-semibold text-amber-700">
           <Clock className="h-3.5 w-3.5" />
-          Pending {order.pendingHours}h
+          {t("common.pendingHours", { hours: order.pendingHours })}
         </p>
       )}
       <div className="mt-2 flex items-center justify-end text-xs font-semibold text-primary">
-        View details <ChevronRight className="h-4 w-4" />
+        {t("common.viewDetails")} <ChevronRight className="h-4 w-4" />
       </div>
     </Link>
   );

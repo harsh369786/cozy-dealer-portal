@@ -45,8 +45,8 @@ export async function runSeed(db: D1Database) {
     .run();
 
   await db
-    .prepare(`INSERT INTO users (id, phone, name, role) VALUES (?, ?, ?, ?)`)
-    .bind(SALES_EXEC_USER_ID, "+919777766666", "Amit Sales", "sales_executive")
+    .prepare(`INSERT INTO users (id, phone, name, role, distributor_id) VALUES (?, ?, ?, ?, ?)`)
+    .bind(SALES_EXEC_USER_ID, "+919777766666", "Amit Sales", "sales_executive", DISTRIBUTOR_ID)
     .run();
 
   for (const d of dealers) {
@@ -353,4 +353,7 @@ export async function runSeed(db: D1Database) {
     .prepare(`INSERT INTO system_settings (key, value) VALUES (?, ?)`)
     .bind("pending_reminder_hours", "2")
     .run();
+
+  const { seedHistoricalDemoData } = await import("./seed-historical-demo.ts");
+  await seedHistoricalDemoData(db);
 }

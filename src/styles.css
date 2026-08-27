@@ -6,6 +6,9 @@
 @import "@fontsource/manrope/latin-400.css";
 @import "@fontsource/manrope/latin-600.css";
 @import "@fontsource/manrope/latin-700.css";
+@import "@fontsource/noto-sans-devanagari/devanagari-400.css";
+@import "@fontsource/noto-sans-devanagari/devanagari-600.css";
+@import "@fontsource/noto-sans-devanagari/devanagari-700.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -164,6 +167,17 @@
   h4 {
     font-family: var(--font-display);
     letter-spacing: -0.02em;
+  }
+
+  html[lang="hi"] body {
+    font-family: "Noto Sans Devanagari", var(--font-sans);
+  }
+
+  html[lang="hi"] h1,
+  html[lang="hi"] h2,
+  html[lang="hi"] h3,
+  html[lang="hi"] h4 {
+    font-family: "Noto Sans Devanagari", var(--font-display);
   }
 }
 

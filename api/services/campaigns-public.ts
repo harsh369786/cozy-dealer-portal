@@ -46,12 +46,25 @@ function mapCampaignRow(r: Record<string, unknown>): PublicCampaign {
   };
 }
 
+function campaignTabSql(tab: CampaignStatus) {
+  if (tab === "active") {
+    return ` AND date(substr(pc.start_at, 1, 10)) <= date('now')
+              AND date(substr(pc.end_at, 1, 10)) >= date('now')
+              AND IFNULL(pc.status, 'active') != 'expired'`;
+  }
+  if (tab === "upcoming") {
+    return ` AND date(substr(pc.end_at, 1, 10)) >= date('now')
+              AND (date(substr(pc.start_at, 1, 10)) > date('now') OR pc.status = 'upcoming')`;
+  }
+  return ` AND (date(substr(pc.end_at, 1, 10)) < date('now') OR pc.status = 'expired')`;
+}
+
 export async function listDealerCampaigns(db: D1Database, tab: CampaignStatus = "active") {
   const { results } = await db
     .prepare(
       `SELECT pc.*, p.name as product_name FROM price_campaigns pc
        LEFT JOIN products p ON p.id = pc.product_id
-       WHERE pc.deleted_at IS NULL AND pc.whatsapp_target_dealers = 1`,
+       WHERE pc.deleted_at IS NULL AND pc.whatsapp_target_dealers = 1${campaignTabSql(tab)}`,
     )
     .all();
 
@@ -73,6 +86,7 @@ export async function listDistributorCampaigns(
     sql += ` AND (pc.distributor_id IS NULL OR pc.distributor_id = ?)`;
     binds.push(distributorId);
   }
+  if (tab) sql += campaignTabSql(tab);
   const { results } = await db.prepare(sql).bind(...binds).all();
 
   return results

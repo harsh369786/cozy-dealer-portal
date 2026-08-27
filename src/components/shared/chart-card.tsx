@@ -21,7 +21,7 @@ export function ChartCard({
         <h3 className="font-display font-bold">{title}</h3>
         {description && <p className="break-words text-sm text-muted-foreground">{description}</p>}
       </div>
-      <ChartContainer config={config} className="aspect-auto h-48 min-w-0 w-full md:h-56">
+      <ChartContainer config={config} className="aspect-auto h-44 min-w-0 w-full sm:h-48 md:h-52">
         {children}
       </ChartContainer>
     </div>

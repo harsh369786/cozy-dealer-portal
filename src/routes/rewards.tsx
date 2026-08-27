@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { Gift } from "lucide-react";
 import { AppShell, Section } from "@/components/app-shell";
@@ -8,27 +9,31 @@ import { cn } from "@/lib/utils";
 import { requireRoles } from "@/lib/auth-guard";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { ConfirmActionDialog } from "@/components/shared/dialogs";
+import { PageSkeleton } from "@/components/shared/states";
+import { normalizeRewardPoints } from "@/lib/rewards";
+import { useDealerRewards } from "@/hooks/use-dealer-rewards";
+import { useFormat } from "@/hooks/use-format";
+import { useFormatApiError } from "@/lib/api-errors";
 import {
-  getRewardBalance,
-  getRewardCatalog,
   getRewardClaims,
   getRewardLedger,
   redeemReward,
 } from "@/services/rewards";
+import i18n from "@/lib/i18n";
 
 export const Route = createFileRoute("/rewards")({
   beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
-      { title: "Rewards — BackRest Dealer App" },
+      { title: i18n.t("dealer.meta.rewardsTitle") },
       {
         name: "description",
-        content: "Track your points, claim rewards and see your points history.",
+        content: i18n.t("dealer.meta.rewardsDescription"),
       },
-      { property: "og:title", content: "Rewards — BackRest Dealer App" },
+      { property: "og:title", content: i18n.t("dealer.meta.rewardsTitle") },
       {
         property: "og:description",
-        content: "Earn points on every order and redeem them for gifts.",
+        content: i18n.t("dealer.meta.rewardsDescription"),
       },
     ],
   }),
@@ -36,29 +41,42 @@ export const Route = createFileRoute("/rewards")({
 });
 
 function Rewards() {
+  const { t } = useTranslation();
+  const { formatNumber } = useFormat();
+  const formatApiError = useFormatApiError();
+  const { summary, loading, refresh } = useDealerRewards();
   const [celebrate, setCelebrate] = useState(false);
   const [celebrateReward, setCelebrateReward] = useState<{ name: string; emoji: string } | null>(null);
   const [confirmReward, setConfirmReward] = useState<{ id: string; name: string; emoji: string; points: number } | null>(null);
   const [claimLoading, setClaimLoading] = useState(false);
   const [historyTab, setHistoryTab] = useState<"pending" | "delivered">("pending");
-  const [balance, setBalance] = useState({ balance: 0, nextRewardAt: 3000 });
-  const [rewards, setRewards] = useState<Array<{ id: string; name: string; emoji: string; points: number; imageUrl?: string }>>([]);
   const [rewardHistory, setRewardHistory] = useState<
     Array<{ id: string; name: string; emoji: string; claimed: string; status: string; delivered?: string }>
   >([]);
   const [pointsHistory, setPointsHistory] = useState<Array<{ label: string; value: number; date: string }>>([]);
 
   useEffect(() => {
-    getRewardBalance().then(setBalance).catch(() => undefined);
     getRewardClaims().then(setRewardHistory).catch(() => undefined);
-    getRewardLedger().then(setPointsHistory).catch(() => undefined);
-    getRewardCatalog().then(setRewards).catch(() => undefined);
+    getRewardLedger()
+      .then((rows) =>
+        setPointsHistory(
+          rows.map((h) => ({
+            ...h,
+            value:
+              h.value < 0
+                ? -normalizeRewardPoints(Math.abs(h.value), 0)
+                : normalizeRewardPoints(h.value, 0),
+          })),
+        ),
+      )
+      .catch(() => undefined);
   }, []);
 
-  const dealer = { points: balance.balance, nextRewardAt: balance.nextRewardAt };
-  const nextReward = rewards.find((r) => r.points > dealer.points) ?? rewards[0] ?? null;
-  const pct = nextReward ? Math.min(100, Math.round((dealer.points / nextReward.points) * 100)) : 0;
-  const remaining = nextReward ? Math.max(0, nextReward.points - dealer.points) : 0;
+  const balance = summary?.balance ?? 0;
+  const nextReward = summary?.nextReward ?? null;
+  const remaining = summary?.remaining ?? 0;
+  const pct = summary?.pct ?? 0;
+  const rewards = summary?.catalog ?? [];
 
   const pendingRewards = useMemo(
     () => rewardHistory.filter((c) => c.status === "pending"),
@@ -70,8 +88,16 @@ function Rewards() {
   );
   const historyItems = historyTab === "pending" ? pendingRewards : deliveredRewards;
 
+  if (loading && !summary) {
+    return (
+      <AppShell title={t("dealer.rewards.title")}>
+        <PageSkeleton rows={5} />
+      </AppShell>
+    );
+  }
+
   return (
-    <AppShell title="Your Rewards">
+    <AppShell title={t("dealer.rewards.title")}>
       <div className="relative overflow-hidden rounded-3xl border border-primary/30 surface-gradient py-6 shadow-lift">
         {celebrate && celebrateReward && (
           <>
@@ -79,16 +105,18 @@ function Rewards() {
             <div className="absolute inset-0 z-10 grid place-items-center bg-background/80 backdrop-blur-sm">
               <div className="animate-rise rounded-3xl border border-primary/40 bg-card px-8 py-6 text-center shadow-lift">
                 <p className="text-5xl">{celebrateReward.emoji}</p>
-                <p className="mt-3 font-display text-2xl font-bold">Reward claimed!</p>
-                <p className="mt-1 text-sm text-muted-foreground">{celebrateReward.name} is on its way to your shop.</p>
+                <p className="mt-3 font-display text-2xl font-bold">{t("common.rewardClaimed")}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {t("common.rewardOnItsWay", { name: celebrateReward.name })}
+                </p>
               </div>
             </div>
           </>
         )}
         <div className="grid place-items-center">
-          <ProgressRing value={pct} label={`${pct}%`} sub="to next reward" />
+          <ProgressRing value={pct} label={`${Math.round(pct)}%`} sub={t("common.toNextReward")} />
           <p className="font-display text-4xl font-bold">
-            <CountUp value={dealer.points} /> <span className="text-lg">Points</span>
+            <CountUp value={balance} /> <span className="text-lg">{t("common.points")}</span>
           </p>
         </div>
 
@@ -100,44 +128,47 @@ function Rewards() {
                   {nextReward.emoji}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold uppercase tracking-wide text-primary">Next reward</p>
+                  <p className="text-xs font-bold uppercase tracking-wide text-primary">
+                    {t("common.nextReward")}
+                  </p>
                   <p className="font-display text-base font-bold">{nextReward.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {nextReward.points.toLocaleString("en-IN")} points
+                    {remaining > 0
+                      ? t("common.pointsToGo", { count: formatNumber(remaining) })
+                      : t("common.readyToRedeem")}
+                    {" · "}
+                    {t("common.pointsRequired", { count: formatNumber(nextReward.points) })}
                   </p>
                 </div>
                 <Gift className="h-5 w-5 shrink-0 text-primary" />
               </div>
               <ProgressBar value={pct} className="mt-4 h-3" />
               <p className="mt-3 text-center text-sm font-semibold">
-                {remaining > 0 ? (
-                  <>
-                    <span className="font-display text-lg font-bold text-primary">{remaining}</span>{" "}
-                    points to unlock your {nextReward.name} 🎁
-                  </>
-                ) : (
-                  "You've unlocked your next reward — redeem it below!"
-                )}
+                {remaining > 0
+                  ? t("common.pointsAwayFrom", {
+                      count: formatNumber(remaining),
+                      name: nextReward.name,
+                      emoji: nextReward.emoji,
+                    })
+                  : t("common.unlockedNextReward")}
               </p>
             </>
           ) : (
-            <p className="text-center text-sm text-muted-foreground">
-              Rewards catalogue is being updated. Check back soon.
-            </p>
+            <p className="text-center text-sm text-muted-foreground">{t("common.noRewardsCatalogue")}</p>
           )}
         </div>
       </div>
 
-      <Section title="Rewards You Can Claim">
+      <Section title={t("common.rewardsYouCanClaim")}>
         <div className="space-y-3">
           {rewards.length === 0 ? (
             <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-              No rewards available right now.
+              {t("common.noRewardsAvailable")}
             </p>
           ) : (
             rewards.map((r) => {
-            const can = dealer.points >= r.points;
-            const p = Math.min(100, (dealer.points / r.points) * 100);
+            const can = balance >= r.points;
+            const p = Math.min(100, (balance / r.points) * 100);
             return (
               <div key={r.id} className="rounded-3xl border border-border bg-card p-4 shadow-soft">
                 <div className="flex items-center gap-3">
@@ -155,7 +186,7 @@ function Rewards() {
                   <div className="flex-1">
                     <p className="text-base font-bold">{r.name}</p>
                     <p className="text-sm text-muted-foreground">
-                      {r.points.toLocaleString("en-IN")} Points
+                      {formatNumber(r.points)} {t("common.points")}
                     </p>
                   </div>
                   <button
@@ -168,14 +199,14 @@ function Rewards() {
                         : "bg-secondary text-muted-foreground",
                     )}
                   >
-                    {can ? "Redeem" : "Locked"}
+                    {can ? t("common.redeem") : t("common.locked")}
                   </button>
                 </div>
                 <ProgressBar value={p} className="mt-3 h-2" />
                 <p className="mt-2 text-xs text-muted-foreground">
                   {can
-                    ? "Ready to claim"
-                    : `${(r.points - dealer.points).toLocaleString("en-IN")} points to go`}
+                    ? t("common.readyToClaim")
+                    : t("common.pointsToGo", { count: formatNumber(r.points - balance) })}
                 </p>
               </div>
             );
@@ -184,7 +215,7 @@ function Rewards() {
         </div>
       </Section>
 
-      <Section title="Points History">
+      <Section title={t("common.pointsHistory")}>
         <div className="divide-y divide-border rounded-3xl border border-border bg-card">
           {pointsHistory.map((h) => (
             <div key={h.label + h.date} className="flex items-center justify-between px-4 py-4">
@@ -199,14 +230,14 @@ function Rewards() {
                 )}
               >
                 {h.value > 0 ? "+" : ""}
-                {h.value.toLocaleString("en-IN")}
+                {formatNumber(h.value)}
               </span>
             </div>
           ))}
         </div>
       </Section>
 
-      <Section title="Reward History">
+      <Section title={t("common.rewardHistory")}>
         <div className="mb-3 flex gap-2 rounded-2xl bg-secondary p-1">
           {(["pending", "delivered"] as const).map((tab) => (
             <button
@@ -217,14 +248,14 @@ function Rewards() {
                 historyTab === tab ? "bg-card shadow-soft" : "text-muted-foreground",
               )}
             >
-              {tab === "pending" ? "Pending Rewards" : "Delivered Rewards"}
+              {tab === "pending" ? t("common.pendingRewards") : t("common.deliveredRewards")}
             </button>
           ))}
         </div>
 
         {historyItems.length === 0 ? (
           <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-            No {historyTab} rewards yet.
+            {historyTab === "pending" ? t("common.noPendingRewards") : t("common.noDeliveredRewards")}
           </p>
         ) : (
           <div className="space-y-3">
@@ -239,18 +270,23 @@ function Rewards() {
                   </span>
                   <div className="flex-1">
                     <p className="text-base font-bold">{claim.name}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">Claimed: {claim.claimed}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {t("common.claimed")}: {claim.claimed}
+                    </p>
                     <p
                       className={cn(
                         "mt-2 text-sm font-bold",
-                        claim.status === "Delivered" ? "text-success" : "text-amber-700",
+                        claim.status === "delivered" ? "text-success" : "text-amber-700",
                       )}
                     >
-                      Status: {claim.status === "Delivered" ? "✅ Delivered" : "⏳ Pending"}
+                      {t("common.status")}:{" "}
+                      {claim.status === "delivered"
+                        ? t("common.statusDelivered")
+                        : t("common.statusPendingReward")}
                     </p>
-                    {claim.status === "Delivered" && claim.delivered && (
+                    {claim.status === "delivered" && claim.delivered && (
                       <p className="mt-1 text-sm text-muted-foreground">
-                        Delivery Date: {claim.delivered}
+                        {t("common.deliveryDateLabel")}: {claim.delivered}
                       </p>
                     )}
                   </div>
@@ -263,13 +299,17 @@ function Rewards() {
       <ConfirmActionDialog
         open={!!confirmReward}
         onOpenChange={(open) => !open && setConfirmReward(null)}
-        title="Claim this reward?"
+        title={t("common.claimRewardTitle")}
         description={
           confirmReward
-            ? `Are you sure you want to claim ${confirmReward.emoji} ${confirmReward.name} for ${confirmReward.points.toLocaleString("en-IN")} points?`
+            ? t("common.claimRewardDescription", {
+                emoji: confirmReward.emoji,
+                name: confirmReward.name,
+                points: formatNumber(confirmReward.points),
+              })
             : ""
         }
-        confirmLabel="Yes, claim it"
+        confirmLabel={t("common.yesClaimIt")}
         loading={claimLoading}
         onConfirm={async () => {
           if (!confirmReward) return;
@@ -279,15 +319,15 @@ function Rewards() {
             setCelebrateReward({ name: confirmReward.name, emoji: confirmReward.emoji });
             setCelebrate(true);
             setConfirmReward(null);
-            const [bal, claims] = await Promise.all([getRewardBalance(), getRewardClaims()]);
-            setBalance(bal);
+            refresh();
+            const claims = await getRewardClaims();
             setRewardHistory(claims);
             setTimeout(() => {
               setCelebrate(false);
               setCelebrateReward(null);
             }, 2800);
-          } catch {
-            toast.error("Could not redeem reward");
+          } catch (err) {
+            toast.error(formatApiError(err, "errors.couldNotRedeemReward"));
           } finally {
             setClaimLoading(false);
           }

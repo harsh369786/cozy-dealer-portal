@@ -37,7 +37,107 @@ function wrapStatement(db: Database.Database, sql: string): Stmt {
   return api;
 }
 
-function createD1(db: Database.Database): D1Database {
+function hasTable(db: Database.Database, name: string) {
+  return db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?")
+    .get(name);
+}
+
+function hasIndex(db: Database.Database, name: string) {
+  return db
+    .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name = ?")
+    .get(name);
+}
+
+function hasColumn(db: Database.Database, table: string, column: string) {
+  return db
+    .prepare(`SELECT name FROM pragma_table_info('${table}') WHERE name = ?`)
+    .get(column);
+}
+
+function ensureAppMigrationsTable(db: Database.Database) {
+  db.exec(`CREATE TABLE IF NOT EXISTS app_migrations (id TEXT PRIMARY KEY)`);
+}
+
+function migrationApplied(db: Database.Database, id: string) {
+  ensureAppMigrationsTable(db);
+  return db.prepare(`SELECT id FROM app_migrations WHERE id = ?`).get(id);
+}
+
+function markMigrationApplied(db: Database.Database, id: string) {
+  ensureAppMigrationsTable(db);
+  db.prepare(`INSERT OR IGNORE INTO app_migrations (id) VALUES (?)`).run(id);
+}
+
+function applyMigrationFile(db: Database.Database, root: string, filename: string) {
+  const path = join(root, "migrations", filename);
+  if (!existsSync(path)) return;
+  db.exec(readFileSync(path, "utf8"));
+}
+
+function applyTrackedMigration(db: Database.Database, root: string, id: string, filename: string) {
+  if (migrationApplied(db, id)) return;
+  applyMigrationFile(db, root, filename);
+  markMigrationApplied(db, id);
+}
+
+function applyPendingDevMigrations(db: Database.Database, root: string) {
+  const structural: Array<{ file: string; applied: () => unknown }> = [
+    { file: "0006_missing_indexes.sql", applied: () => hasIndex(db, "idx_otp_phone") },
+    { file: "0007_order_items_index.sql", applied: () => hasIndex(db, "idx_order_items_order_id") },
+    {
+      file: "0008_campaign_images.sql",
+      applied: () => hasColumn(db, "price_campaigns", "image_r2_key"),
+    },
+    {
+      file: "0009_reward_images_complaint_orders.sql",
+      applied: () => hasColumn(db, "reward_catalog", "image_r2_key"),
+    },
+    {
+      file: "0010_unify_campaigns.sql",
+      applied: () => hasColumn(db, "price_campaigns", "target_count"),
+    },
+    { file: "0014_dealer_visits.sql", applied: () => hasTable(db, "dealer_visits") },
+    { file: "0015_push_subscriptions.sql", applied: () => hasTable(db, "push_subscriptions") },
+    { file: "0016_audit_p0_p1.sql", applied: () => hasTable(db, "order_sequences") },
+    {
+      file: "0017_portal_ux.sql",
+      applied: () => hasColumn(db, "complaints", "resolution_notes"),
+    },
+    { file: "0018_sqft_rates.sql", applied: () => hasTable(db, "mattress_sqft_rates") },
+    {
+      file: "0019_audit_v4.sql",
+      applied: () => hasTable(db, "complaint_timeline_events"),
+    },
+    {
+      file: "0020_users_phone_tombstone.sql",
+      applied: () => {
+        const row = db
+          .prepare(
+            `SELECT phone FROM users WHERE deleted_at IS NOT NULL AND phone NOT LIKE '%#deleted#%' LIMIT 1`,
+          )
+          .get() as { phone: string } | undefined;
+        return !row;
+      },
+    },
+    {
+      file: "0021_prod_readiness.sql",
+      applied: () => hasIndex(db, "idx_points_ledger_order_reference"),
+    },
+  ];
+
+  for (const migration of structural) {
+    if (!migration.applied()) {
+      applyMigrationFile(db, root, migration.file);
+    }
+  }
+
+  applyTrackedMigration(db, root, "0011_clear_legacy_image_urls", "0011_clear_legacy_image_urls.sql");
+  applyTrackedMigration(db, root, "0012_fix_campaign_dates", "0012_fix_campaign_dates.sql");
+  applyTrackedMigration(db, root, "0013_fix_product_guarantees", "0013_fix_product_guarantees.sql");
+}
+
+export function createD1DatabaseAdapter(db: Database.Database): D1Database {
   return {
     prepare(sql: string) {
       return wrapStatement(db, sql);
@@ -122,8 +222,10 @@ export async function createDevDatabase(): Promise<D1Database> {
     db.exec(migration5);
   }
 
+  applyPendingDevMigrations(db, root);
+
   const seeded = db.prepare("SELECT COUNT(*) as c FROM users").get() as { c: number };
-  const d1 = createD1(db);
+  const d1 = createD1DatabaseAdapter(db);
   if (seeded.c === 0) {
     try {
       const { runSeed } = await import("../../scripts/seed-data.ts");

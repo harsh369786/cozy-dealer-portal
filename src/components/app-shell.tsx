@@ -1,15 +1,17 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { Home, LayoutGrid, Package, Gift, Menu, ChevronLeft } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/brand";
+import { LanguageSwitcher } from "@/components/shared/language-switcher";
 
 const nav = [
-  { to: "/home", label: "Home", icon: Home },
-  { to: "/products", label: "Products", icon: LayoutGrid },
-  { to: "/orders", label: "Orders", icon: Package },
-  { to: "/rewards", label: "Rewards", icon: Gift },
-  { to: "/campaigns", label: "More", icon: Menu },
+  { to: "/home", labelKey: "nav.dealer.home", icon: Home },
+  { to: "/products", labelKey: "nav.dealer.products", icon: LayoutGrid },
+  { to: "/orders", labelKey: "nav.dealer.orders", icon: Package },
+  { to: "/rewards", labelKey: "nav.dealer.rewards", icon: Gift },
+  { to: "/campaigns", labelKey: "nav.dealer.more", icon: Menu },
 ] as const;
 
 export function AppShell({
@@ -22,6 +24,7 @@ export function AppShell({
   back?: string;
 }) {
   const path = useRouterState({ select: (s) => s.location.pathname });
+  const { t } = useTranslation();
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-background">
@@ -30,16 +33,17 @@ export function AppShell({
           {back ? (
             <Link
               to={back}
-              className="press -ml-2 flex items-center gap-1 py-1 pr-2 text-base font-semibold"
+              className="press -ml-2 flex min-w-0 flex-1 items-center gap-1 py-1 pr-2 text-base font-semibold"
             >
-              <ChevronLeft className="h-6 w-6" />
-              {title}
+              <ChevronLeft className="h-6 w-6 shrink-0" />
+              <span className="truncate">{title}</span>
             </Link>
           ) : title ? (
-            <h1 className="font-display text-xl font-bold">{title}</h1>
+            <h1 className="min-w-0 flex-1 truncate font-display text-xl font-bold">{title}</h1>
           ) : (
             <Logo size="sm" />
           )}
+          <LanguageSwitcher compact />
         </header>
 
         <main className="px-5 pt-5">{children}</main>
@@ -47,7 +51,7 @@ export function AppShell({
 
       <nav className="fixed bottom-0 left-1/2 z-40 w-full max-w-[430px] -translate-x-1/2 border-t border-border bg-card/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:max-w-[520px]">
         <ul className="grid grid-cols-5">
-          {nav.map(({ to, label, icon: Icon }) => {
+          {nav.map(({ to, labelKey, icon: Icon }) => {
             const active =
               path === to ||
               (to !== "/home" && path.startsWith(to)) ||
@@ -69,7 +73,7 @@ export function AppShell({
                   >
                     <Icon className="h-5 w-5" strokeWidth={active ? 2.4 : 2} />
                   </span>
-                  {label}
+                  {t(labelKey)}
                 </Link>
               </li>
             );

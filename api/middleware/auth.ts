@@ -62,6 +62,14 @@ export function requirePermission(permission: Permission) {
   };
 }
 
+export function requireAnyPermission(...permissions: Permission[]) {
+  return async (c: Context<{ Bindings: ApiEnv; Variables: AppVariables }>, next: Next) => {
+    const user = c.get("user");
+    if (!permissions.some((p) => hasPermission(user, p))) return c.json({ error: "Forbidden" }, 403);
+    await next();
+  };
+}
+
 function getSessionCookie(c: Context) {
   const cookie = c.req.header("cookie") ?? "";
   const match = cookie.match(new RegExp(`${SESSION_COOKIE}=([^;]+)`));
@@ -90,7 +98,10 @@ async function resolveSession(db: D1Database, sessionId: string): Promise<Sessio
     }>();
 
   if (!row) return null;
-  if (new Date(row.expires_at).getTime() < Date.now()) return null;
+  if (new Date(row.expires_at).getTime() < Date.now()) {
+    await db.prepare(`DELETE FROM sessions WHERE id = ?`).bind(sessionId).run();
+    return null;
+  }
 
   return buildSessionUser({
     id: row.uid,
@@ -108,15 +119,18 @@ function cookieFlags(secure: boolean) {
 }
 
 function isSecureCookie(c: Context) {
-  const env = (c.env as ApiEnv | undefined)?.ENVIRONMENT;
-  return env !== "development" && env !== "local";
+  return isSecureCookieEnv((c.env as ApiEnv | undefined)?.ENVIRONMENT);
+}
+
+export function isSecureCookieEnv(environment?: string) {
+  return environment !== "development" && environment !== "local";
 }
 
 export function setSessionCookie(sessionId: string, secure = true) {
   const maxAge = 30 * 24 * 60 * 60;
-  return `${SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${cookieFlags(secure)}`;
+  return `${SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${cookieFlags(secure)}`;
 }
 
 export function clearSessionCookie(secure = true) {
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${cookieFlags(secure)}`;
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${cookieFlags(secure)}`;
 }

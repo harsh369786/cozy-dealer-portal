@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Pencil, Power } from "lucide-react";
 import { toast } from "sonner";
 import { AdminDataTable } from "@/components/admin/admin-data-table";
@@ -7,7 +8,8 @@ import { AdminFilterTabs, AdminFiltersBar } from "@/components/admin/admin-filte
 import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-page-header";
 import { AdminPagination } from "@/components/admin/admin-pagination";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
-import { ErrorState, PageSkeleton } from "@/components/shared/states";
+import { NotificationItem } from "@/components/shared/notification-item";
+import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -32,18 +34,30 @@ import { useAsyncData } from "@/hooks/use-async-data";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
 import type { AdminNotification, AdminNotificationInput, NotificationAudience } from "@/lib/mock/admin/types";
 import type { NotificationCategory } from "@/lib/mock/distributor/types";
+import { cn } from "@/lib/utils";
 import {
   AUDIENCE_LABELS,
   activateNotification,
   composeAnnouncement,
   deactivateNotification,
-  listNotifications,
+  listNotifications as listAnnouncements,
   updateNotification,
 } from "@/services/admin/notifications";
+import {
+  getNotifications,
+  getNotificationsByCategory,
+  markAllRead,
+  markNotificationRead,
+} from "@/services/notifications";
 
 export const Route = createFileRoute("/admin/notifications/")({
   component: AdminNotificationsPage,
 });
+
+const PAGE_TABS = [
+  { value: "inbox", label: "Inbox" },
+  { value: "announcements", label: "Announcements" },
+] as const;
 
 const CATEGORY_TABS: Array<{ value: NotificationCategory | "all"; label: string }> = [
   { value: "all", label: "All" },
@@ -162,9 +176,70 @@ function AdminNotificationsPage() {
   );
 }
 
-function NotificationsContent() {
+function AdminInbox() {
+  const { t } = useTranslation();
+  const [filter, setFilter] = useState<NotificationCategory | "all">("all");
+  const [items, setItems] = useState<Awaited<ReturnType<typeof getNotifications>>>([]);
+
+  const { loading, error, retry } = useAsyncData(async () => {
+    const data =
+      filter === "all" ? await getNotifications() : await getNotificationsByCategory(filter);
+    setItems(data);
+    return data;
+  }, [filter]);
+
+  const handleRead = async (id: string) => {
+    await markNotificationRead(id);
+    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  };
+
+  const handleMarkAll = async () => {
+    await markAllRead();
+    setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
+
+  if (loading) return <PageSkeleton rows={4} />;
+  if (error) return <ErrorState message={error} onRetry={retry} />;
+
+  return (
+    <div>
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="scrollbar-none flex gap-2 overflow-x-auto scroll-smooth-touch pb-1">
+          {CATEGORY_TABS.map((f) => (
+            <button
+              key={f.value}
+              type="button"
+              onClick={() => setFilter(f.value)}
+              className={cn(
+                "press shrink-0 rounded-full px-3 py-1.5 text-xs font-bold",
+                filter === f.value ? "bg-primary text-primary-foreground" : "bg-secondary",
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <Button variant="ghost" size="sm" onClick={handleMarkAll} className="shrink-0 text-xs">
+          Mark all read
+        </Button>
+      </div>
+
+      {items.length === 0 ? (
+        <EmptyState title={t("notifications.noNotifications")} description={t("notifications.allCaughtUp")} />
+      ) : (
+        <div className="space-y-2">
+          {items.map((n) => (
+            <NotificationItem key={n.id} notification={n} onRead={handleRead} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnnouncementsManager() {
   const { can } = useAdminPermissions();
-  const canWrite = can("campaigns:write");
+  const canWrite = can("settings:write");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<NotificationCategory | "all">("all");
   const [activeTab, setActiveTab] = useState<(typeof ACTIVE_TABS)[number]["value"]>("all");
@@ -177,7 +252,7 @@ function NotificationsContent() {
 
   const { data, loading, error, retry } = useAsyncData(
     () =>
-      listNotifications({
+      listAnnouncements({
         search,
         category,
         active: activeTab,
@@ -246,7 +321,7 @@ function NotificationsContent() {
       }
       retry();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Update failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     }
   };
 
@@ -255,17 +330,13 @@ function NotificationsContent() {
 
   return (
     <div>
-      <AdminPageHeader
-        title="Notifications"
-        description="Control when notifications send, who receives them, and popup behaviour."
-        actions={
-          canWrite ? (
-            <AdminPrimaryButton onClick={() => { setForm(emptyForm()); setComposeOpen(true); }}>
-              Create notification
-            </AdminPrimaryButton>
-          ) : null
-        }
-      />
+      <div className="mb-4 flex justify-end">
+        {canWrite ? (
+          <AdminPrimaryButton onClick={() => { setForm(emptyForm()); setComposeOpen(true); }}>
+            Create notification
+          </AdminPrimaryButton>
+        ) : null}
+      </div>
 
       <AdminFiltersBar search={search} onSearchChange={(v) => { setSearch(v); setPage(1); }}>
         <AdminFilterTabs
@@ -307,7 +378,7 @@ function NotificationsContent() {
             header: "",
             cell: (n) => (
               <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-                <Button size="sm" variant="ghost" className="rounded-xl" onClick={() => openEdit(n)}>
+                <Button size="sm" variant="ghost" className="rounded-xl" onClick={() => openEdit(n)} disabled={!canWrite}>
                   <Pencil className="h-4 w-4" />
                 </Button>
                 {canWrite && (
@@ -331,7 +402,7 @@ function NotificationsContent() {
           <NotificationForm form={form} onChange={setForm} />
           <DialogFooter>
             <AdminPrimaryButton onClick={handleCompose} disabled={saving}>
-              {saving ? "Saving…" : "Schedule"}
+              {saving ? t("common.saving") : "Schedule"}
             </AdminPrimaryButton>
           </DialogFooter>
         </DialogContent>
@@ -345,11 +416,46 @@ function NotificationsContent() {
           <NotificationForm form={form} onChange={setForm} />
           <DialogFooter>
             <AdminPrimaryButton onClick={handleUpdate} disabled={saving}>
-              {saving ? "Saving…" : "Save changes"}
+              {saving ? t("common.saving") : "Save changes"}
             </AdminPrimaryButton>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function NotificationsContent() {
+  const { t } = useTranslation();
+  const pageTabs = useMemo(
+    () => [
+      { value: "inbox" as const, label: t("admin.notifications.tabs.inbox") },
+      { value: "announcements" as const, label: t("admin.notifications.tabs.announcements") },
+    ],
+    [t],
+  );
+  const [pageTab, setPageTab] = useState<(typeof pageTabs)[number]["value"]>("inbox");
+
+  return (
+    <div>
+      <AdminPageHeader
+        title={t("admin.notifications.title")}
+        description={
+          pageTab === "inbox"
+            ? t("admin.notifications.descriptionInbox")
+            : t("admin.notifications.descriptionAnnouncements")
+        }
+      />
+
+      <div className="mb-6">
+        <AdminFilterTabs
+          value={pageTab}
+          onChange={(v) => setPageTab(v as typeof pageTab)}
+          tabs={pageTabs}
+        />
+      </div>
+
+      {pageTab === "inbox" ? <AdminInbox /> : <AnnouncementsManager />}
     </div>
   );
 }

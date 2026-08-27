@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { CalendarDays, ChevronRight, MessageSquareWarning, User } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { CampaignPriceBlock } from "@/components/campaign-price";
@@ -11,25 +12,25 @@ import { requireRoles } from "@/lib/auth-guard";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import {
   formatCampaignDate,
-  getCampaignPrice,
 } from "@/lib/campaign-service";
-import { getProduct } from "@/lib/demo-data";
 import { cn } from "@/lib/utils";
 import { getDealerCampaigns, type DealerCampaign } from "@/services/campaigns";
+import { getProductDetail } from "@/services/catalog";
+import i18n from "@/lib/i18n";
 
 export const Route = createFileRoute("/campaigns")({
   beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
-      { title: "Campaigns — BackRest Dealer App" },
+      { title: i18n.t("dealer.meta.campaignsTitle") },
       {
         name: "description",
-        content: "Live BackRest selling campaigns, your progress and bonus points to win.",
+        content: i18n.t("dealer.meta.campaignsDescription"),
       },
-      { property: "og:title", content: "Campaigns — BackRest Dealer App" },
+      { property: "og:title", content: i18n.t("dealer.meta.campaignsTitle") },
       {
         property: "og:description",
-        content: "Sell more, earn bonus points — track every campaign.",
+        content: i18n.t("dealer.meta.campaignsDescription"),
       },
     ],
   }),
@@ -37,12 +38,6 @@ export const Route = createFileRoute("/campaigns")({
 });
 
 type CampaignTab = "active" | "upcoming" | "expired";
-
-const campaignTabs: { id: CampaignTab; label: string }[] = [
-  { id: "active", label: "Active" },
-  { id: "upcoming", label: "Upcoming" },
-  { id: "expired", label: "Expired" },
-];
 
 function campaignSearchText(campaign: DealerCampaign) {
   return [
@@ -55,8 +50,15 @@ function campaignSearchText(campaign: DealerCampaign) {
 }
 
 function Campaigns() {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<CampaignTab>("active");
   const [search, setSearch] = useState("");
+
+  const campaignTabs: { id: CampaignTab; labelKey: string }[] = [
+    { id: "active", labelKey: "campaignStatus.active" },
+    { id: "upcoming", labelKey: "campaignStatus.upcoming" },
+    { id: "expired", labelKey: "campaignStatus.expired" },
+  ];
 
   const { data, loading, error, retry } = useAsyncData(
     () => getDealerCampaigns(tab),
@@ -71,20 +73,20 @@ function Campaigns() {
   );
 
   return (
-    <AppShell title="Campaigns">
-      <SearchBar value={search} onChange={setSearch} placeholder="Search campaigns…" />
+    <AppShell title={t("dealer.campaigns.title")}>
+      <SearchBar value={search} onChange={setSearch} placeholder={t("common.searchCampaigns")} />
 
       <div className="mt-4 flex gap-2 rounded-2xl bg-secondary p-1">
-        {campaignTabs.map((t) => (
+        {campaignTabs.map((item) => (
           <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
+            key={item.id}
+            onClick={() => setTab(item.id)}
             className={cn(
               "press flex-1 rounded-xl py-2.5 text-sm font-bold",
-              tab === t.id ? "bg-card shadow-soft" : "text-muted-foreground",
+              tab === item.id ? "bg-card shadow-soft" : "text-muted-foreground",
             )}
           >
-            {t.label}
+            {t(item.labelKey)}
           </button>
         ))}
       </div>
@@ -101,8 +103,8 @@ function Campaigns() {
           {campaigns.length === 0 ? (
             <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
               {search.trim()
-                ? "No campaigns match your search."
-                : `No ${tab} campaigns right now.`}
+                ? t("common.noCampaignsSearch")
+                : t("common.noCampaignsTab", { tab: t(`campaignStatus.${tab}`) })}
             </p>
           ) : (
             campaigns.map((campaign, i) => (
@@ -113,7 +115,7 @@ function Campaigns() {
       )}
 
       <div className="mt-8 space-y-2">
-        <p className="font-display font-bold">More</p>
+        <p className="font-display font-bold">{t("common.more")}</p>
         <Link
           to="/complaints"
           className="press flex items-center gap-4 rounded-3xl border border-border bg-card p-4 shadow-soft"
@@ -122,8 +124,8 @@ function Campaigns() {
             <MessageSquareWarning className="h-5 w-5 text-primary" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="font-semibold">Help Requests</p>
-            <p className="text-sm text-muted-foreground">Track complaints & support</p>
+            <p className="font-semibold">{t("nav.dealer.complaints")}</p>
+            <p className="text-sm text-muted-foreground">{t("common.helpTrackComplaints")}</p>
           </div>
           <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
         </Link>
@@ -135,8 +137,8 @@ function Campaigns() {
             <User className="h-5 w-5 text-primary" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="font-semibold">My Profile</p>
-            <p className="text-sm text-muted-foreground">Account details & sign out</p>
+            <p className="font-semibold">{t("common.myProfile")}</p>
+            <p className="text-sm text-muted-foreground">{t("common.accountDetailsSignOut")}</p>
           </div>
           <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
         </Link>
@@ -154,12 +156,23 @@ function DealerCampaignCard({
   tab: CampaignTab;
   index: number;
 }) {
-  const hasProductPricing = Boolean(campaign.productId && campaign.discountPercent);
-  const product = campaign.productId ? getProduct(campaign.productId) : null;
+  const { t } = useTranslation();
+  const { data: productDetail } = useAsyncData(
+    () =>
+      campaign.productId
+        ? getProductDetail(campaign.productId, { campaignId: campaign.id })
+        : Promise.resolve(null),
+    [campaign.productId, campaign.id],
+  );
+
+  const dealerPrice =
+    typeof productDetail?.price === "number" ? productDetail.price : undefined;
   const campaignPrice =
-    product && campaign.discountPercent
-      ? getCampaignPrice(product.price, campaign.discountPercent)
-      : null;
+    typeof productDetail?.campaignPrice === "number" ? productDetail.campaignPrice : null;
+  const mrp = typeof productDetail?.mrp === "number" ? productDetail.mrp : 0;
+  const hasProductPricing = Boolean(
+    campaign.productId && dealerPrice != null && campaignPrice != null,
+  );
   const hasVolumeGoal = Boolean(campaign.target && campaign.target > 0);
   const pct =
     hasVolumeGoal && campaign.target
@@ -185,20 +198,22 @@ function DealerCampaignCard({
       <div className="brand-gradient px-5 py-4 text-primary-foreground">
         <p className="font-display text-xl font-bold">{campaign.name}</p>
         {campaign.productName && (
-          <p className="mt-1 text-sm font-semibold opacity-90">Product: {campaign.productName}</p>
+          <p className="mt-1 text-sm font-semibold opacity-90">
+            {t("dealer.campaigns.productLabel", { name: campaign.productName })}
+          </p>
         )}
         <p className="mt-2 text-sm font-bold">
           {campaign.badgeLabel ??
             (campaign.discountPercent
-              ? `${campaign.discountPercent}% campaign discount`
-              : "Campaign offer")}
+              ? t("common.percentCampaignDiscount", { percent: campaign.discountPercent })
+              : t("common.campaignOffer"))}
         </p>
       </div>
       <div className="p-5">
-        {hasProductPricing && product && campaignPrice != null && (
+        {hasProductPricing && dealerPrice != null && campaignPrice != null && (
           <CampaignPriceBlock
-            mrp={product.mrp}
-            dealerPrice={product.price}
+            mrp={mrp}
+            dealerPrice={dealerPrice}
             campaignPrice={campaignPrice}
           />
         )}
@@ -208,10 +223,15 @@ function DealerCampaignCard({
             <ProgressBar value={pct} className="mt-4" />
             <div className="mt-2 flex items-center justify-between text-sm font-semibold">
               <span>
-                {campaign.done ?? 0} / {campaign.target}
+                {t("common.soldProgress", {
+                  done: campaign.done ?? 0,
+                  target: campaign.target ?? 0,
+                })}
               </span>
               <span className="text-muted-foreground">
-                {Math.max(0, (campaign.target ?? 0) - (campaign.done ?? 0))} more to go!
+                {t("common.moreToGo", {
+                  count: Math.max(0, (campaign.target ?? 0) - (campaign.done ?? 0)),
+                })}
               </span>
             </div>
           </>
@@ -227,7 +247,7 @@ function DealerCampaignCard({
             search={{ campaignId: campaign.id }}
             className="press mt-5 block rounded-2xl brand-gradient py-4 text-center text-base font-bold text-primary-foreground"
           >
-            Order {campaign.productName ?? "product"}
+            {t("common.orderProduct", { productName: campaign.productName ?? t("common.product") })}
           </Link>
         )}
         {tab !== "expired" && !campaign.productId && (
@@ -235,7 +255,7 @@ function DealerCampaignCard({
             to="/products"
             className="press mt-4 block rounded-2xl border border-border bg-secondary py-3.5 text-center text-base font-bold"
           >
-            {tab === "upcoming" ? "View Products" : "Start Selling"}
+            {tab === "upcoming" ? t("common.viewProducts") : t("common.startSelling")}
           </Link>
         )}
       </div>

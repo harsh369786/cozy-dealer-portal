@@ -3,7 +3,7 @@ import { requireRoles } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/distributor")({
   beforeLoad: async () => {
-    await requireRoles(["distributor", "master_admin", "admin_staff", "sales_executive"]);
+    await requireRoles(["distributor", "sales_executive"]);
   },
   component: () => <Outlet />,
 });

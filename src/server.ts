@@ -20,7 +20,7 @@ const PWA_PATHS = new Set([
   "/icons/apple-touch-icon.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
-  "/icons/icon-maskable-512.png",
+  "/icons/icon-512-maskable.png",
 ]);
 
 const STATIC_PUBLIC_PREFIXES = ["/icons/", "/products/", "/brand/"];
@@ -39,7 +39,7 @@ function withPwaHeaders(pathname: string, response: Response): Response {
     headers.set("Content-Type", "text/javascript; charset=utf-8");
   } else if (pathname === "/manifest.webmanifest") {
     headers.set("Content-Type", "application/manifest+json; charset=utf-8");
-    headers.set("Cache-Control", "public, max-age=86400");
+    headers.set("Cache-Control", "no-cache");
   } else if (pathname.startsWith("/icons/") || pathname === "/favicon.png") {
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
   } else if (pathname.startsWith("/assets/")) {

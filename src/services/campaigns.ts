@@ -31,6 +31,14 @@ export async function getCampaigns(
   return api.get<DistributorCampaign[]>(`/api/v1/distributor/campaigns${q}`);
 }
 
+export async function getDealerCampaignById(id: string): Promise<DealerCampaign | null> {
+  try {
+    return await api.get<DealerCampaign>(`/api/v1/campaigns/${id}`);
+  } catch {
+    return null;
+  }
+}
+
 export async function getCampaignById(
   id: string,
   simulateError = false,

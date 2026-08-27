@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AdminDataTable } from "@/components/admin/admin-data-table";
 import { AdminFiltersBar } from "@/components/admin/admin-filters-bar";
 import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-page-header";
@@ -16,6 +17,7 @@ export const Route = createFileRoute("/admin/campaigns/")({
 });
 
 function AdminCampaignsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { can } = useAdminPermissions();
   const [search, setSearch] = useState("");
@@ -27,17 +29,19 @@ function AdminCampaignsPage() {
   );
 
   if (loading) return <PageSkeleton rows={4} />;
-  if (error || !data) return <ErrorState message={error ?? "Failed to load campaigns"} onRetry={retry} />;
+  if (error || !data) {
+    return <ErrorState message={error ?? t("errors.somethingWentWrong")} onRetry={retry} />;
+  }
 
   return (
     <div>
       <AdminPageHeader
-        title="Campaigns"
-        description="Manage offers, discounts, and promotional campaigns."
+        title={t("admin.campaigns.title")}
+        description={t("admin.campaigns.campaignDetails")}
         actions={
           can("campaigns:write") ? (
             <Link to="/admin/campaigns/new">
-              <AdminPrimaryButton>Create campaign</AdminPrimaryButton>
+              <AdminPrimaryButton>{t("admin.campaigns.createTitle")}</AdminPrimaryButton>
             </Link>
           ) : undefined
         }
@@ -49,26 +53,26 @@ function AdminCampaignsPage() {
         data={data.items}
         keyFn={(c) => c.id}
         onRowClick={(c) => navigate({ to: "/admin/campaigns/$campaignId", params: { campaignId: c.id } })}
-        emptyTitle="No campaigns found"
+        emptyTitle={t("common.noMatchingResults")}
         columns={[
-          { key: "name", header: "Campaign", cell: (c) => <span className="font-bold">{c.name}</span> },
-          { key: "product", header: "Product", cell: (c) => c.product },
+          { key: "name", header: t("admin.campaigns.title"), cell: (c) => <span className="font-bold">{c.name}</span> },
+          { key: "product", header: t("common.product"), cell: (c) => c.product },
           {
             key: "offer",
-            header: "Offer",
+            header: t("common.specialOffer"),
             cell: (c) =>
               c.discountPercent
-                ? `${c.discountPercent}% off`
+                ? t("common.percentOff", { percent: c.discountPercent })
                 : c.badgeLabel ?? "—",
             hideOnMobile: true,
           },
-          { key: "dates", header: "Dates", cell: (c) => `${c.startDate} – ${c.endDate}`, hideOnMobile: true },
-          { key: "status", header: "Status", cell: (c) => <StatusBadge kind="campaign" status={c.status} /> },
+          { key: "dates", header: t("common.deliveryDate"), cell: (c) => `${c.startDate} – ${c.endDate}`, hideOnMobile: true },
+          { key: "status", header: t("common.status"), cell: (c) => <StatusBadge kind="campaign" status={c.status} /> },
           {
             key: "live",
-            header: "Live",
+            header: t("common.active"),
             cell: (c) => (
-              <Badge variant={c.active ? "secondary" : "outline"}>{c.active ? "Yes" : "No"}</Badge>
+              <Badge variant={c.active ? "secondary" : "outline"}>{c.active ? t("common.yes") : t("common.no")}</Badge>
             ),
             hideOnMobile: true,
           },

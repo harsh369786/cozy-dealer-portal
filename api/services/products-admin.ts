@@ -55,25 +55,22 @@ async function loadProduct(db: D1Database, productId: string): Promise<AdminProd
     .first<Record<string, unknown>>();
   if (!product) return null;
 
-  const thicknesses = await db
-    .prepare(`SELECT thickness FROM product_thicknesses WHERE product_id = ? ORDER BY sort_order, thickness`)
-    .bind(productId)
-    .all<{ thickness: string }>();
+  const details = await batchLoadProductDetails(db, [productId]);
+  return mapProductRow(product, details.thicknessMap.get(productId) ?? [], details.priceMap.get(productId));
+}
 
-  const price = await db
-    .prepare(
-      `SELECT * FROM product_prices WHERE product_id = ? ORDER BY effective_from DESC LIMIT 1`,
-    )
-    .bind(productId)
-    .first<Record<string, unknown>>();
-
+function mapProductRow(
+  product: Record<string, unknown>,
+  thicknesses: string[],
+  price: Record<string, unknown> | undefined,
+): AdminProductRow {
   const active = Boolean(product.active);
   return {
     id: product.id as string,
     name: product.name as string,
     category: product.category as string,
     guarantee: product.guarantee as string,
-    thicknesses: thicknesses.results.map((t) => t.thickness),
+    thicknesses,
     fixedSize: (product.fixed_size as string) ?? undefined,
     mrp: (price?.mrp as number) ?? 0,
     dealerPrice: (price?.dealer_price as number) ?? 0,
@@ -87,6 +84,47 @@ async function loadProduct(db: D1Database, productId: string): Promise<AdminProd
     status: active ? "active" : "archived",
     sortOrder: (product.sort_order as number) ?? 0,
   };
+}
+
+async function batchLoadProductDetails(db: D1Database, productIds: string[]) {
+  const thicknessMap = new Map<string, string[]>();
+  const priceMap = new Map<string, Record<string, unknown>>();
+  if (!productIds.length) return { thicknessMap, priceMap };
+
+  const placeholders = productIds.map(() => "?").join(",");
+  const { results: thicknessRows } = await db
+    .prepare(
+      `SELECT product_id, thickness FROM product_thicknesses
+       WHERE product_id IN (${placeholders})
+       ORDER BY product_id, sort_order, thickness`,
+    )
+    .bind(...productIds)
+    .all<{ product_id: string; thickness: string }>();
+
+  for (const row of thicknessRows) {
+    const list = thicknessMap.get(row.product_id) ?? [];
+    list.push(row.thickness);
+    thicknessMap.set(row.product_id, list);
+  }
+
+  const { results: priceRows } = await db
+    .prepare(
+      `SELECT pp.* FROM product_prices pp
+       WHERE pp.product_id IN (${placeholders})
+         AND pp.id = (
+           SELECT id FROM product_prices
+           WHERE product_id = pp.product_id
+           ORDER BY effective_from DESC LIMIT 1
+         )`,
+    )
+    .bind(...productIds)
+    .all<Record<string, unknown>>();
+
+  for (const row of priceRows) {
+    priceMap.set(row.product_id as string, row);
+  }
+
+  return { thicknessMap, priceMap };
 }
 
 export async function listAdminProducts(db: D1Database, filters: ProductFilters = {}) {
@@ -121,11 +159,15 @@ export async function listAdminProducts(db: D1Database, filters: ProductFilters 
   binds.push(pageSize, offset);
 
   const { results } = await db.prepare(sql).bind(...binds).all();
-  const items: AdminProductRow[] = [];
-  for (const row of results) {
-    const product = await loadProduct(db, row.id as string);
-    if (product) items.push(product);
-  }
+  const productIds = results.map((row) => row.id as string);
+  const details = await batchLoadProductDetails(db, productIds);
+  const items = results.map((row) =>
+    mapProductRow(
+      row as Record<string, unknown>,
+      details.thicknessMap.get(row.id as string) ?? [],
+      details.priceMap.get(row.id as string),
+    ),
+  );
 
   const total = countRow?.c ?? 0;
   return {

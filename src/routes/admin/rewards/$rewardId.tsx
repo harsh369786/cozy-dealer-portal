@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { ConfirmActionDialog } from "@/components/shared/dialogs";
@@ -16,6 +17,7 @@ export const Route = createFileRoute("/admin/rewards/$rewardId")({
 });
 
 function EditRewardPage() {
+  const { t } = useTranslation();
   const { rewardId } = Route.useParams();
   const navigate = useNavigate();
   const { can } = useAdminPermissions();
@@ -45,9 +47,9 @@ function EditRewardPage() {
     setSaving(true);
     try {
       await saveRewardItem(local);
-      toast.success("Reward saved");
+      toast.success(t("common.save"));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Save failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -57,10 +59,10 @@ function EditRewardPage() {
     setDeleting(true);
     try {
       await deleteRewardItem(rewardId);
-      toast.success("Reward deleted");
+      toast.success(t("common.delete"));
       navigate({ to: "/admin/rewards" });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Delete failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     } finally {
       setDeleting(false);
       setDeleteOpen(false);
@@ -68,7 +70,7 @@ function EditRewardPage() {
   };
 
   if (loading) return <PageSkeleton rows={3} />;
-  if (error || !local) return <ErrorState message={error ?? "Reward not found"} onRetry={retry} />;
+  if (error || !local) return <ErrorState message={error ?? t("errors.notFound")} onRetry={retry} />;
 
   return (
     <div>

@@ -19,6 +19,7 @@ function pwaDevHeaders(): Plugin {
           res.setHeader("Cache-Control", "no-cache");
         } else if (path === "/manifest.webmanifest") {
           res.setHeader("Content-Type", "application/manifest+json; charset=utf-8");
+          res.setHeader("Cache-Control", "no-cache");
         }
         next();
       });

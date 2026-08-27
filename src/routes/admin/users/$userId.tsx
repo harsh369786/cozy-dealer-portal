@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
@@ -9,8 +10,18 @@ import { ConfirmActionDialog } from "@/components/shared/dialogs";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { getUser, deleteUser, resendUserInvite, updateUserStatus } from "@/services/admin/users";
+import { useAdminPermissions } from "@/hooks/use-admin-permissions";
+import type { UserRole } from "@/lib/mock/distributor/types";
+import { getUser, deleteUser, getUserCreateOptions, resendUserInvite, updateUser, updateUserStatus } from "@/services/admin/users";
 
 export const Route = createFileRoute("/admin/users/$userId")({
   component: UserDetailPage,
@@ -28,12 +39,65 @@ function statusLabel(status: string) {
 }
 
 function UserDetailPage() {
+  const { t } = useTranslation();
   const { userId } = Route.useParams();
+  const { can, user: actor } = useAdminPermissions();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [roleConfirmOpen, setRoleConfirmOpen] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [editRole, setEditRole] = useState<UserRole>("dealer");
+  const [editDealerId, setEditDealerId] = useState("");
+  const [editDistributorId, setEditDistributorId] = useState("");
+
+  const optionsQuery = useAsyncData(() => getUserCreateOptions(), []);
 
   const { data: user, loading, error, retry } = useAsyncData(() => getUser(userId), [userId]);
+
+  useEffect(() => {
+    if (!user) return;
+    setEditRole(user.role);
+    setEditDealerId(user.dealerId ?? "");
+    setEditDistributorId(user.distributorId ?? "");
+  }, [user?.id, user?.role, user?.dealerId, user?.distributorId]);
+
+  const roleOptions: UserRole[] =
+    actor?.role === "master_admin"
+      ? ["dealer", "distributor", "sales_executive", "admin_staff", "master_admin"]
+      : ["dealer", "distributor", "sales_executive"];
+
+  const roleDirty =
+    user &&
+    (editRole !== user.role ||
+      (editRole === "dealer" && editDealerId !== (user.dealerId ?? "")) ||
+      (editRole === "distributor" && editDistributorId !== (user.distributorId ?? "")));
+
+  const handleSaveRole = async () => {
+    if (!user) return;
+    if (editRole === "dealer" && !editDealerId) {
+      toast.error("Select a dealer for dealer role");
+      return;
+    }
+    if (editRole === "distributor" && !editDistributorId) {
+      toast.error("Select a distributor for distributor role");
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await updateUser(user.id, {
+        role: editRole,
+        dealerId: editRole === "dealer" ? editDealerId : null,
+        distributorId: editRole === "distributor" ? editDistributorId : null,
+      });
+      toast.success("User role updated");
+      setRoleConfirmOpen(false);
+      retry();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   const handleToggleStatus = async () => {
     if (!user) return;
@@ -59,7 +123,7 @@ function UserDetailPage() {
       toast.success("User deleted");
       window.location.href = "/admin/users";
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Delete failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     } finally {
       setActionLoading(false);
       setDeleteOpen(false);
@@ -126,6 +190,68 @@ function UserDetailPage() {
             )}
           </dl>
         </AdminSection>
+
+        <AdminPermissionGate permission="users:write">
+          <AdminSection title="Role & access" className="mt-4">
+            <div className="grid max-w-md gap-3">
+              <div>
+                <Label>Role</Label>
+                <Select value={editRole} onValueChange={(v) => setEditRole(v as UserRole)}>
+                  <SelectTrigger className="mt-1 rounded-2xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roleOptions.map((r) => (
+                      <SelectItem key={r} value={r}>{r.replace(/_/g, " ")}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {editRole === "dealer" && (
+                <div>
+                  <Label>Linked dealer</Label>
+                  <Select value={editDealerId} onValueChange={setEditDealerId}>
+                    <SelectTrigger className="mt-1 rounded-2xl">
+                      <SelectValue placeholder="Select dealer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(optionsQuery.data?.dealers ?? []).map((d) => (
+                        <SelectItem key={d.id} value={d.id}>{d.name} ({d.code})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {editRole === "distributor" && (
+                <div>
+                  <Label>Linked distributor</Label>
+                  <Select value={editDistributorId} onValueChange={setEditDistributorId}>
+                    <SelectTrigger className="mt-1 rounded-2xl">
+                      <SelectValue placeholder="Select distributor" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(optionsQuery.data?.distributors ?? []).map((d) => (
+                        <SelectItem key={d.id} value={d.id}>{d.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              {roleDirty && (
+                <Button
+                  className="rounded-2xl font-bold"
+                  onClick={() => {
+                    if (editRole !== user.role) setRoleConfirmOpen(true);
+                    else void handleSaveRole();
+                  }}
+                  disabled={actionLoading}
+                >
+                  Save role changes
+                </Button>
+              )}
+            </div>
+          </AdminSection>
+        </AdminPermissionGate>
 
         <AdminSection title="Assignments">
           {user.dealerName && (
@@ -209,6 +335,15 @@ function UserDetailPage() {
           onConfirm={handleDelete}
           loading={actionLoading}
           variant="destructive"
+        />
+        <ConfirmActionDialog
+          open={roleConfirmOpen}
+          onOpenChange={setRoleConfirmOpen}
+          title="Change user role?"
+          description={`Change ${user.name}'s role to ${editRole.replace(/_/g, " ")}? This affects portal access immediately.`}
+          confirmLabel="Change role"
+          onConfirm={handleSaveRole}
+          loading={actionLoading}
         />
       </AdminPermissionGate>
     </div>

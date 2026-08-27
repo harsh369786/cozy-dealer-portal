@@ -1,6 +1,7 @@
-import { id, nowIso } from "../utils";
+import { id, nowIso, formatInLabel } from "../utils";
 import { normalizeStoredImageUrl } from "./image-data-url";
 import { writeAuditLog } from "./audit";
+import { notifyDealerUsers, withNotificationI18n } from "./notification-events";
 
 export type RewardCatalogRow = {
   id: string;
@@ -46,8 +47,8 @@ function mapClaim(row: Record<string, unknown>): RewardClaimRow {
     emoji: row.emoji as string,
     points: Number(row.points_spent),
     status: row.status as "pending" | "delivered",
-    claimedAt: row.claimed_at as string,
-    deliveredAt: (row.delivered_at as string) ?? null,
+    claimedAt: formatInLabel(String(row.claimed_at ?? "")),
+    deliveredAt: row.delivered_at ? formatInLabel(String(row.delivered_at)) : null,
   };
 }
 
@@ -222,6 +223,19 @@ export async function updateRewardClaimStatus(
     after: { status },
   });
 
+  if (status === "delivered") {
+    await notifyDealerUsers(db, claim.dealer_id as string, {
+      category: "system",
+      type: "system",
+      title: "Reward delivered",
+      body: `Your reward claim for ${claim.name as string} has been delivered`,
+      link: "/rewards",
+      ...withNotificationI18n("notifications.rewardDelivered.title", "notifications.rewardDelivered.body", {
+        name: claim.name as string,
+      }),
+    });
+  }
+
   const row = await db
     .prepare(
       `SELECT c.*, d.store_name as dealer_name FROM reward_claims c
@@ -238,25 +252,32 @@ export async function undoRewardClaim(db: D1Database, claimId: string, actorId: 
     .bind(claimId)
     .first<Record<string, unknown>>();
   if (!claim) throw new Error("Claim not found");
+  if (claim.status !== "pending") throw new Error("Only pending claims can be undone");
 
   const dealerId = claim.dealer_id as string;
-  const points = Number(claim.points_spent);
+  const points = Math.max(0, Math.round(Number(claim.points_spent) || 0));
+  if (points <= 0) throw new Error("Claim has no refundable points");
+  const occurredAt = nowIso();
 
-  const last = await db
-    .prepare(`SELECT balance_after FROM points_ledger WHERE dealer_id = ? ORDER BY occurred_at DESC LIMIT 1`)
-    .bind(dealerId)
-    .first<{ balance_after: number }>();
-  const balance = (last?.balance_after ?? 0) + points;
-
-  await db
-    .prepare(
-      `INSERT INTO points_ledger (id, dealer_id, delta, balance_after, label, reference_type, reference_id, occurred_at)
-       VALUES (?, ?, ?, ?, ?, 'reward_claim_undo', ?, ?)`,
-    )
-    .bind(id("pl"), dealerId, points, balance, `Claim reversed: ${claim.name}`, claimId, nowIso())
-    .run();
-
-  await db.prepare(`DELETE FROM reward_claims WHERE id = ?`).bind(claimId).run();
+  const [ledgerResult, deleteResult] = await db.batch([
+    db
+      .prepare(
+        `INSERT INTO points_ledger
+           (id, dealer_id, delta, balance_after, label, reference_type, reference_id, occurred_at)
+         SELECT
+           ?, dealer_id, points_spent,
+           (SELECT COALESCE(SUM(delta), 0) FROM points_ledger WHERE dealer_id = reward_claims.dealer_id)
+             + points_spent,
+           ?, 'reward_claim_undo', id, ?
+         FROM reward_claims
+         WHERE id = ? AND status = 'pending'`,
+      )
+      .bind(id("pl"), `Claim reversed: ${claim.name}`, occurredAt, claimId),
+    db.prepare(`DELETE FROM reward_claims WHERE id = ? AND status = 'pending'`).bind(claimId),
+  ]);
+  if ((ledgerResult.meta.changes ?? 0) !== 1 || (deleteResult.meta.changes ?? 0) !== 1) {
+    throw new Error("Only pending claims can be undone");
+  }
 
   await writeAuditLog(db, {
     actorUserId: actorId,

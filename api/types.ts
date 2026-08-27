@@ -31,7 +31,9 @@ export type Permission =
   | "audit:read"
   | "signup:review"
   | "assignments:read"
-  | "assignments:write";
+  | "assignments:write"
+  | "visits:read"
+  | "visits:create";
 
 export type UserAccountStatus = "pending_approval" | "active" | "suspended" | "rejected";
 
@@ -50,9 +52,19 @@ export type ApiEnv = {
   DB: D1Database;
   ASSETS?: Fetcher;
   WHATSAPP_QUEUE?: Queue;
+  OTP_IP_RATE_LIMITER?: {
+    limit(input: { key: string }): Promise<{ success: boolean }>;
+  };
+  OTP_PHONE_RATE_LIMITER?: {
+    limit(input: { key: string }): Promise<{ success: boolean }>;
+  };
   JWT_SECRET?: string;
   ENVIRONMENT?: string;
+  ALLOWED_ORIGINS?: string;
   CRON_SECRET?: string;
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
   Bindings?: ApiEnv;
 };
 

@@ -18,13 +18,20 @@ export type NotificationCategory = "orders" | "campaigns" | "complaints" | "syst
 
 export type NotificationType =
   | "new_order"
+  | "order_placed"
   | "order_reminder"
   | "order_approved"
   | "order_rejected"
+  | "order_cancelled"
+  | "order_in_making"
+  | "order_out_for_delivery"
+  | "order_delivered"
   | "campaign_new"
   | "campaign_ending"
   | "complaint_new"
   | "complaint_update"
+  | "reward_claim"
+  | "announcement"
   | "system";
 
 export type TimelineEvent = {
@@ -78,10 +85,14 @@ export type DistributorDealer = {
 };
 
 export type DistributorOrderItem = {
+  productId?: string;
   model: string;
   size: string;
+  sizeRequested?: string;
+  sizeStandard?: string;
   thickness: string;
   quantity: number;
+  campaignId?: string | null;
   farma: boolean;
   farmaDetails?: string;
   mrp: number;
@@ -102,6 +113,7 @@ export type DistributorOrder = {
   storeName?: string;
   contactName?: string;
   dealerAddress?: string;
+  dealerPhone?: string;
   status: OrderStatus;
   placedAt: string;
   approvedAt?: string;
@@ -109,6 +121,8 @@ export type DistributorOrder = {
   rejectionReason?: string;
   customerName?: string;
   customerPhone?: string;
+  customerAddress?: string;
+  deliveryDate?: string;
   totalItems: number;
   totalValue: number;
   pendingHours: number;
@@ -127,6 +141,8 @@ export type DistributorComplaint = {
   status: ComplaintStatus;
   createdAt: string;
   updatedAt: string;
+  resolutionNotes?: string;
+  history?: TimelineEvent[];
 };
 
 export type DistributorCampaign = {
@@ -147,7 +163,7 @@ export type DistributorCampaign = {
 
 export type DistributorNotification = {
   id: string;
-  distributorId: string;
+  distributorId?: string;
   category: NotificationCategory;
   type: NotificationType;
   title: string;
@@ -156,6 +172,7 @@ export type DistributorNotification = {
   createdAt: string;
   read: boolean;
   isReminder?: boolean;
+  metadata?: Record<string, unknown>;
 };
 
 export type MonthlySales = {
@@ -198,6 +215,9 @@ export type DashboardStats = {
   rewardPointsGenerated: number;
   salesGrowth: number;
   prevMonthSales: number;
+  approvedToday?: number;
+  currentMonthLabel?: string;
+  previousMonthLabel?: string;
 };
 
 export type Permission =

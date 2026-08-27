@@ -13,6 +13,9 @@ export type CatalogProduct = {
   price?: number;
   points?: number;
   free?: string;
+  campaign?: Record<string, unknown> | null;
+  campaignPrice?: number | null;
+  unitPrice?: number;
 };
 
 export type CatalogResponse = {
@@ -31,8 +34,9 @@ export async function getCatalog(): Promise<CatalogResponse> {
   return api.get<CatalogResponse>("/api/v1/catalog");
 }
 
-export async function getProductDetail(id: string) {
-  return api.get(`/api/v1/catalog/products/${id}`);
+export async function getProductDetail(id: string, opts?: { campaignId?: string }) {
+  const q = opts?.campaignId ? `?campaignId=${encodeURIComponent(opts.campaignId)}` : "";
+  return api.get(`/api/v1/catalog/products/${id}${q}`);
 }
 
 export async function getSalespeople() {

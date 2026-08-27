@@ -24,6 +24,8 @@ type ComplaintRow = {
   created_at?: string;
   updatedAt?: string;
   updated_at?: string;
+  resolutionNotes?: string;
+  resolution_notes?: string;
   history?: Array<{ label: string; at: string; note?: string }>;
 };
 
@@ -37,6 +39,7 @@ function mapComplaint(row: ComplaintRow): AdminComplaint {
     category: row.category,
     description: row.description,
     status: row.status,
+    resolutionNotes: row.resolutionNotes ?? row.resolution_notes ?? undefined,
     createdAt: row.createdAt ?? row.created_at ?? "",
     updatedAt: row.updatedAt ?? row.updated_at ?? "",
     history: row.history ?? [],
@@ -68,7 +71,10 @@ export async function getComplaint(id: string): Promise<AdminComplaint | null> {
 export async function updateComplaintStatus(
   id: string,
   status: ComplaintStatus,
-  _resolutionNotes?: string,
+  resolutionNotes?: string,
 ): Promise<void> {
-  await api.patch(`/api/v1/complaints/${id}`, { status });
+  await api.patch(`/api/v1/complaints/${id}`, {
+    status,
+    resolutionNotes: resolutionNotes?.trim() || undefined,
+  });
 }

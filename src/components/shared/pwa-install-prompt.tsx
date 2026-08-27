@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Download, Share, X } from "lucide-react";
+import { Download, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 
@@ -40,6 +41,7 @@ function dismissPrompt() {
 type PromptMode = "native" | "ios" | "manual";
 
 export function PwaInstallPrompt() {
+  const { t } = useTranslation();
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [mode, setMode] = useState<PromptMode | null>(null);
 
@@ -104,12 +106,10 @@ export function PwaInstallPrompt() {
       <div className="mx-auto flex max-w-lg items-start gap-3">
         <img src="/icons/icon-192.png" alt="" className="size-12 shrink-0 rounded-xl" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">Install BackRest</p>
+          <p className="text-sm font-semibold text-foreground">{t("pwa.installTitle")}</p>
           {mode === "native" && deferredPrompt ? (
             <>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Add the app to your home screen for faster access and offline support.
-              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("pwa.installDescription")}</p>
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button
                   size="sm"
@@ -122,37 +122,31 @@ export function PwaInstallPrompt() {
                   }}
                 >
                   <Download className="size-4" />
-                  Install
+                  {t("common.install")}
                 </Button>
                 <Button size="sm" variant="outline" onClick={close}>
                   <X className="size-4" />
-                  Not now
+                  {t("common.notNow")}
                 </Button>
               </div>
             </>
           ) : mode === "ios" ? (
             <>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Tap <Share className="inline size-3.5 align-text-bottom" /> Share, then{" "}
-                <strong>Add to Home Screen</strong> to install BackRest.
-              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("pwa.iosInstructions")}</p>
               <div className="mt-3">
                 <Button size="sm" variant="outline" onClick={close}>
                   <X className="size-4" />
-                  Got it
+                  {t("common.gotIt")}
                 </Button>
               </div>
             </>
           ) : (
             <>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Open your browser menu (⋮) and choose <strong>Install app</strong> or{" "}
-                <strong>Add to Home screen</strong>.
-              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t("pwa.manualInstructions")}</p>
               <div className="mt-3">
                 <Button size="sm" variant="outline" onClick={close}>
                   <X className="size-4" />
-                  Got it
+                  {t("common.gotIt")}
                 </Button>
               </div>
             </>

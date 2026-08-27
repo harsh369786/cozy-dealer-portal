@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import {
   Dialog,
@@ -12,15 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-const reasonSchema = z.string().trim().min(5, "Please provide a reason (at least 5 characters)");
-
-const QUICK_REASONS = [
-  "Incorrect size or dimensions",
-  "Stock unavailable",
-  "Pricing mismatch",
-  "Duplicate order",
-  "Customer cancelled",
-];
+const QUICK_REASON_KEYS = [
+  "distributor.rejectDialog.quickReasons.incorrectSize",
+  "distributor.rejectDialog.quickReasons.stockUnavailable",
+  "distributor.rejectDialog.quickReasons.pricingMismatch",
+  "distributor.rejectDialog.quickReasons.duplicateOrder",
+  "distributor.rejectDialog.quickReasons.customerCancelled",
+] as const;
 
 export function RejectOrderDialog({
   open,
@@ -33,13 +32,23 @@ export function RejectOrderDialog({
   onConfirm: (reason: string) => void;
   loading?: boolean;
 }) {
+  const { t } = useTranslation();
+  const reasonSchema = useMemo(
+    () => z.string().trim().min(5, t("errors.provideReasonMin5")),
+    [t],
+  );
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const quickReasons = useMemo(
+    () => QUICK_REASON_KEYS.map((key) => t(key)),
+    [t],
+  );
 
   const handleConfirm = () => {
     const result = reasonSchema.safeParse(reason);
     if (!result.success) {
-      setError(result.error.issues[0]?.message ?? "Invalid reason");
+      setError(result.error.issues[0]?.message ?? t("errors.invalidReason"));
       return;
     }
     setError(null);
@@ -58,14 +67,12 @@ export function RejectOrderDialog({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="scrollbar-none max-h-[90vh] overflow-y-auto scroll-smooth-touch rounded-3xl sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Reject Order</DialogTitle>
-          <DialogDescription>
-            A rejection reason is required. The dealer will see this on the order timeline.
-          </DialogDescription>
+          <DialogTitle>{t("distributor.rejectDialog.title")}</DialogTitle>
+          <DialogDescription>{t("distributor.rejectDialog.description")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="flex flex-wrap gap-2">
-            {QUICK_REASONS.map((chip) => (
+            {quickReasons.map((chip) => (
               <button
                 key={chip}
                 type="button"
@@ -88,14 +95,14 @@ export function RejectOrderDialog({
               setReason(e.target.value);
               setError(null);
             }}
-            placeholder="Enter rejection reason..."
+            placeholder={t("common.rejectionReasonPlaceholder")}
             className="min-h-24 rounded-2xl"
           />
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => handleClose(false)} className="rounded-2xl">
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             variant="destructive"
@@ -103,7 +110,7 @@ export function RejectOrderDialog({
             disabled={loading}
             className="rounded-2xl"
           >
-            Confirm Rejection
+            {t("distributor.rejectDialog.confirmRejection")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -130,6 +137,8 @@ export function ConfirmActionDialog({
   loading?: boolean;
   variant?: "default" | "destructive";
 }) {
+  const { t } = useTranslation();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="rounded-3xl sm:max-w-md">
@@ -139,7 +148,7 @@ export function ConfirmActionDialog({
         </DialogHeader>
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="outline" onClick={() => onOpenChange(false)} className="rounded-2xl">
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button
             variant={variant === "destructive" ? "destructive" : "default"}

@@ -3,6 +3,7 @@ import {
   CACHE_TTL_MS,
   getCachedUnreadCount,
   getUnreadCountInflight,
+  NOTIFICATION_COUNT_REFRESH_EVENT,
   setCachedUnreadCount,
   setUnreadCountInflight,
 } from "@/lib/notification-count-cache";
@@ -45,9 +46,13 @@ export function useUnreadNotificationCount(refreshIntervalMs = CACHE_TTL_MS) {
 
     void load();
 
+    const onRefresh = () => void load(true);
+    window.addEventListener(NOTIFICATION_COUNT_REFRESH_EVENT, onRefresh);
+
     const intervalId = window.setInterval(() => void load(true), refreshIntervalMs);
     return () => {
       cancelled = true;
+      window.removeEventListener(NOTIFICATION_COUNT_REFRESH_EVENT, onRefresh);
       window.clearInterval(intervalId);
     };
   }, [refreshIntervalMs]);

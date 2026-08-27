@@ -26,6 +26,28 @@ export async function getAssignedDealerIds(
 /** Alias used by orders, complaints, and reports. */
 export const getScopedDealerIds = getAssignedDealerIds;
 
+export function appendUserDealerScopeSql(
+  user: SessionUser,
+  column: string,
+  binds: unknown[],
+): string {
+  if (user.role === "master_admin" || user.role === "admin_staff") return "";
+  if (user.role === "dealer") {
+    if (!user.dealerId) return " AND 1=0";
+    binds.push(user.dealerId);
+    return ` AND ${column} = ?`;
+  }
+  if (user.role === "distributor" && user.distributorId) {
+    binds.push(user.distributorId);
+    return ` AND ${column} IN (SELECT id FROM dealers WHERE distributor_id = ? AND deleted_at IS NULL)`;
+  }
+  if (user.role === "sales_executive") {
+    binds.push(user.id);
+    return ` AND ${column} IN (SELECT id FROM dealers WHERE sales_executive_user_id = ? AND deleted_at IS NULL)`;
+  }
+  return " AND 1=0";
+}
+
 export function dealerIdsInClause(
   dealerIds: string[],
   column = "dealer_id",
@@ -49,15 +71,12 @@ export function appendDealerScopeSql(
 }
 
 export type ReportScope =
-  | { allowed: true; dealerIds: string[] | "all" }
+  | { allowed: true; user: SessionUser }
   | { allowed: false };
 
-export async function resolveReportScope(db: D1Database, user: SessionUser): Promise<ReportScope> {
+export async function resolveReportScope(_db: D1Database, user: SessionUser): Promise<ReportScope> {
   if (user.role === "admin_staff") return { allowed: false };
-  const scope = await getScopedDealerIds(db, user);
-  if (scope === "all") return { allowed: true, dealerIds: "all" };
-  if (!scope.length) return { allowed: true, dealerIds: "none" };
-  return { allowed: true, dealerIds: scope };
+  return { allowed: true, user };
 }
 
 export async function canAccessDealer(
@@ -65,9 +84,25 @@ export async function canAccessDealer(
   user: SessionUser,
   dealerId: string,
 ): Promise<boolean> {
-  const scope = await getAssignedDealerIds(db, user);
-  if (scope === "all") return true;
-  return scope.includes(dealerId);
+  if (user.role === "master_admin" || user.role === "admin_staff") return true;
+  if (user.role === "dealer") return user.dealerId === dealerId;
+  if (user.role === "distributor" && user.distributorId) {
+    const row = await db
+      .prepare(`SELECT id FROM dealers WHERE id = ? AND distributor_id = ? AND deleted_at IS NULL`)
+      .bind(dealerId, user.distributorId)
+      .first();
+    return Boolean(row);
+  }
+  if (user.role === "sales_executive") {
+    const row = await db
+      .prepare(
+        `SELECT id FROM dealers WHERE id = ? AND sales_executive_user_id = ? AND deleted_at IS NULL`,
+      )
+      .bind(dealerId, user.id)
+      .first();
+    return Boolean(row);
+  }
+  return false;
 }
 
 export async function canAccessOrder(

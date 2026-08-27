@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-page-header";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
@@ -93,7 +94,7 @@ export function RewardEditor({
         </div>
         {!readOnly && (
           <AdminPrimaryButton onClick={onSave} disabled={saving}>
-            {saving ? "Saving…" : "Save reward"}
+            {saving ? t("common.saving") : "Save reward"}
           </AdminPrimaryButton>
         )}
       </div>
@@ -102,6 +103,7 @@ export function RewardEditor({
 }
 
 function NewRewardPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [reward, setReward] = useState(emptyReward);
   const [saving, setSaving] = useState(false);
@@ -121,7 +123,7 @@ function NewRewardPage() {
       toast.success("Reward created");
       await navigate({ to: "/admin/rewards/$rewardId", params: { rewardId: reward.id } });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Save failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     } finally {
       setSaving(false);
     }

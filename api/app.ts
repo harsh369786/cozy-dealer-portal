@@ -7,11 +7,22 @@ import {
   requireAuth,
   requireActiveAccount,
   requirePermission,
+  requireAnyPermission,
   setSessionCookie,
   clearSessionCookie,
+  isSecureCookieEnv,
 } from "./middleware/auth";
 import { buildSessionUser } from "./rbac";
-import { id, nowIso, SESSION_DAYS, sha256 } from "./utils";
+import {
+  currentMonthLabels,
+  formatInLabel,
+  formatYearMonthLabel,
+  id,
+  normalizePhone,
+  nowIso,
+  SESSION_DAYS,
+  sha256,
+} from "./utils";
 import { requestOtp, verifyOtp } from "./services/otp";
 import {
   archiveRewardCatalogItem,
@@ -31,27 +42,33 @@ import {
   listOrders,
   updateOrderStatus,
   getAllowedStatusTargets,
+  getOrderStatusCounts,
+  updateOrderLineItems,
 } from "./services/orders";
 import {
-  getAssignedDealerIds,
   canAccessDealer,
   canAccessOrder,
   canAccessComplaint,
-  dealerIdsInClause,
   resolveReportScope,
-  appendDealerScopeSql,
+  appendUserDealerScopeSql,
 } from "./services/scope";
 import {
-  notifyAdminStaff,
-  notifyDealerUsers,
-  notifyDistributorsForOrg,
-  notifyMasterAdmins,
+  notifyComplaintCreated,
+  notifyComplaintUpdated,
+  notifyRewardClaim,
 } from "./services/notification-events";
-import { listNotifications } from "./services/notifications";
+import { getUnreadNotificationCount, listNotifications } from "./services/notifications";
+import {
+  deletePushSubscription,
+  getVapidPublicKeyFromEnv,
+  savePushSubscription,
+} from "./services/push-notifications";
+import { setPushEnv, resolveExecutionContext } from "./push-env";
 import { enqueueWhatsapp, processWhatsappOutbox, scanPendingOrderReminders } from "./services/whatsapp";
 import {
   bulkUpdateAssignments,
   getAssignmentOptions,
+  getSignupApprovalOptions,
   getAssignmentSummary,
   listAssignmentRows,
   updateDealerAssignment,
@@ -81,11 +98,29 @@ import {
   saveAdminCampaign,
 } from "./services/campaigns-admin";
 import { buildAdminAnalyticsFromDb, exploreAdminHierarchy } from "./services/admin-analytics";
-import { mapDealerRow } from "./services/dealers";
+import {
+  checkInVisit,
+  checkOutVisit,
+  getActiveVisit,
+  getVisitById,
+  getVisitSummary,
+  listVisits,
+} from "./services/dealer-visits";
+import { mapDealerRow, mapDealerRows } from "./services/dealers";
 import { redeemRewardClaim } from "./services/reward-redemption";
+import {
+  coerceRewardPoints,
+  getDealerPointsBalance,
+  getNextRewardThreshold,
+} from "./services/reward-points";
 import { createSignupApplication } from "./services/signup";
 import { listSignupApplications, reviewSignupApplication } from "./services/signup-review";
-import { buildPriceQuote } from "./services/pricing";
+import {
+  insertComplaintTimelineEvent,
+  listComplaintTimelineForApi,
+} from "./services/complaint-timeline";
+import { buildPriceQuote, calculateRewardPoints, getCampaignPrice } from "./services/pricing";
+import { applyMattressPricing } from "./services/mattress-pricing";
 import { listAuditLogs } from "./services/audit";
 import { fileToImageDataUrl } from "./services/image-data-url";
 import {
@@ -95,9 +130,41 @@ import {
 } from "./services/campaigns-public";
 
 const app = new Hono<{ Bindings: ApiEnv; Variables: AppVariables }>();
+const VALID_COMPLAINT_STATUSES = new Set(["pending", "in_progress", "resolved", "rejected"]);
 
-function isProductionEnv(env: ApiEnv) {
-  return env.ENVIRONMENT === "production";
+function secureCookies(env: ApiEnv) {
+  return isSecureCookieEnv(env.ENVIRONMENT);
+}
+
+function isAllowedRequestOrigin(origin: string, requestUrl: string, configuredOrigins?: string) {
+  if (origin === new URL(requestUrl).origin) return true;
+  const allowed = new Set(
+    (configuredOrigins ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+  return allowed.has(origin);
+}
+
+async function enforceOtpRateLimits(env: ApiEnv, ip: string, normalizedPhone: string) {
+  const checks = await Promise.all([
+    env.OTP_IP_RATE_LIMITER?.limit({ key: ip }),
+    env.OTP_PHONE_RATE_LIMITER?.limit({ key: normalizedPhone }),
+  ]);
+  if (checks.some((result) => result?.success === false)) {
+    throw new AppError("Too many OTP requests. Please try again shortly.", 429, "OTP_RATE_LIMITED");
+  }
+}
+
+async function enforceOtpVerifyRateLimits(env: ApiEnv, ip: string, normalizedPhone: string) {
+  const checks = await Promise.all([
+    env.OTP_IP_RATE_LIMITER?.limit({ key: `verify:${ip}` }),
+    env.OTP_PHONE_RATE_LIMITER?.limit({ key: `verify:${normalizedPhone}` }),
+  ]);
+  if (checks.some((result) => result?.success === false)) {
+    throw new AppError("Too many OTP attempts. Please try again shortly.", 429, "OTP_RATE_LIMITED");
+  }
 }
 
 function requireInternalSecret(c: { env: ApiEnv; req: { header: (name: string) => string | undefined } }) {
@@ -110,14 +177,26 @@ function requireInternalSecret(c: { env: ApiEnv; req: { header: (name: string) =
 }
 
 app.use("/api/v1/*", async (c, next) => {
+  setPushEnv(c.env);
   await getRequestDb(c);
+  await next();
+});
+
+app.use("/api/v1/*", async (c, next) => {
+  const origin = c.req.header("origin");
+  if (origin && !isAllowedRequestOrigin(origin, c.req.url, c.env.ALLOWED_ORIGINS)) {
+    return c.json({ error: "Origin not allowed" }, 403);
+  }
   await next();
 });
 
 app.use(
   "/api/v1/*",
   cors({
-    origin: (origin) => origin ?? "",
+    origin: (origin, c) =>
+      isAllowedRequestOrigin(origin, c.req.url, (c.env as ApiEnv).ALLOWED_ORIGINS)
+        ? origin
+        : undefined,
     credentials: true,
   }),
 );
@@ -125,7 +204,7 @@ app.use(
 app.onError((err, c) => {
   if (err instanceof AppError) {
     if (err.statusCode >= 500) console.error(err);
-    return c.json({ error: err.message }, err.statusCode);
+    return c.json({ error: err.message, ...(err.code ? { code: err.code } : {}) }, err.statusCode);
   }
   const message = err instanceof Error ? err.message : "Request failed";
   console.error(err);
@@ -138,13 +217,19 @@ app.get("/api/v1/health", (c) => c.json({ ok: true }));
 // Auth
 app.post("/api/v1/auth/otp/request", async (c) => {
   const body = await c.req.json<{ phone: string }>();
+  const normalizedPhone = normalizePhone(body.phone);
+  const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+  await enforceOtpRateLimits(c.env, ip, normalizedPhone);
   const db = await getRequestDb(c);
-  const result = await requestOtp(db, body.phone, c.env.ENVIRONMENT);
+  const result = await requestOtp(db, normalizedPhone, c.env.ENVIRONMENT);
   return c.json(result);
 });
 
 app.post("/api/v1/auth/otp/verify", async (c) => {
   const body = await c.req.json<{ phone: string; code: string }>();
+  const normalizedPhone = normalizePhone(body.phone);
+  const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+  await enforceOtpVerifyRateLimits(c.env, ip, normalizedPhone);
   const db = await getRequestDb(c);
   const userRow = await verifyOtp(db, body.phone, body.code);
   const sessionId = id("sess");
@@ -169,7 +254,7 @@ app.post("/api/v1/auth/otp/verify", async (c) => {
   });
 
   return c.json({ user }, 200, {
-    "Set-Cookie": setSessionCookie(sessionId, isProductionEnv(c.env)),
+    "Set-Cookie": setSessionCookie(sessionId, secureCookies(c.env)),
   });
 });
 
@@ -177,20 +262,122 @@ app.post("/api/v1/auth/logout", requireAuth, async (c) => {
   const db = await getRequestDb(c);
   await db.prepare(`DELETE FROM sessions WHERE id = ?`).bind(c.get("sessionId")).run();
   return c.json({ ok: true }, 200, {
-    "Set-Cookie": clearSessionCookie(isProductionEnv(c.env)),
+    "Set-Cookie": clearSessionCookie(secureCookies(c.env)),
   });
 });
 
 app.get("/api/v1/auth/me", requireAuth, (c) => c.json({ user: c.get("user") }));
 
 // Catalog
+function mapCatalogProductWithPricing(row: Record<string, unknown>) {
+  const {
+    price_mrp,
+    price_dealer,
+    price_points,
+    price_reward_percent,
+    price_free_items,
+    default_thickness,
+    campaign_id,
+    campaign_name,
+    campaign_badge_label,
+    campaign_discount_percent,
+    campaign_description,
+    campaign_terms,
+    campaign_start_at,
+    campaign_end_at,
+    ...product
+  } = row;
+  if (price_mrp == null || price_dealer == null) {
+    throw new Error(`Price not found for product ${String(product.id)}`);
+  }
+
+  const sized = applyMattressPricing(Number(price_mrp), Number(price_dealer), {
+    thickness: default_thickness as string | undefined,
+  });
+  const discountPercent = campaign_id ? Number(campaign_discount_percent ?? 0) : null;
+  const campaignPrice =
+    campaign_id && discountPercent != null
+      ? getCampaignPrice(sized.dealerPrice, discountPercent)
+      : null;
+  const rewardPercent = Number(price_reward_percent ?? 0);
+  const calculatedPoints = calculateRewardPoints(sized.mrp, rewardPercent, 1);
+
+  return {
+    ...product,
+    mrp: sized.mrp,
+    price: sized.dealerPrice,
+    points: price_points == null ? calculatedPoints : Number(price_points),
+    free: (price_free_items as string | null) ?? null,
+    campaign: campaign_id
+      ? {
+          id: campaign_id,
+          name: campaign_name,
+          badgeLabel: campaign_badge_label,
+          discountPercent,
+          description: campaign_description,
+          terms: campaign_terms,
+          startAt: campaign_start_at,
+          endAt: campaign_end_at,
+        }
+      : null,
+    campaignPrice,
+    unitPrice: campaignPrice ?? sized.dealerPrice,
+  };
+}
+
 app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission("catalog:read"), async (c) => {
   const db = await getRequestDb(c);
   const layers = await db.prepare(`SELECT * FROM product_layers ORDER BY sort_order`).all();
   const layerItems = await db.prepare(`SELECT * FROM product_layer_items ORDER BY sort_order`).all();
+  const today = new Date().toISOString().slice(0, 10);
   const products = await db
-    .prepare(`SELECT * FROM products WHERE deleted_at IS NULL AND active = 1 ORDER BY sort_order`)
+    .prepare(
+      `WITH ranked_prices AS (
+         SELECT pp.*,
+           ROW_NUMBER() OVER (PARTITION BY pp.product_id ORDER BY pp.effective_from DESC, pp.id DESC) AS rn
+         FROM product_prices pp
+       ),
+       ranked_thicknesses AS (
+         SELECT pt.*,
+           ROW_NUMBER() OVER (PARTITION BY pt.product_id ORDER BY pt.sort_order ASC, pt.id ASC) AS rn
+         FROM product_thicknesses pt
+       ),
+       ranked_campaigns AS (
+         SELECT pc.*,
+           ROW_NUMBER() OVER (PARTITION BY pc.product_id ORDER BY pc.start_at DESC, pc.id DESC) AS rn
+         FROM price_campaigns pc
+         WHERE pc.deleted_at IS NULL
+           AND pc.status = 'active'
+           AND date(pc.start_at) <= date(?)
+           AND date(pc.end_at) >= date(?)
+       )
+       SELECT
+         p.*,
+         pp.mrp AS price_mrp,
+         pp.dealer_price AS price_dealer,
+         pp.points AS price_points,
+         pp.reward_percent AS price_reward_percent,
+         pp.free_items_label AS price_free_items,
+         pt.thickness AS default_thickness,
+         pc.id AS campaign_id,
+         pc.name AS campaign_name,
+         pc.badge_label AS campaign_badge_label,
+         pc.discount_percent AS campaign_discount_percent,
+         pc.description AS campaign_description,
+         pc.terms AS campaign_terms,
+         pc.start_at AS campaign_start_at,
+         pc.end_at AS campaign_end_at
+       FROM products p
+       LEFT JOIN ranked_prices pp ON pp.product_id = p.id AND pp.rn = 1
+       LEFT JOIN ranked_thicknesses pt ON pt.product_id = p.id AND pt.rn = 1
+       LEFT JOIN ranked_campaigns pc ON pc.product_id = p.id AND pc.rn = 1
+       WHERE p.deleted_at IS NULL AND p.active = 1
+       ORDER BY p.sort_order`,
+    )
+    .bind(today, today)
     .all();
+
+  const pricedProducts = products.results.map(mapCatalogProductWithPricing);
 
   const mattressLayers = layers.results.map((layer) => {
     const items = layerItems.results.filter((i) => i.layer_id === layer.id);
@@ -212,10 +399,10 @@ app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission(
     };
   });
 
-  const foldable = products.results.filter((p) => p.category === "Foldable");
-  const pillowProducts = products.results.filter((p) => p.category === "Pillows");
+  const foldable = pricedProducts.filter((p) => p.category === "Foldable");
+  const pillowProducts = pricedProducts.filter((p) => p.category === "Pillows");
 
-  return c.json({ mattressLayers, foldable, pillows: pillowProducts, products: products.results });
+  return c.json({ mattressLayers, foldable, pillows: pillowProducts, products: pricedProducts });
 });
 
 app.get("/api/v1/catalog/products/:id", requireAuth, requireActiveAccount, requirePermission("catalog:read"), async (c) => {
@@ -242,17 +429,25 @@ app.get("/api/v1/catalog/products/:id", requireAuth, requireActiveAccount, requi
   return c.json({
     ...product,
     thicknesses: thicknesses.results.map((t) => t.thickness),
-    mrp: price?.mrp,
-    price: price?.dealer_price,
+    mrp: quote.mrp,
+    price: quote.dealerPrice,
     points: price?.points,
     free: price?.free_items_label,
     campaign: quote.campaign,
+    campaignPrice: quote.campaignPrice,
     unitPrice: quote.unitPrice,
   });
 });
 
 app.post("/api/v1/catalog/price-quote", requireAuth, requireActiveAccount, requirePermission("catalog:read"), async (c) => {
-  const body = await c.req.json<{ productId: string; quantity: number; thickness?: string; campaignId?: string }>();
+  const body = await c.req.json<{
+    productId: string;
+    quantity: number;
+    thickness?: string;
+    campaignId?: string;
+    lengthIn?: number;
+    breadthIn?: number;
+  }>();
   const db = await getRequestDb(c);
   const quote = await buildPriceQuote(db, body);
   return c.json(quote);
@@ -283,19 +478,39 @@ app.get("/api/v1/orders", requireAuth, requireActiveAccount, requirePermission("
     toDate,
     page: page ? Number(page) : undefined,
     pageSize: pageSize ? Number(pageSize) : undefined,
+    ...(user.role === "dealer" && user.dealerId ? { dealerIds: [user.dealerId] } : {}),
+    ...(user.role === "distributor" && user.distributorId ? { distributorId: user.distributorId } : {}),
+    ...(user.role === "sales_executive" ? { salesExecutiveUserId: user.id } : {}),
   };
 
-  const scope = await getAssignedDealerIds(db, user);
-  if (scope === "all") {
-    return c.json(await listOrders(db, opts));
-  }
-  if (!scope.length) {
+  if (user.role === "dealer" && !user.dealerId) {
     if (page || pageSize) {
-      return c.json({ items: [], total: 0, page: 1, pageSize: Number(pageSize) || 50, totalPages: 1 });
+      return c.json({
+        items: [],
+        total: 0,
+        summary: { totalSales: 0, totalPoints: 0 },
+        page: 1,
+        pageSize: Number(pageSize) || 50,
+        totalPages: 1,
+      });
     }
     return c.json([]);
   }
-  return c.json(await listOrders(db, { ...opts, dealerIds: scope }));
+  return c.json(await listOrders(db, opts));
+});
+
+app.get("/api/v1/orders/status-counts", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  const scopeOpts = {
+    ...(user.role === "dealer" && user.dealerId ? { dealerIds: [user.dealerId] } : {}),
+    ...(user.role === "distributor" && user.distributorId ? { distributorId: user.distributorId } : {}),
+    ...(user.role === "sales_executive" ? { salesExecutiveUserId: user.id } : {}),
+  };
+  if (user.role === "dealer" && !user.dealerId) {
+    return c.json({ pending: 0, approved: 0, in_making: 0, out_for_delivery: 0, delivered: 0, rejected: 0, cancelled: 0, all: 0 });
+  }
+  return c.json(await getOrderStatusCounts(db, scopeOpts));
 });
 
 app.get("/api/v1/orders/:id", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
@@ -307,6 +522,20 @@ app.get("/api/v1/orders/:id", requireAuth, requireActiveAccount, requirePermissi
   return c.json(order);
 });
 
+app.patch("/api/v1/orders/:id/items", requireAuth, requireActiveAccount, requirePermission("orders:create"), async (c) => {
+  const db = await getRequestDb(c);
+  const orderId = c.req.param("id");
+  if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
+  try {
+    const body = await c.req.json();
+    const order = await updateOrderLineItems(db, orderId, c.get("user"), body);
+    return c.json(order);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not update order";
+    return c.json({ error: message }, 400);
+  }
+});
+
 app.post("/api/v1/orders/:id/approve", requireAuth, requireActiveAccount, requirePermission("orders:approve"), async (c) => {
   const db = await getRequestDb(c);
   const orderId = c.req.param("id");
@@ -315,13 +544,22 @@ app.post("/api/v1/orders/:id/approve", requireAuth, requireActiveAccount, requir
   return c.json(order);
 });
 
-app.patch("/api/v1/orders/:id/status", requireAuth, requireActiveAccount, async (c) => {
+app.patch(
+  "/api/v1/orders/:id/status",
+  requireAuth,
+  requireActiveAccount,
+  requireAnyPermission("orders:approve", "orders:status:fulfillment", "orders:deliver"),
+  async (c) => {
   const db = await getRequestDb(c);
   const orderId = c.req.param("id");
   const body = await c.req.json<{ status: string }>();
   if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
   const user = c.get("user");
   const status = body.status as import("./order-status").OrderStatus;
+
+  if (status === "rejected") {
+    return c.json({ error: "Use POST /api/v1/orders/:id/reject to reject orders" }, 400);
+  }
 
   const fulfillmentStatuses: import("./order-status").OrderStatus[] = [
     "in_making",
@@ -331,6 +569,13 @@ app.patch("/api/v1/orders/:id/status", requireAuth, requireActiveAccount, async 
   if (user.role !== "master_admin") {
     if (status === "approved") {
       if (!user.permissions.includes("orders:approve")) return c.json({ error: "Forbidden" }, 403);
+    } else if (status === "delivered") {
+      if (
+        !user.permissions.includes("orders:status:fulfillment") &&
+        !user.permissions.includes("orders:deliver")
+      ) {
+        return c.json({ error: "Forbidden" }, 403);
+      }
     } else if (fulfillmentStatuses.includes(status)) {
       if (!user.permissions.includes("orders:status:fulfillment")) {
         return c.json({ error: "Forbidden" }, 403);
@@ -340,8 +585,15 @@ app.patch("/api/v1/orders/:id/status", requireAuth, requireActiveAccount, async 
     }
   }
 
-  const order = await updateOrderStatus(db, orderId, status, user, c.env);
-  return c.json(order);
+  try {
+    const order = await updateOrderStatus(db, orderId, status, user, c.env);
+    return c.json(order);
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : "Could not update order status" },
+      400,
+    );
+  }
 });
 
 app.get("/api/v1/orders/:id/status-options", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
@@ -384,25 +636,32 @@ app.get("/api/v1/dealers", requireAuth, requireActiveAccount, requirePermission(
   const db = await getRequestDb(c);
   const user = c.get("user");
   const search = c.req.query("search");
-  const scope = await getAssignedDealerIds(db, user);
+  const activeFilter = c.req.query("active");
+  const sort = c.req.query("sort") ?? "name";
 
   let sql = `SELECT * FROM dealers WHERE deleted_at IS NULL`;
   const binds: unknown[] = [];
-  if (scope !== "all") {
-    if (!scope.length) return c.json([]);
-    sql += ` AND id IN (${scope.map(() => "?").join(",")})`;
-    binds.push(...scope);
+  sql += appendUserDealerScopeSql(user, "id", binds);
+  if (activeFilter === "active") {
+    sql += ` AND active = 1`;
+  } else if (activeFilter === "inactive") {
+    sql += ` AND active = 0`;
   }
   if (search) {
     sql += ` AND (store_name LIKE ? OR code LIKE ? OR location LIKE ?)`;
     const q = `%${search}%`;
     binds.push(q, q, q);
   }
+  if (sort === "area") {
+    sql += ` ORDER BY location ASC, store_name ASC`;
+  } else {
+    sql += ` ORDER BY store_name ASC`;
+  }
   const { results } = await db.prepare(sql).bind(...binds).all();
-  return c.json(await Promise.all(results.map((row) => mapDealerRow(db, row))));
+  return c.json(await mapDealerRows(db, results as Record<string, unknown>[]));
 });
 
-app.get("/api/v1/dealers/:id", requireAuth, requireActiveAccount, requirePermission("dealers:read"), async (c) => {
+app.get("/api/v1/dealers/:id", requireAuth, requireActiveAccount, requireAnyPermission("dealers:read", "orders:read"), async (c) => {
   const db = await getRequestDb(c);
   const dealerId = c.req.param("id");
   if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
@@ -411,7 +670,7 @@ app.get("/api/v1/dealers/:id", requireAuth, requireActiveAccount, requirePermiss
   return c.json(await mapDealerRow(db, row));
 });
 
-app.get("/api/v1/dealers/:id/performance", requireAuth, requireActiveAccount, requirePermission("dealers:read"), async (c) => {
+app.get("/api/v1/dealers/:id/performance", requireAuth, requireActiveAccount, requireAnyPermission("dealers:read", "orders:read"), async (c) => {
   const db = await getRequestDb(c);
   const dealerId = c.req.param("id");
   if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
@@ -442,9 +701,9 @@ app.get("/api/v1/dealers/:id/reward-claims", requireAuth, requireActiveAccount, 
       name: r.name,
       emoji: r.emoji,
       points: r.points_spent,
-      claimedAt: r.claimed_at,
+      claimedAt: formatInLabel(String(r.claimed_at ?? "")),
       status: r.status,
-      deliveredAt: r.delivered_at,
+      deliveredAt: r.delivered_at ? formatInLabel(String(r.delivered_at)) : null,
     })),
   );
 });
@@ -484,6 +743,27 @@ app.get("/api/v1/distributor/campaigns", requireAuth, requireActiveAccount, requ
   const db = await getRequestDb(c);
   const user = c.get("user");
   const tab = c.req.query("tab") as "active" | "upcoming" | "expired" | undefined;
+  if (user.role === "sales_executive") {
+    const campaigns = await listDealerCampaigns(db, tab ?? "active");
+    return c.json(
+      campaigns.map((campaign) => ({
+        id: campaign.id,
+        distributorId: "",
+        name: campaign.name,
+        product: campaign.productName ?? "All products",
+        productId: campaign.productId,
+        discountLabel:
+          campaign.badgeLabel ??
+          (campaign.discountPercent ? `${campaign.discountPercent}% off` : "Campaign offer"),
+        description: campaign.description,
+        startDate: campaign.startDate,
+        endDate: campaign.endDate,
+        status: campaign.status,
+        bannerEmoji: "📣",
+        imageUrl: campaign.imageUrl,
+      })),
+    );
+  }
   const campaigns = await listDistributorCampaigns(db, user.distributorId, tab);
   return c.json(
     campaigns.map((campaign) => ({
@@ -516,7 +796,7 @@ app.get("/api/v1/rewards/catalog", requireAuth, requireActiveAccount, requirePer
       id: r.id,
       name: r.name,
       emoji: r.emoji,
-      points: r.points_required,
+      points: coerceRewardPoints(r.points_required, 0),
       imageUrl: (r.image_url as string) ?? undefined,
     })),
   );
@@ -526,14 +806,9 @@ app.get("/api/v1/rewards/balance", requireAuth, requireActiveAccount, requirePer
   const db = await getRequestDb(c);
   const user = c.get("user");
   if (!user.dealerId) return c.json({ balance: 0, nextRewardAt: 3000 });
-  const last = await db
-    .prepare(`SELECT balance_after FROM points_ledger WHERE dealer_id = ? ORDER BY occurred_at DESC LIMIT 1`)
-    .bind(user.dealerId)
-    .first<{ balance_after: number }>();
-  const next = await db
-    .prepare(`SELECT points_required FROM reward_catalog WHERE active = 1 ORDER BY points_required ASC LIMIT 1`)
-    .first<{ points_required: number }>();
-  return c.json({ balance: last?.balance_after ?? 0, nextRewardAt: next?.points_required ?? 3000 });
+  const balance = await getDealerPointsBalance(db, user.dealerId);
+  const nextRewardAt = await getNextRewardThreshold(db, balance);
+  return c.json({ balance, nextRewardAt });
 });
 
 app.get("/api/v1/rewards/ledger", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
@@ -544,7 +819,17 @@ app.get("/api/v1/rewards/ledger", requireAuth, requireActiveAccount, requirePerm
     .prepare(`SELECT label, delta as value, occurred_at as date FROM points_ledger WHERE dealer_id = ? ORDER BY occurred_at DESC LIMIT 50`)
     .bind(user.dealerId)
     .all();
-  return c.json(results);
+  return c.json(
+    results.map((r) => {
+      const raw = Number(r.value);
+      const magnitude = coerceRewardPoints(Math.abs(raw), 0);
+      return {
+        label: r.label,
+        value: raw < 0 ? -magnitude : magnitude,
+        date: formatInLabel(String(r.date ?? "")),
+      };
+    }),
+  );
 });
 
 app.get("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
@@ -560,9 +845,9 @@ app.get("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePerm
       id: r.id,
       name: r.name,
       emoji: r.emoji,
-      claimed: r.claimed_at,
+      claimed: formatInLabel(String(r.claimed_at ?? "")),
       status: r.status,
-      delivered: r.delivered_at,
+      delivered: r.delivered_at ? formatInLabel(String(r.delivered_at)) : undefined,
     })),
   );
 });
@@ -572,7 +857,12 @@ app.post("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePer
   const user = c.get("user");
   if (!user.dealerId) return c.json({ error: "Dealer required" }, 400);
   const body = await c.req.json<{ rewardId: string }>();
-  const reward = await db.prepare(`SELECT * FROM reward_catalog WHERE id = ?`).bind(body.rewardId).first<{
+  const reward = await db
+    .prepare(
+      `SELECT * FROM reward_catalog WHERE id = ? AND active = 1 AND deleted_at IS NULL`,
+    )
+    .bind(body.rewardId)
+    .first<{
     id: string;
     name: string;
     emoji: string;
@@ -583,16 +873,17 @@ app.post("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePer
   try {
     const { claimId } = await redeemRewardClaim(db, user.dealerId, reward);
     const dealer = await db
-      .prepare(`SELECT store_name FROM dealers WHERE id = ?`)
+      .prepare(`SELECT store_name, distributor_id FROM dealers WHERE id = ?`)
       .bind(user.dealerId)
-      .first<{ store_name: string }>();
+      .first<{ store_name: string; distributor_id: string }>();
 
-    await notifyMasterAdmins(db, {
-      category: "system",
-      type: "system",
-      title: "Reward claim submitted",
-      body: `${dealer?.store_name ?? "Dealer"} claimed ${reward.name} (${reward.points_required} pts)`,
-      link: "/admin/rewards/claims",
+    await notifyRewardClaim(db, {
+      claimId,
+      dealerId: user.dealerId,
+      dealerName: dealer?.store_name ?? "Dealer",
+      distributorId: dealer?.distributor_id ?? "",
+      rewardName: reward.name,
+      pointsRequired: reward.points_required,
     });
 
     return c.json({ id: claimId, status: "pending" }, 201);
@@ -626,25 +917,25 @@ app.post("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermiss
     .bind(complaintId, body.orderId, user.dealerId, order.distributor_id, body.category ?? "general", body.description, ts, ts)
     .run();
 
+  await insertComplaintTimelineEvent(db, {
+    complaintId,
+    eventKey: "submitted",
+    label: "Submitted",
+    occurredAt: ts,
+    actorUserId: user.id,
+  });
+
   const dealer = await db
     .prepare(`SELECT store_name FROM dealers WHERE id = ?`)
     .bind(user.dealerId)
     .first<{ store_name: string }>();
 
-  const complaintPayload = {
-    category: "complaints" as const,
-    type: "complaint_new" as const,
-    title: "New complaint",
-    body: `${dealer?.store_name ?? "Dealer"} reported an issue on order ${body.orderId}`,
-    link: `/admin/complaints/${complaintId}`,
-  };
-
-  await notifyDistributorsForOrg(db, order.distributor_id, {
-    ...complaintPayload,
-    link: `/distributor/complaints/${complaintId}`,
+  await notifyComplaintCreated(db, {
+    complaintId,
+    orderId: body.orderId,
+    distributorId: order.distributor_id,
+    dealerName: dealer?.store_name ?? "Dealer",
   });
-  await notifyMasterAdmins(db, complaintPayload);
-  await notifyAdminStaff(db, complaintPayload);
 
   return c.json({ id: complaintId }, 201);
 });
@@ -652,31 +943,43 @@ app.post("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermiss
 app.get("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermission("complaints:read"), async (c) => {
   const db = await getRequestDb(c);
   const user = c.get("user");
-  let sql = `SELECT c.*, d.store_name as dealer_name FROM complaints c JOIN dealers d ON d.id = c.dealer_id WHERE c.deleted_at IS NULL`;
   const binds: unknown[] = [];
+  const scopeSql = appendUserDealerScopeSql(user, "c.dealer_id", binds);
+  const countRow = await db
+    .prepare(
+      `SELECT COUNT(*) as c FROM complaints c JOIN dealers d ON d.id = c.dealer_id WHERE c.deleted_at IS NULL${scopeSql}`,
+    )
+    .bind(...binds)
+    .first<{ c: number }>();
 
-  const scope = await getAssignedDealerIds(db, user);
-  if (scope !== "all") {
-    if (!scope.length) return c.json([]);
-    const clause = dealerIdsInClause(scope, "c.dealer_id");
-    sql += clause.sql;
-    binds.push(...clause.binds);
-  }
+  const page = Math.max(1, Number(c.req.query("page") ?? 1));
+  const pageSize = Math.min(100, Math.max(1, Number(c.req.query("pageSize") ?? 50)));
+  const offset = (page - 1) * pageSize;
 
-  const { results } = await db.prepare(sql).bind(...binds).all();
-  return c.json(
-    results.map((c) => ({
-      id: c.id,
-      orderId: c.order_id,
-      dealerId: c.dealer_id,
-      dealerName: c.dealer_name,
-      category: c.category,
-      description: c.description,
-      status: c.status,
-      createdAt: c.created_at,
-      updatedAt: c.updated_at,
-    })),
-  );
+  const { results } = await db
+    .prepare(
+      `SELECT c.*, d.store_name as dealer_name FROM complaints c JOIN dealers d ON d.id = c.dealer_id WHERE c.deleted_at IS NULL${scopeSql} ORDER BY c.created_at DESC LIMIT ? OFFSET ?`,
+    )
+    .bind(...binds, pageSize, offset)
+    .all();
+  const items = results.map((row) => ({
+    id: row.id,
+    orderId: row.order_id,
+    dealerId: row.dealer_id,
+    dealerName: row.dealer_name,
+    category: row.category,
+    description: row.description,
+    status: row.status,
+    createdAt: formatInLabel(String(row.created_at ?? "")),
+    updatedAt: formatInLabel(String(row.updated_at ?? "")),
+  }));
+  return c.json({
+    items,
+    total: countRow?.c ?? 0,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil((countRow?.c ?? 0) / pageSize)),
+  });
 });
 
 app.get("/api/v1/complaints/:id", requireAuth, requireActiveAccount, requirePermission("complaints:read"), async (c) => {
@@ -697,6 +1000,23 @@ app.get("/api/v1/complaints/:id", requireAuth, requireActiveAccount, requirePerm
     .first<Record<string, unknown>>();
   if (!row) return c.json({ error: "Not found" }, 404);
 
+  const timeline = await listComplaintTimelineForApi(db, complaintId);
+  const history =
+    timeline.length > 0
+      ? timeline
+      : [
+          { label: "Submitted", at: formatInLabel(String(row.created_at ?? "")) },
+          ...(row.status !== "pending"
+            ? [{
+                label: "Status updated",
+                at: formatInLabel(String(row.updated_at ?? "")),
+                note: row.resolution_notes
+                  ? String(row.resolution_notes)
+                  : `Now ${String(row.status).replace(/_/g, " ")}`,
+              }]
+            : []),
+        ];
+
   return c.json({
     id: row.id,
     orderId: row.order_id,
@@ -706,14 +1026,10 @@ app.get("/api/v1/complaints/:id", requireAuth, requireActiveAccount, requirePerm
     category: row.category,
     description: row.description,
     status: row.status,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    history: [
-      { label: "Submitted", at: row.created_at },
-      ...(row.status !== "pending"
-        ? [{ label: "Status updated", at: row.updated_at, note: `Now ${String(row.status).replace(/_/g, " ")}` }]
-        : []),
-    ],
+    resolutionNotes: (row.resolution_notes as string) ?? undefined,
+    createdAt: formatInLabel(String(row.created_at ?? "")),
+    updatedAt: formatInLabel(String(row.updated_at ?? "")),
+    history,
   });
 });
 
@@ -722,38 +1038,189 @@ app.patch("/api/v1/complaints/:id", requireAuth, requireActiveAccount, requirePe
   const user = c.get("user");
   const complaintId = c.req.param("id");
   if (!(await canAccessComplaint(db, user, complaintId))) return c.json({ error: "Forbidden" }, 403);
-  const body = await c.req.json<{ status: string }>();
+  const body = await c.req.json<{ status: string; resolutionNotes?: string | null }>();
+  if (!VALID_COMPLAINT_STATUSES.has(body.status)) {
+    return c.json({ error: "Invalid complaint status" }, 400);
+  }
   const complaint = await db
     .prepare(`SELECT dealer_id, order_id FROM complaints WHERE id = ?`)
     .bind(complaintId)
     .first<{ dealer_id: string; order_id: string }>();
   if (!complaint) return c.json({ error: "Not found" }, 404);
 
-  await db
-    .prepare(`UPDATE complaints SET status = ?, updated_at = ? WHERE id = ?`)
-    .bind(body.status, nowIso(), complaintId)
-    .run();
+  const resolutionNotes =
+    body.resolutionNotes !== undefined ? body.resolutionNotes?.trim() || null : undefined;
+  const ts = nowIso();
 
-  await notifyDealerUsers(db, complaint.dealer_id, {
-    category: "complaints",
-    type: "complaint_update",
-    title: "Complaint updated",
-    body: `Your complaint on order ${complaint.order_id} is now ${body.status.replace(/_/g, " ")}`,
-    link: `/complaints/${complaintId}`,
+  if (resolutionNotes !== undefined) {
+    await db
+      .prepare(`UPDATE complaints SET status = ?, resolution_notes = ?, updated_at = ? WHERE id = ?`)
+      .bind(body.status, resolutionNotes, ts, complaintId)
+      .run();
+  } else {
+    await db
+      .prepare(`UPDATE complaints SET status = ?, updated_at = ? WHERE id = ?`)
+      .bind(body.status, ts, complaintId)
+      .run();
+  }
+
+  await insertComplaintTimelineEvent(db, {
+    complaintId,
+    eventKey: body.status,
+    label: `Status: ${body.status.replace(/_/g, " ")}`,
+    note: resolutionNotes ?? undefined,
+    actorUserId: user.id,
+    occurredAt: ts,
+  });
+
+  await notifyComplaintUpdated(db, {
+    complaintId,
+    dealerId: complaint.dealer_id,
+    orderId: complaint.order_id,
+    status: body.status,
   });
 
   return c.json({ ok: true });
 });
 
+// Dealer visits (Sales Executive check-in / check-out)
+app.get("/api/v1/visits/active", requireAuth, requireActiveAccount, requirePermission("visits:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  if (user.role !== "sales_executive") return c.json({ error: "Forbidden" }, 403);
+  return c.json({ visit: await getActiveVisit(db, user.id) });
+});
+
+app.post("/api/v1/visits/check-in", requireAuth, requireActiveAccount, requirePermission("visits:create"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  if (user.role !== "sales_executive") return c.json({ error: "Forbidden" }, 403);
+  try {
+    const body = await c.req.json<{
+      dealerId?: string;
+      dealerName?: string;
+      storeName?: string;
+      address?: string;
+      mobile?: string;
+      lat?: number | null;
+      lng?: number | null;
+    }>();
+    const visit = await checkInVisit(db, user.id, body, user.id);
+    return c.json(visit, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Check-in failed";
+    return c.json({ error: message }, 400);
+  }
+});
+
+app.post("/api/v1/visits/:id/check-out", requireAuth, requireActiveAccount, requirePermission("visits:create"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  if (user.role !== "sales_executive") return c.json({ error: "Forbidden" }, 403);
+  try {
+    const body = await c.req.json<{ notes: string; lat?: number | null; lng?: number | null }>();
+    const visit = await checkOutVisit(db, c.req.param("id"), user.id, body, user.id);
+    return c.json(visit);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Check-out failed";
+    return c.json({ error: message }, 400);
+  }
+});
+
+app.get("/api/v1/visits", requireAuth, requireActiveAccount, requirePermission("visits:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  if (user.role === "sales_executive") {
+    return c.json(
+      await listVisits(db, {
+        salesExecutiveUserId: user.id,
+        status: (c.req.query("status") as "active" | "completed" | "all") ?? "all",
+        fromDate: c.req.query("fromDate"),
+        toDate: c.req.query("toDate"),
+        search: c.req.query("search"),
+        page: Number(c.req.query("page") ?? 1),
+        pageSize: Number(c.req.query("pageSize") ?? 20),
+      }),
+    );
+  }
+  if (user.role === "distributor" && user.distributorId) {
+    return c.json(
+      await listVisits(db, {
+        distributorId: user.distributorId,
+        status: (c.req.query("status") as "active" | "completed" | "all") ?? "all",
+        fromDate: c.req.query("fromDate"),
+        toDate: c.req.query("toDate"),
+        search: c.req.query("search"),
+        page: Number(c.req.query("page") ?? 1),
+        pageSize: Number(c.req.query("pageSize") ?? 20),
+      }),
+    );
+  }
+  return c.json({ error: "Forbidden" }, 403);
+});
+
+app.get("/api/v1/visits/:id", requireAuth, requireActiveAccount, requirePermission("visits:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  const visitId = c.req.param("id");
+  let visit = null;
+  if (user.role === "sales_executive") {
+    visit = await getVisitById(db, visitId, user.id);
+  } else if (user.role === "distributor" && user.distributorId) {
+    visit = await getVisitById(db, visitId, undefined, user.distributorId);
+  } else {
+    return c.json({ error: "Forbidden" }, 403);
+  }
+  if (!visit) return c.json({ error: "Not found" }, 404);
+  return c.json(visit);
+});
+
 // Notifications
+app.get("/api/v1/notifications/vapid-public-key", async (c) => {
+  const key = getVapidPublicKeyFromEnv(c.env);
+  return c.json({ publicKey: key });
+});
+
+app.get("/api/v1/notifications/unread-count", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const count = await getUnreadNotificationCount(db, c.get("user").id);
+  return c.json({ count });
+});
+
 app.get("/api/v1/notifications", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
   const db = await getRequestDb(c);
-  return c.json(await listNotifications(db, c.get("user").id));
+  const since = c.req.query("since");
+  return c.json(await listNotifications(db, c.get("user").id, since ? { since } : undefined));
+});
+
+app.post("/api/v1/notifications/push-subscribe", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const body = await c.req.json<{
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  }>();
+  if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
+    return c.json({ error: "Invalid subscription" }, 400);
+  }
+  const row = await savePushSubscription(db, c.get("user").id, body);
+  return c.json(row, 201);
+});
+
+app.delete("/api/v1/notifications/push-subscribe", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const body = await c.req.json<{ endpoint: string }>();
+  if (!body.endpoint) return c.json({ error: "endpoint required" }, 400);
+  await deletePushSubscription(db, c.get("user").id, body.endpoint);
+  return c.json({ ok: true });
 });
 
 app.patch("/api/v1/notifications/:id/read", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
   const db = await getRequestDb(c);
-  await db.prepare(`UPDATE notifications SET read = 1 WHERE id = ? AND recipient_user_id = ?`).bind(c.req.param("id"), c.get("user").id).run();
+  const result = await db
+    .prepare(`UPDATE notifications SET read = 1 WHERE id = ? AND recipient_user_id = ?`)
+    .bind(c.req.param("id"), c.get("user").id)
+    .run();
+  if (!result.meta.changes) return c.json({ error: "Not found" }, 404);
   return c.json({ ok: true });
 });
 
@@ -771,7 +1238,7 @@ app.get("/api/v1/reports/dashboard", requireAuth, requireActiveAccount, requireP
   if (!reportScope.allowed) return c.json({ error: "Forbidden" }, 403);
 
   const dealerBinds: unknown[] = [];
-  const dealerFilter = appendDealerScopeSql(reportScope.dealerIds, "id", dealerBinds);
+  const dealerFilter = appendUserDealerScopeSql(reportScope.user, "id", dealerBinds);
 
   const dealers = await db
     .prepare(`SELECT COUNT(*) as c FROM dealers WHERE deleted_at IS NULL${dealerFilter}`)
@@ -779,14 +1246,14 @@ app.get("/api/v1/reports/dashboard", requireAuth, requireActiveAccount, requireP
     .first<{ c: number }>();
 
   const activeBinds: unknown[] = [];
-  const activeFilter = appendDealerScopeSql(reportScope.dealerIds, "id", activeBinds);
+  const activeFilter = appendUserDealerScopeSql(reportScope.user, "id", activeBinds);
   const active = await db
     .prepare(`SELECT COUNT(*) as c FROM dealers WHERE deleted_at IS NULL AND active = 1${activeFilter}`)
     .bind(...activeBinds)
     .first<{ c: number }>();
 
   const orderBinds: unknown[] = [];
-  const orderFilter = appendDealerScopeSql(reportScope.dealerIds, "dealer_id", orderBinds);
+  const orderFilter = appendUserDealerScopeSql(reportScope.user, "dealer_id", orderBinds);
   const pending = await db
     .prepare(
       `SELECT COUNT(*) as c FROM orders WHERE status IN ('order_placed', 'pending_approval') AND deleted_at IS NULL${orderFilter}`,
@@ -795,7 +1262,7 @@ app.get("/api/v1/reports/dashboard", requireAuth, requireActiveAccount, requireP
     .first<{ c: number }>();
 
   const complaintBinds: unknown[] = [];
-  const complaintFilter = appendDealerScopeSql(reportScope.dealerIds, "dealer_id", complaintBinds);
+  const complaintFilter = appendUserDealerScopeSql(reportScope.user, "dealer_id", complaintBinds);
   const complaints = await db
     .prepare(
       `SELECT COUNT(*) as c FROM complaints WHERE status IN ('pending','in_progress') AND deleted_at IS NULL${complaintFilter}`,
@@ -808,7 +1275,7 @@ app.get("/api/v1/reports/dashboard", requireAuth, requireActiveAccount, requireP
     FROM orders WHERE deleted_at IS NULL
       AND status NOT IN ('rejected', 'cancelled')
       AND strftime('%Y-%m', placed_at) = strftime('%Y-%m', 'now')`;
-  monthOrderSql += appendDealerScopeSql(reportScope.dealerIds, "dealer_id", monthOrderBinds);
+  monthOrderSql += appendUserDealerScopeSql(reportScope.user, "dealer_id", monthOrderBinds);
   const monthStats = await db
     .prepare(monthOrderSql)
     .bind(...monthOrderBinds)
@@ -819,7 +1286,7 @@ app.get("/api/v1/reports/dashboard", requireAuth, requireActiveAccount, requireP
     FROM orders WHERE deleted_at IS NULL
       AND status NOT IN ('rejected', 'cancelled')
       AND strftime('%Y-%m', placed_at) = strftime('%Y-%m', 'now', '-1 month')`;
-  prevMonthSql += appendDealerScopeSql(reportScope.dealerIds, "dealer_id", prevMonthBinds);
+  prevMonthSql += appendUserDealerScopeSql(reportScope.user, "dealer_id", prevMonthBinds);
   const prevMonth = await db
     .prepare(prevMonthSql)
     .bind(...prevMonthBinds)
@@ -829,8 +1296,20 @@ app.get("/api/v1/reports/dashboard", requireAuth, requireActiveAccount, requireP
   let pointsSql = `SELECT COALESCE(SUM(pl.delta), 0) as pts
     FROM points_ledger pl JOIN dealers d ON d.id = pl.dealer_id
     WHERE pl.delta > 0 AND strftime('%Y-%m', pl.occurred_at) = strftime('%Y-%m', 'now')`;
-  pointsSql += appendDealerScopeSql(reportScope.dealerIds, "d.id", pointsBinds);
+  pointsSql += appendUserDealerScopeSql(reportScope.user, "d.id", pointsBinds);
   const pointsRow = await db.prepare(pointsSql).bind(...pointsBinds).first<{ pts: number }>();
+
+  const approvedTodayBinds: unknown[] = [];
+  let approvedTodaySql = `SELECT COUNT(*) as c FROM orders
+    WHERE deleted_at IS NULL AND status = 'approved'
+      AND approved_at IS NOT NULL
+      AND strftime('%Y-%m-%d', datetime(approved_at, '+5 hours', '+30 minutes')) =
+          strftime('%Y-%m-%d', datetime('now', '+5 hours', '+30 minutes'))`;
+  approvedTodaySql += appendUserDealerScopeSql(reportScope.user, "dealer_id", approvedTodayBinds);
+  const approvedTodayRow = await db
+    .prepare(approvedTodaySql)
+    .bind(...approvedTodayBinds)
+    .first<{ c: number }>();
 
   const monthlySales = monthStats?.sales ?? 0;
   const prevMonthSales = prevMonth?.sales ?? 0;
@@ -851,6 +1330,8 @@ app.get("/api/v1/reports/dashboard", requireAuth, requireActiveAccount, requireP
     rewardPointsGenerated: pointsRow?.pts ?? 0,
     salesGrowth,
     prevMonthSales,
+    approvedToday: approvedTodayRow?.c ?? 0,
+    ...currentMonthLabels(),
   });
 });
 
@@ -861,11 +1342,19 @@ app.get("/api/v1/reports/monthly-sales", requireAuth, requireActiveAccount, requ
   if (!reportScope.allowed) return c.json({ error: "Forbidden" }, 403);
 
   const binds: unknown[] = [];
-  let sql = `SELECT strftime('%b %Y', placed_at) as month, SUM(total_value) as sales, COUNT(*) as orders FROM orders WHERE deleted_at IS NULL`;
-  sql += appendDealerScopeSql(reportScope.dealerIds, "dealer_id", binds);
-  sql += ` GROUP BY strftime('%Y-%m', placed_at) ORDER BY placed_at DESC LIMIT 6`;
-  const { results } = await db.prepare(sql).bind(...binds).all();
-  return c.json(results);
+  let sql = `SELECT strftime('%Y-%m', placed_at) as ym, SUM(total_value) as sales, COUNT(*) as orders FROM orders WHERE deleted_at IS NULL`;
+  sql += appendUserDealerScopeSql(reportScope.user, "dealer_id", binds);
+  sql += ` AND status NOT IN ('rejected', 'cancelled')`;
+  sql += ` GROUP BY ym ORDER BY ym ASC LIMIT 6`;
+  const { results } = await db.prepare(sql).bind(...binds).all<{ ym: string; sales: number; orders: number }>();
+  return c.json(
+    results.map((r) => ({
+      month: formatYearMonthLabel(r.ym),
+      ym: r.ym,
+      sales: Number(r.sales) || 0,
+      orders: Number(r.orders) || 0,
+    })),
+  );
 });
 
 app.get("/api/v1/reports/product-sales", requireAuth, requireActiveAccount, requirePermission("reports:read"), async (c) => {
@@ -877,7 +1366,8 @@ app.get("/api/v1/reports/product-sales", requireAuth, requireActiveAccount, requ
   const binds: unknown[] = [];
   let sql = `SELECT oi.product_name as product, SUM(oi.line_total) as sales, SUM(oi.quantity) as units
        FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE o.deleted_at IS NULL`;
-  sql += appendDealerScopeSql(reportScope.dealerIds, "o.dealer_id", binds);
+  sql += appendUserDealerScopeSql(reportScope.user, "o.dealer_id", binds);
+  sql += ` AND o.status NOT IN ('rejected', 'cancelled')`;
   sql += ` GROUP BY oi.product_name ORDER BY sales DESC LIMIT 10`;
   const { results } = await db.prepare(sql).bind(...binds).all();
   return c.json(results);
@@ -892,7 +1382,7 @@ app.get("/api/v1/reports/dealer-performance", requireAuth, requireActiveAccount,
   const period = c.req.query("period") ?? "month";
   const now = new Date();
   let currentStart: Date;
-  let currentEnd = now;
+  const currentEnd = now;
   let previousStart: Date;
   let previousEnd: Date;
 
@@ -920,17 +1410,17 @@ app.get("/api/v1/reports/dealer-performance", requireAuth, requireActiveAccount,
     previousEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59);
   }
 
-  const currentMonth = currentStart.toLocaleString("en-IN", { month: "short", year: "numeric" });
-  const previousMonth = previousStart.toLocaleString("en-IN", { month: "short", year: "numeric" });
+  const currentMonth = currentMonthLabels(now).currentMonthLabel;
+  const previousMonth = currentMonthLabels(now).previousMonthLabel;
 
   const binds: unknown[] = [currentStart.toISOString(), currentEnd.toISOString(), previousStart.toISOString(), previousEnd.toISOString()];
-  let dealerFilter = "";
-  if (reportScope.dealerIds !== "all") {
-    dealerFilter = appendDealerScopeSql(reportScope.dealerIds, "d.id", binds);
-  }
+  let dealerFilter = appendUserDealerScopeSql(reportScope.user, "d.id", binds);
 
   const dealerIdFilter = c.req.query("dealerId");
   if (dealerIdFilter) {
+    if (!(await canAccessDealer(db, user, dealerIdFilter))) {
+      return c.json({ error: "Forbidden" }, 403);
+    }
     dealerFilter += ` AND d.id = ?`;
     binds.push(dealerIdFilter);
   }
@@ -948,13 +1438,13 @@ app.get("/api/v1/reports/dealer-performance", requireAuth, requireActiveAccount,
     LEFT JOIN (
       SELECT dealer_id, SUM(total_value) AS sales, COUNT(*) AS orders
       FROM orders
-      WHERE deleted_at IS NULL AND placed_at >= ? AND placed_at <= ?
+      WHERE deleted_at IS NULL AND status NOT IN ('rejected', 'cancelled') AND placed_at >= ? AND placed_at <= ?
       GROUP BY dealer_id
     ) cur ON cur.dealer_id = d.id
     LEFT JOIN (
       SELECT dealer_id, SUM(total_value) AS sales, COUNT(*) AS orders
       FROM orders
-      WHERE deleted_at IS NULL AND placed_at >= ? AND placed_at <= ?
+      WHERE deleted_at IS NULL AND status NOT IN ('rejected', 'cancelled') AND placed_at >= ? AND placed_at <= ?
       GROUP BY dealer_id
     ) prev ON prev.dealer_id = d.id
     WHERE d.deleted_at IS NULL${dealerFilter}
@@ -1005,6 +1495,23 @@ app.get("/api/v1/reports/dealer-performance", requireAuth, requireActiveAccount,
   });
 
   return c.json({ currentMonth, previousMonth, dealers });
+});
+
+app.get("/api/v1/reports/visit-summary", requireAuth, requireActiveAccount, requirePermission("visits:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  if (user.role === "admin_staff") return c.json({ error: "Forbidden" }, 403);
+  if (user.role !== "sales_executive" && user.role !== "distributor" && user.role !== "master_admin") {
+    return c.json({ error: "Forbidden" }, 403);
+  }
+  return c.json(
+    await getVisitSummary(db, {
+      fromDate: c.req.query("fromDate"),
+      toDate: c.req.query("toDate"),
+      salesExecutiveUserId: user.role === "sales_executive" ? user.id : undefined,
+      distributorId: user.role === "distributor" ? user.distributorId : undefined,
+    }),
+  );
 });
 
 // Signup
@@ -1262,6 +1769,50 @@ admin.post("/campaigns/upload-image", requirePermission("campaigns:write"), asyn
   }
 });
 
+admin.get("/visits/summary", requirePermission("visits:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(
+    await getVisitSummary(db, {
+      fromDate: c.req.query("fromDate"),
+      toDate: c.req.query("toDate"),
+    }),
+  );
+});
+
+admin.get("/visits/filter-options", requirePermission("visits:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const { results } = await db
+    .prepare(
+      `SELECT id, name FROM users
+       WHERE role = 'sales_executive' AND deleted_at IS NULL AND status = 'active'
+       ORDER BY name`,
+    )
+    .all<{ id: string; name: string }>();
+  return c.json({ salesExecutives: results });
+});
+
+admin.get("/visits", requirePermission("visits:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(
+    await listVisits(db, {
+      salesExecutiveUserId: c.req.query("salesExecutiveId"),
+      status: (c.req.query("status") as "active" | "completed" | "all") ?? "all",
+      fromDate: c.req.query("fromDate"),
+      toDate: c.req.query("toDate"),
+      search: c.req.query("search"),
+      page: Number(c.req.query("page") ?? 1),
+      pageSize: Number(c.req.query("pageSize") ?? 20),
+    }),
+  );
+});
+
+admin.get("/visits/:id", requirePermission("visits:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const visit = await getVisitById(db, c.req.param("id"));
+  if (!visit) return c.json({ error: "Not found" }, 404);
+  return c.json(visit);
+});
+
 admin.get("/analytics", requirePermission("reports:read"), async (c) => {
   const db = await getRequestDb(c);
   return c.json(
@@ -1282,7 +1833,7 @@ admin.get("/explore", requirePermission("reports:read"), async (c) => {
   const db = await getRequestDb(c);
   return c.json(
     await exploreAdminHierarchy(db, {
-      level: c.req.query("level") as "distributors" | "dealers" | "orders" | undefined,
+      level: c.req.query("level") as "distributors" | "dealers" | "orders" | "all_dealers" | undefined,
       distributorId: c.req.query("distributorId"),
       dealerId: c.req.query("dealerId"),
       search: c.req.query("search"),
@@ -1292,35 +1843,113 @@ admin.get("/explore", requirePermission("reports:read"), async (c) => {
   );
 });
 
+admin.get("/pricing/sqft-rates", requirePermission("catalog:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const { listSqftRates } = await import("./services/mattress-sqft-rates");
+  return c.json(await listSqftRates(db));
+});
+
+admin.put("/pricing/sqft-rates", requirePermission("catalog:write"), async (c) => {
+  const db = await getRequestDb(c);
+  const body = await c.req.json();
+  const { upsertSqftRate } = await import("./services/mattress-sqft-rates");
+  try {
+    return c.json(
+      await upsertSqftRate(db, {
+        guarantee: body.guarantee,
+        thickness: body.thickness,
+        mrpPerSqft: Number(body.mrpPerSqft),
+        dealerPerSqft: Number(body.dealerPerSqft),
+        rewardPercent: Number(body.rewardPercent ?? 0),
+        effectiveFrom: body.effectiveFrom,
+      }),
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Save failed";
+    return c.json({ error: message }, 400);
+  }
+});
+
+admin.delete("/pricing/sqft-rates", requirePermission("catalog:write"), async (c) => {
+  const db = await getRequestDb(c);
+  const guarantee = c.req.query("guarantee");
+  const thickness = c.req.query("thickness");
+  if (!guarantee || !thickness) return c.json({ error: "guarantee and thickness required" }, 400);
+  const { deleteSqftRate } = await import("./services/mattress-sqft-rates");
+  await deleteSqftRate(db, guarantee, thickness);
+  return c.json({ ok: true });
+});
+
+admin.post("/pricing/sqft-rates/recalculate", requirePermission("catalog:write"), async (c) => {
+  const db = await getRequestDb(c);
+  const { recalculateProductPrices } = await import("./services/mattress-sqft-rates");
+  return c.json(await recalculateProductPrices(db));
+});
+
 admin.get("/system-notifications", requirePermission("settings:read"), async (c) => {
   const db = await getRequestDb(c);
-  const category = c.req.query("category");
-  const binds: unknown[] = [];
-  let sql = `SELECT n.*, u.name as recipient_name FROM notifications n
-    LEFT JOIN users u ON u.id = n.recipient_user_id WHERE 1=1`;
-  if (category && category !== "all") {
-    sql += ` AND n.category = ?`;
-    binds.push(category);
+  const view = c.req.query("view");
+
+  if (view === "announcements") {
+    const { listAnnouncements } = await import("./services/system-notifications-admin");
+    return c.json(
+      await listAnnouncements(db, {
+        search: c.req.query("search"),
+        category: c.req.query("category"),
+        active: c.req.query("active"),
+        page: Number(c.req.query("page") ?? 1),
+        pageSize: Number(c.req.query("pageSize") ?? 10),
+      }),
+    );
   }
-  sql += ` ORDER BY n.created_at DESC LIMIT 100`;
-  const { results } = await db.prepare(sql).bind(...binds).all();
-  return c.json(results);
+
+  // Audit view: announcement records only — never expose other users' private notifications.
+  const { listAnnouncements } = await import("./services/system-notifications-admin");
+  return c.json(
+    await listAnnouncements(db, {
+      search: c.req.query("search"),
+      category: c.req.query("category"),
+      active: c.req.query("active"),
+      page: Number(c.req.query("page") ?? 1),
+      pageSize: Number(c.req.query("pageSize") ?? 50),
+    }),
+  );
+});
+
+admin.post("/system-notifications", requirePermission("settings:write"), async (c) => {
+  const db = await getRequestDb(c);
+  const body = await c.req.json();
+  const { createAnnouncement } = await import("./services/system-notifications-admin");
+  try {
+    const row = await createAnnouncement(db, body);
+    return c.json(row, 201);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Create failed" }, 400);
+  }
 });
 
 admin.patch("/system-notifications/:id", requirePermission("settings:write"), async (c) => {
   const db = await getRequestDb(c);
-  const body = await c.req.json<{ title?: string; body?: string }>();
-  await db
-    .prepare(`UPDATE notifications SET title = COALESCE(?, title), body = COALESCE(?, body) WHERE id = ?`)
-    .bind(body.title ?? null, body.body ?? null, c.req.param("id"))
-    .run();
-  return c.json({ ok: true });
+  const body = await c.req.json();
+  const paramId = c.req.param("id");
+
+  const { updateAnnouncement } = await import("./services/system-notifications-admin");
+  const updated = await updateAnnouncement(db, paramId, body);
+  if (!updated) return c.json({ error: "Announcement not found" }, 404);
+  return c.json(updated);
 });
 
 admin.delete("/system-notifications/:id", requirePermission("settings:write"), async (c) => {
   const db = await getRequestDb(c);
-  await db.prepare(`DELETE FROM notifications WHERE id = ?`).bind(c.req.param("id")).run();
-  return c.json({ ok: true });
+  const paramId = c.req.param("id");
+  const { deleteAnnouncement } = await import("./services/system-notifications-admin");
+  try {
+    await deleteAnnouncement(db, paramId);
+    return c.json({ ok: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Delete failed";
+    return c.json({ error: message }, 404);
+  }
 });
 
 admin.get("/rewards", requirePermission("rewards:read"), async (c) => {
@@ -1403,7 +2032,8 @@ admin.get("/reward-claims", requirePermission("rewards:read"), async (c) => {
   );
 });
 
-admin.patch("/reward-claims/:id", requirePermission("rewards:read"), async (c) => {
+admin.patch("/reward-claims/:id", requirePermission("catalog:write"), async (c) => {
+  if (c.get("user").role !== "master_admin") return c.json({ error: "Forbidden" }, 403);
   const db = await getRequestDb(c);
   const body = await c.req.json<{ status: "pending" | "delivered" }>();
   try {
@@ -1414,6 +2044,7 @@ admin.patch("/reward-claims/:id", requirePermission("rewards:read"), async (c) =
 });
 
 admin.post("/reward-claims/:id/undo", requirePermission("catalog:write"), async (c) => {
+  if (c.get("user").role !== "master_admin") return c.json({ error: "Forbidden" }, 403);
   const db = await getRequestDb(c);
   try {
     return c.json(await undoRewardClaim(db, c.req.param("id"), c.get("user").id));
@@ -1514,11 +2145,17 @@ admin.get("/signup-applications", requirePermission("signup:review"), async (c) 
   );
 });
 
+admin.get("/signup-applications/options", requirePermission("signup:review"), async (c) => {
+  const db = await getRequestDb(c);
+  const distributorId = c.req.query("distributorId") ?? undefined;
+  return c.json(await getSignupApprovalOptions(db, distributorId));
+});
+
 admin.patch("/signup-applications/:id", requirePermission("signup:review"), async (c) => {
   const db = await getRequestDb(c);
   const body = await c.req.json();
   try {
-    const result = await reviewSignupApplication(db, c.req.param("id"), body, c.get("user").id);
+    const result = await reviewSignupApplication(db, c.req.param("id"), body, c.get("user"));
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Review failed";
@@ -1563,7 +2200,7 @@ export async function handleApiRequest(
   env?: ApiEnv,
   _ctx?: unknown,
 ): Promise<Response> {
-  return app.fetch(request, env ?? ({} as ApiEnv), _ctx as ExecutionContext);
+  return app.fetch(request, env ?? ({} as ApiEnv), resolveExecutionContext(_ctx));
 }
 
 export { app };

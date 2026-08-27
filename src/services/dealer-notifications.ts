@@ -1,4 +1,5 @@
 import type { AppNotification } from "@/lib/notifications";
+import { requestUnreadCountRefresh } from "@/lib/notification-count-cache";
 import { api } from "@/lib/api-client";
 import { formatCampaignDate } from "@/lib/campaign-service";
 
@@ -12,7 +13,9 @@ export async function getDealerNotifications(): Promise<AppNotification[]> {
       body: string;
       link: string;
       createdAt: string;
+      createdAtLabel?: string;
       read: boolean;
+      metadata?: unknown;
     }>
   >("/api/v1/notifications");
 
@@ -21,12 +24,15 @@ export async function getDealerNotifications(): Promise<AppNotification[]> {
     type:
       n.category === "complaints" || n.type.startsWith("complaint")
         ? "complaint"
-        : "campaign",
+        : n.type === "announcement"
+          ? "campaign"
+          : "campaign",
     title: n.title,
     body: n.body,
     link: n.link,
-    createdAt: n.createdAt,
+    createdAt: n.createdAtLabel ?? n.createdAt,
     read: n.read,
+    metadata: n.metadata,
   }));
 }
 
@@ -37,10 +43,12 @@ export async function getUnreadNotificationCount(): Promise<number> {
 
 export async function markNotificationRead(id: string) {
   await api.patch(`/api/v1/notifications/${id}/read`);
+  requestUnreadCountRefresh();
 }
 
 export async function markAllNotificationsRead() {
   await api.post("/api/v1/notifications/read-all");
+  requestUnreadCountRefresh();
 }
 
 export function buildCampaignWhatsAppMessage(

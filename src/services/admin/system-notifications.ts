@@ -14,8 +14,12 @@ export type SystemNotification = {
 };
 
 export async function listSystemNotifications(category?: string) {
-  const q = category && category !== "all" ? `?category=${category}` : "";
-  return api.get<SystemNotification[]>(`/api/v1/admin/system-notifications${q}`);
+  const params = new URLSearchParams({ pageSize: "50" });
+  if (category && category !== "all") params.set("category", category);
+  const res = await api.get<{ items: SystemNotification[] }>(
+    `/api/v1/admin/system-notifications?${params.toString()}`,
+  );
+  return res.items ?? [];
 }
 
 export async function updateSystemNotification(id: string, input: { title?: string; body?: string }) {

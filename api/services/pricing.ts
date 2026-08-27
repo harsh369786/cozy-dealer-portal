@@ -9,6 +9,7 @@ export function calculateRewardPoints(mrp: number, rewardPercent: number, quanti
 export type RewardEligibility = "dealer" | "distributor" | "both";
 
 import { getActivePriceCampaignRow } from "./campaigns-public";
+import { applyMattressPricing, assertMattressDimensions, pricingDimensions } from "./mattress-pricing";
 
 export async function getActivePriceCampaign(
   db: D1Database,
@@ -37,6 +38,8 @@ export async function buildPriceQuote(
     quantity: number;
     thickness?: string;
     campaignId?: string;
+    lengthIn?: number;
+    breadthIn?: number;
   },
 ) {
   const product = await db
@@ -65,10 +68,20 @@ export async function buildPriceQuote(
 
   if (!product || !priceRow) throw new Error("Product not found");
 
-  const campaign = await getActivePriceCampaign(db, input.productId, {
-    campaignId: (input as { campaignId?: string }).campaignId,
+  assertMattressDimensions(input.lengthIn, input.breadthIn);
+
+  const sized = applyMattressPricing(priceRow.mrp, priceRow.dealer_price, {
+    lengthIn: input.lengthIn,
+    breadthIn: input.breadthIn,
+    thickness: input.thickness,
   });
-  const dealerPrice = priceRow.dealer_price;
+  const standardDims = pricingDimensions(input.lengthIn, input.breadthIn);
+
+  const campaign = await getActivePriceCampaign(db, input.productId, {
+    campaignId: input.campaignId,
+  });
+  const dealerPrice = sized.dealerPrice;
+  const mrp = sized.mrp;
   const campaignPrice = campaign
     ? getCampaignPrice(dealerPrice, campaign.discount_percent)
     : null;
@@ -76,13 +89,14 @@ export async function buildPriceQuote(
   const qty = Math.max(1, input.quantity);
 
   const rewardPercent = priceRow.reward_percent ?? 0;
-  const pointsEarned = calculateRewardPoints(priceRow.mrp, rewardPercent, qty);
+  const pointsEarned = calculateRewardPoints(mrp, rewardPercent, qty);
 
   return {
     productId: input.productId,
     productName: product.name,
-    mrp: priceRow.mrp,
+    mrp,
     dealerPrice,
+    sizeFactor: sized.factor,
     campaignId: campaign?.id ?? null,
     campaignPrice,
     discountPercent: campaign?.discount_percent ?? null,
@@ -91,6 +105,8 @@ export async function buildPriceQuote(
     lineTotal: unitPrice * qty,
     pointsEarned,
     rewardPercent,
+    standardLengthIn: standardDims.lengthIn ?? null,
+    standardBreadthIn: standardDims.breadthIn ?? null,
     rewardEligibility: (priceRow.reward_eligibility ?? "dealer") as RewardEligibility,
     freeItems: priceRow.free_items_label,
     campaign: campaign

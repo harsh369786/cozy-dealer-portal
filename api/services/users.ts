@@ -1,7 +1,12 @@
 import { formatInLabel, id, normalizePhone, nowIso } from "../utils";
 import { writeAuditLog } from "./audit";
-import { notifyUser } from "./notification-events";
+import { notifyUser, withNotificationI18n } from "./notification-events";
 import { enqueueWhatsapp } from "./whatsapp";
+import {
+  findDeletedUserIdByPhone,
+  isPhoneTakenByActiveUser,
+  tombstonePhone,
+} from "./user-phone";
 
 export type AdminUserRow = {
   id: string;
@@ -31,6 +36,7 @@ export type CreateUserInput = {
   role: string;
   dealerId?: string | null;
   distributorId?: string | null;
+  storeName?: string | null;
   email?: string | null;
   sendWhatsAppInvite?: boolean;
 };
@@ -132,12 +138,116 @@ async function validateDistributorId(db: D1Database, distributorId: string | nul
 }
 
 function validateRoleLinks(role: string, dealerId: string | null, distributorId: string | null) {
-  if (role === "dealer" && !dealerId) throw new Error("Dealer role requires dealerId");
-  if (role === "distributor" && !distributorId) throw new Error("Distributor role requires distributorId");
+  if (role === "dealer" && !dealerId) throw new Error("Dealer role requires a dealer store");
+  if (role === "distributor" && !distributorId) throw new Error("Distributor role requires a distributor");
   if (role === "master_admin" || role === "admin_staff" || role === "sales_executive") {
     if (dealerId) throw new Error("Admin and sales roles cannot be linked to a dealer");
     if (distributorId) throw new Error("Admin and sales roles cannot be linked to a distributor");
   }
+}
+
+function slugCode(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 12);
+}
+
+async function uniqueDealerCode(db: D1Database, storeName: string) {
+  const base = slugCode(storeName) || "dealer";
+  const suffix = Date.now().toString(36).slice(-5);
+  const code = `${base}-${suffix}`;
+  const existing = await db.prepare(`SELECT id FROM dealers WHERE code = ?`).bind(code).first();
+  if (!existing) return code;
+  return `${base}-${id("d").slice(-8)}`;
+}
+
+async function createDealerStore(
+  db: D1Database,
+  input: {
+    distributorId: string;
+    storeName: string;
+    contactName: string;
+    phone: string;
+    ts: string;
+  },
+) {
+  const dealerId = id("dlr");
+  const code = await uniqueDealerCode(db, input.storeName);
+  await db
+    .prepare(
+      `INSERT INTO dealers (
+         id, distributor_id, code, store_name, contact_name, location, address, phone, active, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, '', NULL, ?, 1, ?, ?)`,
+    )
+    .bind(
+      dealerId,
+      input.distributorId,
+      code,
+      input.storeName,
+      input.contactName,
+      input.phone,
+      input.ts,
+      input.ts,
+    )
+    .run();
+  return dealerId;
+}
+
+async function createDistributorOrg(
+  db: D1Database,
+  input: { name: string; phone: string; ts: string },
+) {
+  const distributorId = id("dist");
+  await db
+    .prepare(
+      `INSERT INTO distributors (id, name, region, phone, created_at, updated_at)
+       VALUES (?, ?, '', ?, ?, ?)`,
+    )
+    .bind(distributorId, input.name, input.phone, input.ts, input.ts)
+    .run();
+  return distributorId;
+}
+
+async function resolveCreateUserLinks(
+  db: D1Database,
+  input: CreateUserInput,
+  phone: string,
+  ts: string,
+) {
+  const name = input.name.trim();
+  let dealerId = input.dealerId ?? null;
+  let distributorId = input.distributorId ?? null;
+
+  if (input.role === "dealer") {
+    if (dealerId) {
+      await validateDealerId(db, dealerId);
+    } else {
+      if (!distributorId) throw new Error("Select which distributor this dealer belongs to");
+      await validateDistributorId(db, distributorId);
+      const storeName = input.storeName?.trim() || name;
+      dealerId = await createDealerStore(db, {
+        distributorId,
+        storeName,
+        contactName: name,
+        phone,
+        ts,
+      });
+    }
+    return { dealerId, distributorId: null };
+  }
+
+  if (input.role === "distributor") {
+    if (distributorId) {
+      await validateDistributorId(db, distributorId);
+    } else {
+      distributorId = await createDistributorOrg(db, { name, phone, ts });
+    }
+    return { dealerId: null, distributorId };
+  }
+
+  return { dealerId: null, distributorId: null };
 }
 
 export async function listAdminUsers(db: D1Database, filters: UserFilters = {}) {
@@ -223,9 +333,12 @@ export async function getUserCreateOptions(db: D1Database) {
   return { dealers, distributors };
 }
 
-function assertActorCanAssignRole(actorRole: string, targetRole: string) {
+function assertActorCanAssignRole(actorRole: string, targetRole: string, currentTargetRole?: string) {
   if (actorRole === "admin_staff" && targetRole === "master_admin") {
     throw new Error("Forbidden: cannot assign master admin role");
+  }
+  if (currentTargetRole === "master_admin" && targetRole !== "master_admin") {
+    throw new Error("Forbidden: cannot change master admin role");
   }
 }
 
@@ -241,17 +354,80 @@ export async function createAdminUser(
   if (!USER_ROLES.has(input.role)) throw new Error("Invalid role");
   if (actorRole) assertActorCanAssignRole(actorRole, input.role);
 
-  const existing = await db.prepare(`SELECT id FROM users WHERE phone = ?`).bind(phone).first();
-  if (existing) throw new Error("Phone number already registered");
+  if (await isPhoneTakenByActiveUser(db, phone)) {
+    throw new Error("Phone number already registered");
+  }
 
-  const dealerId = input.dealerId ?? null;
-  const distributorId = input.distributorId ?? null;
+  const ts = nowIso();
+  const { dealerId, distributorId } = await resolveCreateUserLinks(db, input, phone, ts);
   validateRoleLinks(input.role, dealerId, distributorId);
-  await validateDealerId(db, dealerId);
-  await validateDistributorId(db, distributorId);
+
+  const reuseUserId = await findDeletedUserIdByPhone(db, phone);
+
+  if (reuseUserId) {
+    await db
+      .prepare(
+        `UPDATE users SET phone = ?, name = ?, email = ?, role = ?, dealer_id = ?, distributor_id = ?,
+         status = 'active', deleted_at = NULL, updated_at = ? WHERE id = ?`,
+      )
+      .bind(
+        phone,
+        input.name.trim(),
+        input.email ?? null,
+        input.role,
+        dealerId,
+        distributorId,
+        ts,
+        reuseUserId,
+      )
+      .run();
+
+    const created = await getAdminUser(db, reuseUserId);
+    await writeAuditLog(db, {
+      actorUserId,
+      action: "user.create",
+      entityType: "user",
+      entityId: reuseUserId,
+      after: created,
+      before: { reusedFromDeleted: true },
+    });
+
+    await notifyUser(db, reuseUserId, {
+      category: "system",
+      type: "system",
+      title: "Welcome to BackRest",
+      body: "Your account is ready. Sign in with your registered phone number.",
+      link: postLoginPathForRole(input.role),
+      ...withNotificationI18n("notifications.welcomeToBackRest.title", "notifications.welcomeToBackRest.body"),
+    });
+
+    let invitedAt: string | undefined;
+    if (input.sendWhatsAppInvite) {
+      await sendUserInviteWhatsapp(db, opts.env, {
+        phone,
+        name: input.name.trim(),
+        role: input.role,
+        portalBaseUrl: opts.portalBaseUrl,
+      });
+      invitedAt = formatInLabel(ts);
+      await writeAuditLog(db, {
+        actorUserId,
+        action: "user.invite.whatsapp",
+        entityType: "user",
+        entityId: reuseUserId,
+        after: { phone, invitedAt },
+      });
+    }
+
+    return {
+      ...created!,
+      ...(input.sendWhatsAppInvite
+        ? { inviteSentVia: "whatsapp" as const, invitedAt }
+        : {}),
+    };
+  }
 
   const userId = id("user");
-  const ts = nowIso();
   await db
     .prepare(
       `INSERT INTO users (id, phone, name, email, role, dealer_id, distributor_id, status, created_at, updated_at)
@@ -285,6 +461,7 @@ export async function createAdminUser(
     title: "Welcome to BackRest",
     body: "Your account is ready. Sign in with your registered phone number.",
     link: postLoginPathForRole(input.role),
+    ...withNotificationI18n("notifications.welcomeToBackRest.title", "notifications.welcomeToBackRest.body"),
   });
 
   let invitedAt: string | undefined;
@@ -371,16 +548,14 @@ export async function updateAdminUser(
     .bind(actorUserId)
     .first<{ role: string }>();
   if (actor && (patch.role || nextRole !== before.role)) {
-    assertActorCanAssignRole(actor.role, nextRole);
+    assertActorCanAssignRole(actor.role, nextRole, before.role);
   }
 
   if (patch.phone) {
     const phone = normalizePhone(patch.phone);
-    const existing = await db
-      .prepare(`SELECT id FROM users WHERE phone = ? AND id != ?`)
-      .bind(phone, userId)
-      .first();
-    if (existing) throw new Error("Phone number already registered");
+    if (await isPhoneTakenByActiveUser(db, phone, userId)) {
+      throw new Error("Phone number already registered");
+    }
   }
 
   const sets: string[] = ["updated_at = ?"];
@@ -420,6 +595,10 @@ export async function updateAdminUser(
   binds.push(userId);
   await db.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ? AND deleted_at IS NULL`).bind(...binds).run();
 
+  if (patch.status === "suspended") {
+    await db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(userId).run();
+  }
+
   const after = await getAdminUser(db, userId);
   await writeAuditLog(db, {
     actorUserId,
@@ -437,6 +616,7 @@ export async function updateAdminUser(
       title: "Account suspended",
       body: "Your portal access has been suspended. Contact support if you need help.",
       link: "/",
+      ...withNotificationI18n("notifications.accountSuspended.title", "notifications.accountSuspended.body"),
     });
   } else if (patch.status === "active" && before.status === "suspended") {
     await notifyUser(db, userId, {
@@ -445,6 +625,7 @@ export async function updateAdminUser(
       title: "Account reactivated",
       body: "Your portal access has been restored.",
       link: postLoginPathForRole(after!.role),
+      ...withNotificationI18n("notifications.accountReactivated.title", "notifications.accountReactivated.body"),
     });
   }
 
@@ -456,12 +637,18 @@ export async function softDeleteAdminUser(db: D1Database, userId: string, actorU
 
   const before = await getAdminUser(db, userId);
   if (!before) throw new Error("User not found");
+  if (before.role === "master_admin") throw new Error("Cannot delete a master admin");
 
   const ts = nowIso();
+  const tombstone = tombstonePhone(before.phone, userId);
   await db
-    .prepare(`UPDATE users SET deleted_at = ?, status = 'suspended', updated_at = ? WHERE id = ?`)
-    .bind(ts, ts, userId)
+    .prepare(
+      `UPDATE users SET phone = ?, deleted_at = ?, status = 'suspended', updated_at = ? WHERE id = ?`,
+    )
+    .bind(tombstone, ts, ts, userId)
     .run();
+
+  await db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(userId).run();
 
   await writeAuditLog(db, {
     actorUserId,

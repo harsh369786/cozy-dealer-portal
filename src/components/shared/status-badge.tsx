@@ -1,5 +1,10 @@
 import type { CampaignStatus, ComplaintStatus, OrderStatus } from "@/lib/mock/distributor/types";
-import { ORDER_STATUS_LABELS } from "@/components/shared/order-timeline";
+import {
+  useCampaignStatusLabel,
+  useComplaintStatusLabel,
+  useOrderStatusLabel,
+  useVisitStatusLabel,
+} from "@/lib/i18n-labels";
 import { cn } from "@/lib/utils";
 
 const orderStyles: Record<OrderStatus, string> = {
@@ -19,44 +24,44 @@ const complaintStyles: Record<ComplaintStatus, string> = {
   rejected: "bg-red-100 text-red-900",
 };
 
-const complaintLabels: Record<ComplaintStatus, string> = {
-  pending: "Pending",
-  in_progress: "In Progress",
-  resolved: "Resolved",
-  rejected: "Rejected",
-};
-
 const campaignStyles: Record<CampaignStatus, string> = {
   active: "bg-emerald-100 text-emerald-900",
   upcoming: "bg-blue-100 text-blue-900",
   expired: "bg-muted text-muted-foreground",
 };
 
-const campaignLabels: Record<CampaignStatus, string> = {
-  active: "Active",
-  upcoming: "Upcoming",
-  expired: "Expired",
-};
-
 type StatusBadgeProps =
   | { kind: "order"; status: OrderStatus }
   | { kind: "complaint"; status: ComplaintStatus }
-  | { kind: "campaign"; status: CampaignStatus };
+  | { kind: "campaign"; status: CampaignStatus }
+  | { kind: "visit"; status: "active" | "completed" };
 
-export function StatusBadge(props: StatusBadgeProps) {
-  let label: string;
-  let style: string;
-  if (props.kind === "order") {
-    label = ORDER_STATUS_LABELS[props.status];
-    style = orderStyles[props.status];
-  } else if (props.kind === "complaint") {
-    label = complaintLabels[props.status];
-    style = complaintStyles[props.status];
-  } else {
-    label = campaignLabels[props.status];
-    style = campaignStyles[props.status];
-  }
+const visitStyles = {
+  active: "bg-amber-100 text-amber-900",
+  completed: "bg-emerald-100 text-emerald-900",
+} as const;
 
+function OrderStatusBadge({ status }: { status: OrderStatus }) {
+  const label = useOrderStatusLabel(status);
+  return <StatusBadgeInner label={label} style={orderStyles[status]} />;
+}
+
+function ComplaintStatusBadge({ status }: { status: ComplaintStatus }) {
+  const label = useComplaintStatusLabel(status);
+  return <StatusBadgeInner label={label} style={complaintStyles[status]} />;
+}
+
+function CampaignStatusBadge({ status }: { status: CampaignStatus }) {
+  const label = useCampaignStatusLabel(status);
+  return <StatusBadgeInner label={label} style={campaignStyles[status]} />;
+}
+
+function VisitStatusBadge({ status }: { status: "active" | "completed" }) {
+  const label = useVisitStatusLabel(status);
+  return <StatusBadgeInner label={label} style={visitStyles[status]} />;
+}
+
+function StatusBadgeInner({ label, style }: { label: string; style: string }) {
   return (
     <span
       className={cn(
@@ -67,4 +72,11 @@ export function StatusBadge(props: StatusBadgeProps) {
       {label}
     </span>
   );
+}
+
+export function StatusBadge(props: StatusBadgeProps) {
+  if (props.kind === "order") return <OrderStatusBadge status={props.status} />;
+  if (props.kind === "complaint") return <ComplaintStatusBadge status={props.status} />;
+  if (props.kind === "visit") return <VisitStatusBadge status={props.status} />;
+  return <CampaignStatusBadge status={props.status} />;
 }

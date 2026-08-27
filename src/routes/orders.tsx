@@ -1,34 +1,70 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/app-shell";
-import { DateRangePicker, inDateRange } from "@/components/shared/date-range-picker";
+import { DateRangePicker } from "@/components/shared/date-range-picker";
 import { OrderHelpPanel } from "@/components/shared/order-help-panel";
+import { StatusBadge } from "@/components/shared/status-badge";
+import { ListPagination } from "@/components/shared/list-pagination";
 import { SearchBar } from "@/components/shared/search-bar";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useFormat } from "@/hooks/use-format";
 import { requireRoles } from "@/lib/auth-guard";
+import type { OrderStatus } from "@/lib/mock/distributor/types";
 import { cn } from "@/lib/utils";
-import { inr, orderSteps } from "@/lib/demo-data";
-import { listDealerOrdersPage } from "@/services/orders";
+import { listDealerOrdersPage, getOrderStatusCounts, type OrderStatusTab } from "@/services/orders";
+import i18n from "@/lib/i18n";
 
 export const Route = createFileRoute("/orders")({
   beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
-      { title: "Track Orders — BackRest Dealer App" },
+      { title: i18n.t("dealer.meta.ordersTitle") },
       {
         name: "description",
-        content: "See every BackRest order, track progress, and get help without typing order numbers.",
+        content: i18n.t("dealer.meta.ordersDescription"),
       },
-      { property: "og:title", content: "Track Orders — BackRest Dealer App" },
-      { property: "og:description", content: "A simple, visual timeline for each dealer order." },
+      { property: "og:title", content: i18n.t("dealer.meta.ordersTitle") },
+      { property: "og:description", content: i18n.t("dealer.meta.ordersDescription") },
     ],
   }),
   component: Orders,
 });
 
 type Period = "week" | "month" | "quarter" | "year" | "all" | "custom";
+
+const STATUS_TAB_KEYS: Record<OrderStatusTab, string> = {
+  pending: "dealer.orders.statusTabs.pending",
+  approved: "dealer.orders.statusTabs.approved",
+  in_making: "dealer.orders.statusTabs.inMaking",
+  out_for_delivery: "dealer.orders.statusTabs.outForDelivery",
+  delivered: "dealer.orders.statusTabs.delivered",
+  rejected: "dealer.orders.statusTabs.rejected",
+  cancelled: "dealer.orders.statusTabs.cancelled",
+  all: "dealer.orders.statusTabs.all",
+};
+
+const STATUS_TAB_ORDER: OrderStatusTab[] = [
+  "pending",
+  "approved",
+  "in_making",
+  "out_for_delivery",
+  "delivered",
+  "rejected",
+  "cancelled",
+  "all",
+];
+
+const PERIOD_KEYS: Record<Period, string> = {
+  week: "common.thisWeek",
+  month: "common.thisMonth",
+  quarter: "common.thisQuarter",
+  year: "common.thisYear",
+  all: "common.allTime",
+  custom: "common.custom",
+};
 
 function defaultCustomRange() {
   const to = new Date();
@@ -40,55 +76,88 @@ function defaultCustomRange() {
   };
 }
 
-function inPeriod(dateLabel: string, period: Period, fromDate?: string, toDate?: string) {
-  if (period === "custom") return inDateRange(dateLabel, fromDate, toDate);
-  if (period === "all") return true;
-  const d = new Date(dateLabel);
-  if (Number.isNaN(d.getTime())) return true;
+function periodToDateRange(
+  period: Period,
+  customRange: { from: string; to: string },
+): { fromDate?: string; toDate?: string } {
+  if (period === "all") return {};
+  if (period === "custom") {
+    return { fromDate: customRange.from, toDate: customRange.to };
+  }
   const now = new Date();
+  const toDate = now.toISOString().slice(0, 10);
   const start = new Date(now);
   if (period === "week") start.setDate(now.getDate() - 7);
   if (period === "month") start.setMonth(now.getMonth() - 1);
   if (period === "quarter") start.setMonth(now.getMonth() - 3);
   if (period === "year") start.setFullYear(now.getFullYear() - 1);
-  return d >= start;
+  return { fromDate: start.toISOString().slice(0, 10), toDate };
 }
 
 function Orders() {
+  const { t } = useTranslation();
+  const { formatCurrency, formatNumber } = useFormat();
   const [helpOrderId, setHelpOrderId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [statusTab, setStatusTab] = useState<OrderStatusTab>("all");
   const [period, setPeriod] = useState<Period>("month");
   const [customRange, setCustomRange] = useState(defaultCustomRange);
+  const [page, setPage] = useState(1);
+
+  const { data: statusCounts } = useAsyncData(() => getOrderStatusCounts(), []);
+
+  const dateRange = periodToDateRange(period, customRange);
 
   const { data, loading, error, retry } = useAsyncData(
-    () => listDealerOrdersPage({ page: 1, pageSize: 50, search: search.trim() || undefined }),
-    [search],
+    () =>
+      listDealerOrdersPage({
+        page,
+        pageSize: 20,
+        search: search.trim() || undefined,
+        status: statusTab,
+        fromDate: dateRange.fromDate,
+        toDate: dateRange.toDate,
+      }),
+    [search, statusTab, period, customRange.from, customRange.to, page],
   );
 
-  const filteredOrders = useMemo(() => {
-    const items = data?.items ?? [];
-    return items.filter((o) => inPeriod(o.placed, period, customRange.from, customRange.to));
-  }, [data, period, customRange.from, customRange.to]);
-
-  const totalSales = filteredOrders.reduce((s, o) => s + o.amount, 0);
-  const totalPoints = filteredOrders.reduce((s, o) => s + (o.rewardPoints ?? 0), 0);
+  const orders = data?.items ?? [];
+  const totalSales = data?.summary.totalSales ?? 0;
+  const totalPoints = data?.summary.totalPoints ?? 0;
 
   return (
-    <AppShell title="My Orders">
+    <AppShell title={t("dealer.orders.title")}>
       <div className="mb-4 flex flex-wrap gap-2">
-        {([
-          ["week", "This week"],
-          ["month", "This month"],
-          ["quarter", "This quarter"],
-          ["year", "This year"],
-          ["all", "All time"],
-          ["custom", "Custom"],
-        ] as const).map(([id, label]) => (
+        {STATUS_TAB_ORDER.map((id) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => {
+              setStatusTab(id);
+              setPage(1);
+              if (id === "rejected") setPeriod("all");
+            }}
+            className={cn(
+              "rounded-lg border px-2.5 py-1.5 text-xs font-bold",
+              statusTab === id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card",
+            )}
+          >
+            {t(STATUS_TAB_KEYS[id])}
+            {statusCounts
+              ? ` (${id === "all" ? statusCounts.all : statusCounts[id]})`
+              : ""}
+          </button>
+        ))}
+      </div>
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(Object.keys(PERIOD_KEYS) as Period[]).map((id) => (
           <button
             key={id}
             type="button"
             onClick={() => {
               setPeriod(id);
+              setPage(1);
               if (id === "custom" && !customRange.from) setCustomRange(defaultCustomRange());
             }}
             className={cn(
@@ -96,7 +165,7 @@ function Orders() {
               period === id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card",
             )}
           >
-            {label}
+            {t(PERIOD_KEYS[id])}
           </button>
         ))}
       </div>
@@ -106,59 +175,78 @@ function Orders() {
           className="mb-4"
           fromDate={customRange.from}
           toDate={customRange.to}
-          onChange={(from, to) => setCustomRange({ from, to })}
+          onChange={(from, to) => {
+            setCustomRange({ from, to });
+            setPage(1);
+          }}
         />
       )}
 
       {!loading && !error && (
-        <div className="mb-4 grid grid-cols-3 gap-2 text-center text-sm">
-          <div className="rounded-xl border border-border bg-card p-3 shadow-soft">
-            <p className="text-xs text-muted-foreground">Orders</p>
-            <p className="font-display text-lg font-bold">{filteredOrders.length}</p>
+        <div className="mb-4 grid grid-cols-1 gap-2 text-center text-sm min-[420px]:grid-cols-3">
+          <div className="min-w-0 rounded-xl border border-border bg-card p-3 shadow-soft">
+            <p className="text-xs text-muted-foreground">{t("dealer.orders.ordersCount")}</p>
+            <p className="font-display text-lg font-bold tabular-nums">{data?.total ?? 0}</p>
           </div>
-          <div className="rounded-xl border border-border bg-card p-3 shadow-soft">
-            <p className="text-xs text-muted-foreground">Sales</p>
-            <p className="font-display text-lg font-bold">{inr(totalSales)}</p>
+          <div className="min-w-0 rounded-xl border border-border bg-card p-3 shadow-soft">
+            <p className="text-xs text-muted-foreground">{t("dealer.orders.sales")}</p>
+            <p
+              className="font-display text-base font-bold tabular-nums leading-tight min-[420px]:text-lg"
+              title={formatCurrency(totalSales)}
+            >
+              {formatCurrency(totalSales)}
+            </p>
           </div>
-          <div className="rounded-xl border border-border bg-card p-3 shadow-soft">
-            <p className="text-xs text-muted-foreground">Reward pts</p>
-            <p className="font-display text-lg font-bold text-primary">{totalPoints.toLocaleString("en-IN")}</p>
+          <div className="min-w-0 rounded-xl border border-border bg-card p-3 shadow-soft">
+            <p className="text-xs text-muted-foreground">{t("dealer.orders.rewardPointsLabel")}</p>
+            <p className="font-display text-base font-bold tabular-nums text-primary min-[420px]:text-lg">
+              {formatNumber(totalPoints)}
+            </p>
           </div>
         </div>
       )}
 
       <SearchBar
         value={search}
-        onChange={setSearch}
-        placeholder="Search by order ID or product…"
+        onChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
+        placeholder={t("common.searchOrders")}
       />
 
       <div className="mb-4 mt-4 flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">Tap an order for full details</p>
+        <p className="text-sm text-muted-foreground">{t("common.tapOrderForDetails")}</p>
         <Link to="/complaints" className="text-sm font-bold text-primary">
-          Help requests
+          {t("nav.dealer.complaints")}
         </Link>
       </div>
 
       {loading && <PageSkeleton rows={4} />}
       {error && <ErrorState message={error} onRetry={retry} />}
 
-      {!loading && !error && filteredOrders.length === 0 && (
+      {!loading && !error && orders.length === 0 && (
         <p className="rounded-xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
           {search.trim()
-            ? "No orders match your search."
-            : "No orders in this period. Place an order from Products."}
+            ? t("common.noOrdersSearch")
+            : statusTab === "rejected"
+              ? t("dealer.orders.noRejectedOrders")
+              : t("common.noOrdersPeriod")}
         </p>
       )}
 
-      {!loading && !error && filteredOrders.length > 0 && (
+      {!loading && !error && orders.length > 0 && (
         <div className="space-y-3">
-          {filteredOrders.map((o, i) => {
+          {orders.map((o, i) => {
             const helpOpen = helpOrderId === o.id;
+            const isRejected = o.rawStatus === "rejected";
             return (
               <div
                 key={o.id}
-                className="animate-rise rounded-xl border border-border bg-card shadow-soft"
+                className={cn(
+                  "animate-rise rounded-xl border bg-card shadow-soft",
+                  isRejected ? "border-destructive/30" : "border-border",
+                )}
                 style={{ animationDelay: `${i * 70}ms` }}
               >
                 <Link
@@ -166,30 +254,31 @@ function Orders() {
                   params={{ orderId: o.id }}
                   className="press block p-5"
                 >
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="font-display text-lg font-bold">Order #{o.id}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">Placed {o.placed}</p>
-                      <p className="mt-3 text-base font-bold">{o.product}</p>
-                      <p className="text-sm text-muted-foreground">{o.detail}</p>
-                      <p className="mt-2 font-display text-xl font-bold">{inr(o.amount)}</p>
+                      <p className="font-display text-lg font-bold">
+                        {t("common.orderHash", { orderId: o.id })}
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {t("common.placedOn")} {o.placed}
+                      </p>
+                      <p className="mt-3 text-base font-bold break-words">{o.product}</p>
+                      <p className="text-sm text-muted-foreground break-words">{o.detail}</p>
+                      <p
+                        className="mt-2 font-display text-lg font-bold tabular-nums sm:text-xl"
+                        title={formatCurrency(o.amount)}
+                      >
+                        {formatCurrency(o.amount)}
+                      </p>
                       {(o.rewardPoints ?? 0) > 0 && (
-                        <p className="mt-1 text-sm font-semibold text-primary">
-                          +{o.rewardPoints.toLocaleString("en-IN")} reward pts
+                        <p className="mt-1 text-sm font-semibold text-primary tabular-nums">
+                          +{formatNumber(o.rewardPoints)}{" "}
+                          {t("common.rewardPoints")}
                         </p>
                       )}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-2">
-                      <span
-                        className={cn(
-                          "rounded-full px-3 py-1.5 text-xs font-bold",
-                          o.step === 4
-                            ? "bg-success text-success-foreground"
-                            : "bg-secondary text-foreground",
-                        )}
-                      >
-                        {orderSteps[o.step]}
-                      </span>
+                      <StatusBadge kind="order" status={o.rawStatus as OrderStatus} />
                       <ChevronRight className="h-5 w-5 text-muted-foreground" />
                     </div>
                   </div>
@@ -206,7 +295,7 @@ function Orders() {
                         : "border border-border bg-background text-foreground",
                     )}
                   >
-                    {helpOpen ? "Close Help" : "Need Help?"}
+                    {helpOpen ? t("common.closeHelp") : t("common.needHelp")}
                   </button>
                   {helpOpen && <OrderHelpPanel order={o} />}
                 </div>
@@ -214,6 +303,10 @@ function Orders() {
             );
           })}
         </div>
+      )}
+
+      {!loading && !error && data && (
+        <ListPagination page={data.page} totalPages={data.totalPages} onPageChange={setPage} />
       )}
     </AppShell>
   );

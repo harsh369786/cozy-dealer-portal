@@ -1,11 +1,11 @@
-const CACHE = "backrest-static-v7";
+const CACHE = "backrest-static-v11";
 const PRECACHE = [
   "/",
   "/manifest.webmanifest",
   "/icons/apple-touch-icon.png",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
-  "/icons/icon-maskable-512.png",
+  "/icons/icon-512-maskable.png",
   "/favicon.png",
 ];
 
@@ -24,6 +24,80 @@ self.addEventListener("activate", (event) => {
       .keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
+  );
+});
+
+function parsePushData(event) {
+  try {
+    if (event.data) {
+      return event.data.json();
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
+function showAppNotification(title, options) {
+  return self.registration.showNotification(title, {
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    ...options,
+  });
+}
+
+self.addEventListener("push", (event) => {
+  const data = parsePushData(event);
+  const title = data.title || "BackRest";
+  const body = data.body || "";
+  const url = data.url || "/";
+  const notificationId = data.notificationId || null;
+
+  event.waitUntil(
+    showAppNotification(title, {
+      body,
+      data: { url, notificationId },
+      tag: notificationId || url,
+      renotify: Boolean(notificationId),
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || "/";
+  const notificationId = event.notification.data?.notificationId || null;
+
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          if ("focus" in client) {
+            client.postMessage({ type: "NOTIFICATION_NAVIGATE", url, notificationId });
+            return client.focus();
+          }
+        }
+        if (self.clients.openWindow) {
+          const parsed = new URL(url, self.location.origin);
+          const hash = notificationId ? `#ntf=${encodeURIComponent(notificationId)}` : "";
+          const target = parsed.pathname + parsed.search + hash;
+          return self.clients.openWindow(target);
+        }
+      }),
+  );
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "SHOW_NOTIFICATION") return;
+  const { title, body, url, notificationId } = event.data;
+  event.waitUntil(
+    showAppNotification(title || "BackRest", {
+      body: body || "",
+      data: { url: url || "/", notificationId: notificationId || null },
+      tag: notificationId || url || "backrest",
+      renotify: Boolean(notificationId),
+    }),
   );
 });
 

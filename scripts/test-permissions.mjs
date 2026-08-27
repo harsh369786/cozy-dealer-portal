@@ -72,25 +72,88 @@ async function main() {
   const orderItems = Array.isArray(orders) ? orders : orders.items ?? [];
   assert("dealer can list orders", allOrders.status === 200 && orderItems.length > 0);
 
+  const dealerId = orderItems[0]?.dealerId ?? "dlr-sharma";
+  const ownPerformance = await api(`/api/v1/dealers/${dealerId}/performance`, dealerSession);
+  assert("dealer can load own performance", ownPerformance.status === 200);
+  const ownPerformanceData = await ownPerformance.json();
+  assert("dealer performance returns monthly rows", Array.isArray(ownPerformanceData));
+
+  const otherPerformance = await api("/api/v1/dealers/not-their-dealer/performance", dealerSession);
+  assert("dealer cannot load another dealer's performance", otherPerformance.status === 403);
+
   if (staffSession) {
     const staffReports = await api("/api/v1/reports/monthly-sales", staffSession);
-    assert("admin_staff cannot access reports", staffReports.status === 403);
+    assert("admin_staff cannot access portal reports", staffReports.status === 403);
+
+    const staffAnalytics = await api("/api/v1/admin/analytics", staffSession);
+    assert("admin_staff cannot access admin analytics", staffAnalytics.status === 403);
+
+    const staffAnnouncements = await api("/api/v1/admin/system-notifications?view=announcements", staffSession);
+    assert("admin_staff can list announcements", staffAnnouncements.status === 200);
+
+    const staffRewardPatch = await api("/api/v1/admin/reward-claims/nonexistent", staffSession, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "delivered" }),
+    });
+    assert("admin_staff cannot mark reward claims delivered", staffRewardPatch.status === 403);
+
+    const staffVisits = await api("/api/v1/admin/visits", staffSession);
+    assert("admin_staff can list visits", staffVisits.status === 200);
   }
+
+  const adminReports = await api("/api/v1/reports/monthly-sales", adminSession);
+  assert("master_admin can access monthly-sales reports", adminReports.status === 200);
+
+  const adminVisits = await api("/api/v1/admin/visits", adminSession);
+  assert("master_admin can list visits", adminVisits.status === 200);
 
   if (seSession) {
     const seComplaints = await api("/api/v1/complaints", seSession);
     assert("SE complaints endpoint ok", seComplaints.status === 200);
     const seReports = await api("/api/v1/reports/product-sales", seSession);
     assert("SE can access scoped product-sales", seReports.status === 200);
+
+    const seVisits = await api("/api/v1/visits", seSession);
+    assert("SE can list visits", seVisits.status === 200);
+
+    const seVisitSummary = await api("/api/v1/reports/visit-summary", seSession);
+    assert("SE can access visit summary", seVisitSummary.status === 200);
   }
 
   const orderId = orderItems[0]?.id;
   if (orderId) {
-    const distDeliver = await api(`/api/v1/orders/${orderId}/status`, distSession, {
+    const distOrdersRes = await api("/api/v1/orders", distSession);
+    const distOrders = await distOrdersRes.json();
+    const distOrderItems = Array.isArray(distOrders) ? distOrders : distOrders.items ?? [];
+    const prematureOrder = distOrderItems.find((o) => ["approved", "in_making"].includes(o.status));
+    const deliverableOrder = distOrderItems.find((o) => o.status === "out_for_delivery");
+
+    if (prematureOrder?.id) {
+      const prematureDeliver = await api(`/api/v1/orders/${prematureOrder.id}/status`, distSession, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "delivered" }),
+      });
+      assert(
+        "distributor cannot skip fulfillment steps",
+        prematureDeliver.status === 400 || prematureDeliver.status === 403,
+      );
+    }
+
+    if (deliverableOrder?.id) {
+      const distDeliver = await api(`/api/v1/orders/${deliverableOrder.id}/status`, distSession, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "delivered" }),
+      });
+      assert("distributor can confirm out-for-delivery order", distDeliver.status === 200);
+    } else {
+      console.log("  ~ skip distributor deliver test (no deliverable order in seed)");
+    }
+
+    const distMaking = await api(`/api/v1/orders/${orderId}/status`, distSession, {
       method: "PATCH",
-      body: JSON.stringify({ status: "delivered" }),
+      body: JSON.stringify({ status: "in_making" }),
     });
-    assert("distributor cannot set delivered", distDeliver.status === 403 || distDeliver.status === 400);
+    assert("distributor cannot set in_making", distMaking.status === 403 || distMaking.status === 400);
   }
 
   const distCancel = await api(`/api/v1/orders/${orderId ?? "BR-00001"}/cancel`, distSession, {
@@ -113,7 +176,19 @@ async function main() {
 
   if (staffSession) {
     const staffAssignments = await api("/api/v1/admin/assignments", staffSession);
-    assert("admin_staff cannot list assignments", staffAssignments.status === 403);
+    assert("admin_staff can list assignments (read-only)", staffAssignments.status === 200);
+
+    const staffAssignmentOptions = await api("/api/v1/admin/assignments/options", staffSession);
+    assert("admin_staff can load assignment options", staffAssignmentOptions.status === 200);
+
+    const staffSignupOptions = await api("/api/v1/admin/signup-applications/options", staffSession);
+    assert("admin_staff can load signup approval options", staffSignupOptions.status === 200);
+
+    const staffAssignmentPatch = await api("/api/v1/admin/assignments/dealers/dealer-test", staffSession, {
+      method: "PATCH",
+      body: JSON.stringify({ distributorId: null }),
+    });
+    assert("admin_staff cannot write assignments", staffAssignmentPatch.status === 403);
   }
 
   const distDealers = await api("/api/v1/dealers", distSession);
@@ -132,14 +207,21 @@ async function main() {
     distDealerPerf.status === 200 && Array.isArray(distPerfData.dealers),
   );
 
+  const foreignDealerPerf = await api(
+    "/api/v1/reports/dealer-performance?dealerId=dlr-out-of-scope-test",
+    distSession,
+  );
+  assert("distributor blocked from out-of-scope dealerId filter", foreignDealerPerf.status === 403);
+
   if (seSession) {
     const seDealers = await api("/api/v1/dealers", seSession);
     const seDealerList = await seDealers.json();
     assert("SE dealers scoped", seDealers.status === 200 && Array.isArray(seDealerList));
     assert(
       "SE sees only assigned dealers",
-      seDealerList.length >= 1 && seDealerList.every((d) => ["dlr-sharma", "dlr-patil"].includes(d.id)),
-      `got ids: ${seDealerList.map((d) => d.id).join(",")}`,
+      seDealerList.length >= 2 &&
+        seDealerList.every((d) => d.salesExecutiveId === "user-sales-exec"),
+      `got ${seDealerList.length} dealers`,
     );
 
     const seDealerPerf = await api("/api/v1/reports/dealer-performance", seSession);
@@ -148,7 +230,8 @@ async function main() {
       "SE can load scoped dealer performance",
       seDealerPerf.status === 200 &&
         Array.isArray(sePerfData.dealers) &&
-        sePerfData.dealers.every((d) => ["dlr-sharma", "dlr-patil"].includes(d.id)),
+        sePerfData.dealers.length >= 2 &&
+        sePerfData.dealers.every((d) => seDealerList.some((sd) => sd.id === d.id)),
     );
   }
 

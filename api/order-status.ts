@@ -27,7 +27,7 @@ const STATUS_UPDATE_ROLES: Record<Exclude<OrderStatus, "order_placed" | "rejecte
   approved: ["distributor", "master_admin"],
   in_making: ["admin_staff", "master_admin"],
   out_for_delivery: ["admin_staff", "master_admin"],
-  delivered: ["admin_staff", "master_admin"],
+  delivered: ["admin_staff", "master_admin", "distributor"],
   cancelled: ["master_admin"],
 };
 
@@ -70,6 +70,9 @@ export function assertStatusUpdate(user: SessionUser, from: OrderStatus, to: Ord
   }
   if (!canRoleSetStatus(user.role, to)) {
     throw new Error(`Your role cannot set status to ${ORDER_STATUS_LABELS[to]}`);
+  }
+  if (user.role === "distributor" && to === "delivered" && from !== "out_for_delivery") {
+    throw new Error("Distributors can only mark delivered when the order is out for delivery");
   }
 }
 

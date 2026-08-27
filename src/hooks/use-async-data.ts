@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useFormatApiError } from "@/lib/api-errors";
 
 type AsyncState<T> = {
   data: T | null;
@@ -14,6 +15,7 @@ export function useAsyncData<T>(fetcher: () => Promise<T>, deps: unknown[] = [])
   const [tick, setTick] = useState(0);
   const dataRef = useRef<T | null>(null);
   dataRef.current = data;
+  const formatApiError = useFormatApiError();
 
   const retry = useCallback(() => setTick((t) => t + 1), []);
 
@@ -32,7 +34,7 @@ export function useAsyncData<T>(fetcher: () => Promise<T>, deps: unknown[] = [])
       })
       .catch((e: unknown) => {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Something went wrong");
+          setError(formatApiError(e));
           setLoading(false);
         }
       });
@@ -40,7 +42,7 @@ export function useAsyncData<T>(fetcher: () => Promise<T>, deps: unknown[] = [])
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tick, ...deps]);
+  }, [tick, formatApiError, ...deps]);
 
   return { data, loading, error, retry };
 }

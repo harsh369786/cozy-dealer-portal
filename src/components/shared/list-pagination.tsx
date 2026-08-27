@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 
 export function ListPagination({
@@ -10,6 +11,7 @@ export function ListPagination({
   totalPages: number;
   onPageChange: (page: number) => void;
 }) {
+  const { t } = useTranslation();
   if (totalPages <= 1) return null;
 
   return (
@@ -24,10 +26,10 @@ export function ListPagination({
         )}
       >
         <ChevronLeft className="h-4 w-4" />
-        Prev
+        {t("common.prevPage")}
       </button>
       <p className="text-sm font-semibold text-muted-foreground">
-        Page {page} of {totalPages}
+        {t("common.pageOf", { page, total: totalPages })}
       </p>
       <button
         type="button"
@@ -38,7 +40,7 @@ export function ListPagination({
           page >= totalPages && "pointer-events-none opacity-50",
         )}
       >
-        Next
+        {t("common.nextPage")}
         <ChevronRight className="h-4 w-4" />
       </button>
     </div>

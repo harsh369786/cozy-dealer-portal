@@ -22,7 +22,7 @@ export type AssignmentSummary = {
 
 export type AssignmentOptions = {
   distributors: Array<{ id: string; name: string; region: string }>;
-  salesExecutives: Array<{ id: string; name: string; phone: string }>;
+  salesExecutives: Array<{ id: string; name: string; phone: string; distributorId?: string | null }>;
 };
 
 export type AssignmentFilters = {
@@ -58,6 +58,12 @@ export async function getAssignmentSummary(): Promise<AssignmentSummary> {
 
 export async function getAssignmentOptions(): Promise<AssignmentOptions> {
   return api.get("/api/v1/admin/assignments/options");
+}
+
+/** Distributor / SE picklists for signup approval (signup:review only). */
+export async function getSignupApprovalOptions(distributorId?: string): Promise<AssignmentOptions> {
+  const q = distributorId ? `?distributorId=${encodeURIComponent(distributorId)}` : "";
+  return api.get(`/api/v1/admin/signup-applications/options${q}`);
 }
 
 export async function updateDealerAssignment(

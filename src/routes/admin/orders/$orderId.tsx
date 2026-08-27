@@ -1,10 +1,12 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
 import { AdminSection } from "@/components/admin/admin-section";
 import { ConfirmActionDialog, RejectOrderDialog } from "@/components/shared/dialogs";
+import { OrderNotesPanel } from "@/components/shared/order-notes-panel";
 import { ORDER_STATUS_LABELS, OrderTimeline } from "@/components/shared/order-timeline";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
@@ -19,8 +21,9 @@ import {
 } from "@/components/ui/select";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
+import { useFormat } from "@/hooks/use-format";
+import { orderStatusKey } from "@/lib/i18n-labels";
 import type { OrderStatus } from "@/lib/mock/distributor/types";
-import { inr } from "@/lib/demo-data";
 import {
   approveOrder,
   cancelOrder,
@@ -36,8 +39,10 @@ export const Route = createFileRoute("/admin/orders/$orderId")({
 });
 
 function AdminOrderDetailPage() {
+  const { t } = useTranslation();
+  const { formatCurrency } = useFormat();
   const { orderId } = Route.useParams();
-  const { can, isMasterAdmin } = useAdminPermissions();
+  const { can } = useAdminPermissions();
   const [order, setOrder] = useState<Awaited<ReturnType<typeof getOrder>>>(null);
   const [allowedStatuses, setAllowedStatuses] = useState<OrderStatus[]>([]);
   const [approveOpen, setApproveOpen] = useState(false);
@@ -73,9 +78,9 @@ function AdminOrderDetailPage() {
       await approveOrder(orderId);
       await refresh();
       setApproveOpen(false);
-      toast.success("Order approved");
+      toast.success(t("distributor.orderDetail.approveSuccess"));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to approve");
+      toast.error(e instanceof Error ? e.message : t("errors.failedToApprove"));
     } finally {
       setActionLoading(false);
     }
@@ -89,7 +94,7 @@ function AdminOrderDetailPage() {
       setRejectOpen(false);
       toast.success("Order rejected");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed to reject");
+      toast.error(e instanceof Error ? e.message : t("errors.failedToReject"));
     } finally {
       setActionLoading(false);
     }
@@ -124,21 +129,17 @@ function AdminOrderDetailPage() {
   };
 
   if (loading) return <PageSkeleton rows={4} />;
-  if (error || !order) return <ErrorState message={error ?? "Order not found"} onRetry={retry} />;
+  if (error || !order) return <ErrorState message={error ?? t("common.orderNotFound")} onRetry={retry} />;
 
   const isPending = order.status === "order_placed";
-  const statusOptions: OrderStatus[] = isMasterAdmin
-    ? (["order_placed", "approved", "in_making", "out_for_delivery", "delivered", "cancelled"] as OrderStatus[]).filter(
-        (s) => s !== order.status,
-      )
-    : allowedStatuses;
+  const statusOptions: OrderStatus[] = allowedStatuses;
   const canChangeStatus = statusOptions.length > 0;
   const totalPoints = order.items.reduce((sum, item) => sum + (item.points ?? 0), 0);
 
   return (
     <div className="space-y-6">
       <AdminPageHeader
-        title={`Order #${order.id}`}
+        title={t("common.orderHash", { orderId: order.id })}
         description={`${order.dealerName} · ${order.distributorName ?? "—"}`}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -163,7 +164,7 @@ function AdminOrderDetailPage() {
       </div>
 
       {canChangeStatus && (
-        <AdminSection title="Change status">
+        <AdminSection title={t("common.status")}>
           <div className="flex max-w-md flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1">
               <Label>Order status</Label>
@@ -186,13 +187,13 @@ function AdminOrderDetailPage() {
               onClick={handleStatusChange}
               disabled={actionLoading || statusDraft === order.status}
             >
-              {actionLoading ? "Saving…" : "Update status"}
+              {actionLoading ? t("common.saving") : "Update status"}
             </Button>
           </div>
         </AdminSection>
       )}
 
-      <AdminSection title="Order summary">
+      <AdminSection title={t("common.orderTotal")}>
         <div className="grid gap-3 text-sm sm:grid-cols-2">
           <div>
             <p className="text-muted-foreground">Placed</p>
@@ -200,11 +201,11 @@ function AdminOrderDetailPage() {
           </div>
           <div>
             <p className="text-muted-foreground">Total</p>
-            <p className="font-bold">{inr(order.totalValue)}</p>
+            <p className="font-bold">{formatCurrency(order.totalValue)}</p>
           </div>
           <div>
             <p className="text-muted-foreground">Reward points</p>
-            <p className="font-bold text-primary">{totalPoints.toLocaleString("en-IN")} pts</p>
+            <p className="font-bold text-primary">{totalPoints.toLocaleString("en-IN")} Points</p>
           </div>
           {order.dealerAddress && (
             <div className="sm:col-span-2">
@@ -215,10 +216,21 @@ function AdminOrderDetailPage() {
               </p>
             </div>
           )}
+          {order.dealerPhone && (
+            <div className="sm:col-span-2">
+              <p className="text-muted-foreground">Dealer phone</p>
+              <a
+                href={`tel:${order.dealerPhone.replace(/\s/g, "")}`}
+                className="mt-0.5 inline-block font-semibold text-primary hover:underline"
+              >
+                {order.dealerPhone}
+              </a>
+            </div>
+          )}
         </div>
       </AdminSection>
 
-      <AdminSection title="Items">
+      <AdminSection title={t("distributor.orderDetail.itemsLabel")}>
         <div className="space-y-2">
           {order.items.map((item, i) => (
             <div key={i} className="rounded-2xl bg-secondary/40 px-3 py-2 text-sm">
@@ -226,16 +238,18 @@ function AdminOrderDetailPage() {
                 {item.model} — {item.size} × {item.thickness}
               </p>
               <p className="text-muted-foreground">Qty: {item.quantity}</p>
-              <p className="font-bold">{inr(item.campaignPrice ?? item.dealerPrice)}</p>
+              <p className="font-bold">{formatCurrency(item.campaignPrice ?? item.dealerPrice)}</p>
               {item.points ? (
-                <p className="text-xs font-semibold text-primary">+{item.points.toLocaleString("en-IN")} reward pts</p>
+                <p className="text-xs font-semibold text-primary">+{item.points.toLocaleString("en-IN")} reward points</p>
               ) : null}
             </div>
           ))}
         </div>
       </AdminSection>
 
-      <AdminSection title="Status timeline">
+      <OrderNotesPanel orderNotes={order.notes} items={order.items} className="mb-4" />
+
+      <AdminSection title={t("common.orderTimeline")}>
         <OrderTimeline events={order.timeline} />
       </AdminSection>
 
@@ -265,7 +279,7 @@ function AdminOrderDetailPage() {
       <ConfirmActionDialog
         open={approveOpen}
         onOpenChange={setApproveOpen}
-        title="Approve order"
+        title={t("distributor.confirmApprove.title")}
         description={`Approve order #${order.id}?`}
         confirmLabel="Approve"
         onConfirm={handleApprove}

@@ -197,6 +197,9 @@ export type AdminDashboardData = {
     pendingApprovals: number;
     openComplaints: number;
     activeCampaigns: number;
+    currentMonthLabel?: string;
+    previousMonthLabel?: string;
+    salesGrowth?: number;
   };
   monthlySales: Array<{ month: string; sales: number; orders: number }>;
   topProducts: Array<{ product: string; sales: number; units: number }>;

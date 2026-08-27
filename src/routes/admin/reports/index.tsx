@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
 import { ReportsBreadcrumb } from "@/components/admin/reports/reports-breadcrumb";
@@ -11,6 +12,7 @@ import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import type { AnalyticsFilters } from "@/lib/admin/analytics";
+import { DEFAULT_FROM_MONTH, DEFAULT_TO_MONTH } from "@/lib/admin/analytics/filters";
 import { getAdminAnalytics } from "@/services/admin/reports";
 
 export const Route = createFileRoute("/admin/reports/")({
@@ -35,21 +37,32 @@ function AdminReportsPage() {
 }
 
 function ReportsContent() {
+  const { t } = useTranslation();
   const searchParams = Route.useSearch();
   const navigate = useNavigate();
   const [searchInput, setSearchInput] = useState("");
   const search = useDebouncedValue(searchInput, 350);
 
+  const effectiveFilters: AnalyticsFilters = {
+    fromMonth: searchParams.fromMonth ?? DEFAULT_FROM_MONTH,
+    toMonth: searchParams.toMonth ?? DEFAULT_TO_MONTH,
+    month: searchParams.month ?? searchParams.toMonth ?? DEFAULT_TO_MONTH,
+    distributorId: searchParams.distributorId,
+    salesExecutiveId: searchParams.salesExecutiveId,
+    dealerId: searchParams.dealerId,
+    product: searchParams.product,
+  };
+
   const { data, loading, error, retry } = useAsyncData(
-    () => getAdminAnalytics({ ...searchParams, search: search || undefined }),
+    () => getAdminAnalytics({ ...effectiveFilters, search: search || undefined }),
     [
-      searchParams.month,
-      searchParams.fromMonth,
-      searchParams.toMonth,
-      searchParams.distributorId,
-      searchParams.salesExecutiveId,
-      searchParams.dealerId,
-      searchParams.product,
+      effectiveFilters.month,
+      effectiveFilters.fromMonth,
+      effectiveFilters.toMonth,
+      effectiveFilters.distributorId,
+      effectiveFilters.salesExecutiveId,
+      effectiveFilters.dealerId,
+      effectiveFilters.product,
       search,
     ],
   );
@@ -71,7 +84,7 @@ function ReportsContent() {
 
   if (loading && !data) return <PageSkeleton rows={6} />;
   if (error && !data) {
-    return <ErrorState message={error ?? "Failed to load reports"} onRetry={retry} />;
+    return <ErrorState message={error ?? t("errors.failedToLoadReports")} onRetry={retry} />;
   }
 
   if (!data) return null;
@@ -79,8 +92,8 @@ function ReportsContent() {
   return (
     <div className="min-w-0 space-y-6 overflow-x-hidden">
       <AdminPageHeader
-        title="Business Reports"
-        description={`${data.scopeLabel} — sales, orders, and dealer performance`}
+        title={t("admin.reports.title")}
+        description={t("admin.reports.description", { scope: data.scopeLabel })}
       />
 
         <ReportsBreadcrumb report={data} onNavigate={applyFilters} />
@@ -94,10 +107,10 @@ function ReportsContent() {
 
         {data.isEmpty ? (
           <div className="rounded-xl border border-dashed border-border bg-card p-10 text-center">
-            <p className="font-display text-lg font-bold">No data for this period</p>
-            <p className="mt-2 text-sm text-muted-foreground">Try another date range or clear filters.</p>
+            <p className="font-display text-lg font-bold">{t("common.noMatchingResults")}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{t("common.tryAgain")}</p>
             <Button className="mt-4 rounded-lg font-bold" onClick={() => applyFilters({ month: data.filters.month })}>
-              Show all distributors
+              {t("admin.explore.ordersByDistributor")}
             </Button>
           </div>
         ) : (

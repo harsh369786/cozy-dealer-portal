@@ -7,19 +7,18 @@ export function useAdminPermissions() {
   const { user, loading } = useSession();
 
   const permissions = useMemo<Permission[]>(() => {
-    if (loading) return [];
-    if (user?.permissions?.length) return user.permissions as Permission[];
-    if (user?.role) return permissionsForRole(user.role);
-    return [];
-  }, [loading, user]);
+    if (loading || !user?.role) return [];
+    const fromSession = user.permissions as Permission[] | undefined;
+    if (Array.isArray(fromSession)) return fromSession;
+    return permissionsForRole(user.role);
+  }, [loading, user?.role, user?.permissions]);
 
   const isMasterAdmin = !loading && user?.role === "master_admin";
 
-  const can = (permission: Permission) =>
-    !loading && (isMasterAdmin || hasPermission(permissions, permission));
+  const can = (permission: Permission) => !loading && hasPermission(permissions, permission);
 
   const canAny = (...required: Permission[]) =>
-    !loading && (isMasterAdmin || hasAnyPermission(permissions, required));
+    !loading && hasAnyPermission(permissions, required);
 
   return { permissions, isMasterAdmin, can, canAny, user, loading };
 }

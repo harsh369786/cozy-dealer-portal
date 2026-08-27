@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { DistributorShell } from "@/components/distributor-shell";
 import { SearchBar, matchesSearch } from "@/components/shared/search-bar";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -12,6 +13,7 @@ export const Route = createFileRoute("/distributor/complaints/")({
 });
 
 function ComplaintsPage() {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const simulateError =
     typeof window !== "undefined" &&
@@ -31,25 +33,23 @@ function ComplaintsPage() {
   );
 
   return (
-    <DistributorShell title="Complaints" back="/distributor/more" showBell={false}>
+    <DistributorShell title={t("distributor.complaints.title")} back="/distributor/more" showBell={false}>
       <SearchBar
         value={search}
         onChange={setSearch}
-        placeholder="Search by ID, dealer, order or category…"
+        placeholder={t("distributor.complaints.searchPlaceholder")}
       />
 
       <p className="mb-4 mt-4 text-sm text-muted-foreground">
-        Read-only view. Complaint status is managed by admin staff.
+        {t("distributor.complaints.readOnlyNote")}
       </p>
       {loading && <PageSkeleton rows={4} />}
       {error && <ErrorState message={error} onRetry={retry} />}
       {!loading && !error && filtered.length === 0 && (
         <EmptyState
-          title={search.trim() ? "No matching complaints" : "No complaints"}
+          title={search.trim() ? t("distributor.complaints.noMatching") : t("distributor.complaints.noComplaints")}
           description={
-            search.trim()
-              ? "Try a different dealer name, order ID, or keyword."
-              : "Complaints from your dealers will appear here."
+            search.trim() ? t("distributor.complaints.noMatchingDesc") : t("distributor.complaints.noComplaintsDesc")
           }
         />
       )}
@@ -72,7 +72,7 @@ function ComplaintsPage() {
               <p className="mt-2 text-sm font-semibold">{c.category}</p>
               <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{c.description}</p>
               <p className="mt-2 text-xs text-muted-foreground">
-                Order {c.orderId} · {c.createdAt}
+                {t("distributor.complaints.orderMeta", { orderId: c.orderId, date: c.createdAt })}
               </p>
             </Link>
           ))}

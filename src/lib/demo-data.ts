@@ -376,7 +376,7 @@ export const sampleComplaints: Complaint[] = [
 ];
 
 export const LENGTHS = [72, 75, 78, 84];
-export const BREADTHS = [30, 36, 48, 60, 66, 72, 75, 78, 84];
+export const BREADTHS = [30, 36, 42, 48, 60, 66, 72, 75, 78, 84];
 
 export const FREE_ITEM = { label: "2 × Fiber Pillows", value: 920 };
 
@@ -526,7 +526,10 @@ export const campaigns: SellCampaign[] = [
   },
 ];
 
-export const inr = (n: number) => "₹" + n.toLocaleString("en-IN");
+import { formatInr } from "@/lib/date-format";
+import i18n from "@/lib/i18n";
+
+export const inr = (n: number) => formatInr(n, i18n.language === "hi" ? "hi" : "en");
 
 export const inrCompact = (n: number) => {
   if (n >= 10000000) return `₹${(n / 10000000).toFixed(1)} Cr`;

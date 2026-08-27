@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AdminSection } from "@/components/admin/admin-section";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
@@ -16,17 +17,21 @@ export const Route = createFileRoute("/admin/settings/")({
   component: AdminSettingsPage,
 });
 
-const GROUP_LABELS: Record<SystemSetting["group"], string> = {
-  otp: "OTP & authentication",
-  reminders: "Order reminders",
-  features: "Feature flags",
-  notifications: "Notification defaults",
-};
-
 function AdminSettingsPage() {
+  const { t } = useTranslation();
   const { can } = useAdminPermissions();
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+
+  const groupLabels = useMemo(
+    (): Record<SystemSetting["group"], string> => ({
+      otp: t("admin.settings.groups.otp"),
+      reminders: t("admin.settings.groups.reminders"),
+      features: t("admin.settings.groups.features"),
+      notifications: t("admin.settings.groups.notifications"),
+    }),
+    [t],
+  );
 
   const { data, loading, error, retry } = useAsyncData(async () => {
     const settings = await getSettings();
@@ -42,29 +47,31 @@ function AdminSettingsPage() {
     setSaving(true);
     try {
       await Promise.all(Object.entries(draft).map(([key, value]) => updateSetting(key, value)));
-      toast.success("Settings saved");
+      toast.success(t("admin.settings.settingsSaved"));
       retry();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Save failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     } finally {
       setSaving(false);
     }
   };
 
   if (loading) return <PageSkeleton rows={4} />;
-  if (error || !data) return <ErrorState message={error ?? "Failed to load settings"} onRetry={retry} />;
+  if (error || !data) {
+    return <ErrorState message={error ?? t("errors.failedToLoadSettings")} onRetry={retry} />;
+  }
 
   const groups = [...new Set(data.map((s) => s.group))];
 
   return (
     <div>
       <AdminPageHeader
-        title="Settings"
-        description="System configuration and feature flags."
+        title={t("admin.settings.title")}
+        description={t("admin.settings.description")}
         actions={
           !readOnly ? (
             <Button className="rounded-2xl font-bold" onClick={handleSave} disabled={saving}>
-              {saving ? "Saving…" : "Save changes"}
+              {saving ? t("common.saving") : t("admin.settings.saveChanges")}
             </Button>
           ) : undefined
         }
@@ -72,13 +79,13 @@ function AdminSettingsPage() {
 
       {readOnly && (
         <p className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Read-only view — only Master Admin can edit settings.
+          {t("admin.settings.readOnlyNotice")}
         </p>
       )}
 
       <div className="space-y-6">
         {groups.map((group) => (
-          <AdminSection key={group} title={GROUP_LABELS[group]}>
+          <AdminSection key={group} title={groupLabels[group]}>
             <div className="grid max-w-lg gap-4">
               {data
                 .filter((s) => s.group === group)

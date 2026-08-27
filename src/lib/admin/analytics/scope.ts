@@ -86,15 +86,20 @@ function buildScopeLabel(filters: AnalyticsFilters, dealers: DistributorDealer[]
 }
 
 export function buildBreadcrumb(filters: AnalyticsFilters) {
+  const baseFilters: AnalyticsFilters = {
+    month: filters.month,
+    fromMonth: filters.fromMonth,
+    toMonth: filters.toMonth,
+  };
   const crumbs: Array<{ label: string; filters: AnalyticsFilters }> = [
-    { label: "Reports", filters: { month: filters.month } },
+    { label: "Reports", filters: baseFilters },
   ];
 
   if (filters.distributorId) {
     const dist = adminStore.distributors[filters.distributorId];
     crumbs.push({
       label: dist?.name ?? "Distributor",
-      filters: { month: filters.month, distributorId: filters.distributorId },
+      filters: { ...baseFilters, distributorId: filters.distributorId },
     });
   }
 
@@ -103,7 +108,7 @@ export function buildBreadcrumb(filters: AnalyticsFilters) {
     crumbs.push({
       label: se?.name ?? "Sales Executive",
       filters: {
-        month: filters.month,
+        ...baseFilters,
         distributorId: filters.distributorId,
         salesExecutiveId: filters.salesExecutiveId,
       },
@@ -115,7 +120,7 @@ export function buildBreadcrumb(filters: AnalyticsFilters) {
     crumbs.push({
       label: dealer?.name ?? "Dealer",
       filters: {
-        month: filters.month,
+        ...baseFilters,
         distributorId: filters.distributorId,
         salesExecutiveId: filters.salesExecutiveId,
         dealerId: filters.dealerId,

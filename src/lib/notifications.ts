@@ -6,6 +6,7 @@ export type AppNotification = {
   link: string;
   createdAt: string;
   read: boolean;
+  metadata?: unknown;
   whatsappMessage?: string;
 };
 
@@ -19,6 +20,10 @@ export type StoredComplaint = {
 };
 
 const SEEN_CAMPAIGNS_KEY = "backrest_seen_campaigns";
+
+function seenKey(userId?: string) {
+  return userId ? `${SEEN_CAMPAIGNS_KEY}:${userId}` : SEEN_CAMPAIGNS_KEY;
+}
 
 function readJson<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
@@ -35,15 +40,20 @@ function writeJson<T>(key: string, value: T) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-export function getSeenCampaignIds(): string[] {
-  return readJson<string[]>(SEEN_CAMPAIGNS_KEY, []);
+export function getSeenCampaignIds(userId?: string): string[] {
+  return readJson<string[]>(seenKey(userId), []);
 }
 
-export function markCampaignSeen(campaignId: string) {
-  const seen = getSeenCampaignIds();
+export function markCampaignSeen(campaignId: string, userId?: string) {
+  const key = seenKey(userId);
+  const seen = readJson<string[]>(key, []);
   if (!seen.includes(campaignId)) {
-    writeJson(SEEN_CAMPAIGNS_KEY, [...seen, campaignId]);
+    writeJson(key, [...seen, campaignId]);
   }
+}
+
+export function isCampaignUnseen(campaignId: string, userId?: string): boolean {
+  return !getSeenCampaignIds(userId).includes(campaignId);
 }
 
 export const dealer = {

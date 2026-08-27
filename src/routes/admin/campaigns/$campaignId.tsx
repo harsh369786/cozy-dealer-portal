@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
-import { AdminPageHeader } from "@/components/admin/admin-page-header";
+import { useTranslation } from "react-i18next";import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { Badge } from "@/components/ui/badge";
@@ -17,8 +17,8 @@ export const Route = createFileRoute("/admin/campaigns/$campaignId")({
 });
 
 function EditCampaignPage() {
-  const { campaignId } = Route.useParams();
-  const { can } = useAdminPermissions();
+  const { t } = useTranslation();
+  const { campaignId } = Route.useParams();  const { can } = useAdminPermissions();
   const [local, setLocal] = useState<Awaited<ReturnType<typeof getCampaign>>>(null);
   const [saving, setSaving] = useState(false);
   const [deactivateOpen, setDeactivateOpen] = useState(false);
@@ -37,10 +37,9 @@ function EditCampaignPage() {
     setSaving(true);
     try {
       await saveCampaign(local);
-      toast.success("Campaign saved");
+      toast.success(t("common.save"));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Save failed");
-    } finally {
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));    } finally {
       setSaving(false);
     }
   };
@@ -50,23 +49,22 @@ function EditCampaignPage() {
     try {
       if (local?.active) {
         await deactivateCampaign(campaignId);
-        toast.success("Campaign deactivated");
+        toast.success(t("common.deactivate"));
+        setLocal({ ...local, active: false, status: "expired" });
       } else {
         await activateCampaign(campaignId);
-        toast.success("Campaign reactivated");
+        toast.success(t("common.activate"));
+        retry();
       }
-      retry();
       setDeactivateOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Action failed");
-    } finally {
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));    } finally {
       setToggleLoading(false);
     }
   };
 
   if (loading) return <PageSkeleton rows={3} />;
-  if (error || !local) return <ErrorState message={error ?? "Campaign not found"} onRetry={retry} />;
-
+  if (error || !local) return <ErrorState message={error ?? t("errors.notFound")} onRetry={retry} />;
   return (
     <div>
       <AdminPageHeader
@@ -76,7 +74,7 @@ function EditCampaignPage() {
           <>
             <StatusBadge kind="campaign" status={local.status} />
             <Badge variant={local.active ? "secondary" : "outline"}>
-              {local.active ? "Live" : "Deactivated"}
+              {local.active ? t("common.active") : t("common.inactive")}
             </Badge>
             {!readOnly && (
               <Button
@@ -85,12 +83,11 @@ function EditCampaignPage() {
                 onClick={() => (local.active ? setDeactivateOpen(true) : handleToggleActive())}
                 disabled={toggleLoading}
               >
-                {local.active ? "Deactivate" : "Reactivate"}
+                {local.active ? t("common.deactivate") : t("common.activate")}
               </Button>
             )}
             <Link to="/admin/campaigns">
-              <Button variant="outline" className="rounded-2xl font-bold">← Back</Button>
-            </Link>
+              <Button variant="outline" className="rounded-2xl font-bold">{t("common.backToHome")}</Button>            </Link>
           </>
         }
       />
@@ -104,10 +101,9 @@ function EditCampaignPage() {
       <ConfirmActionDialog
         open={deactivateOpen}
         onOpenChange={setDeactivateOpen}
-        title="Deactivate campaign?"
-        description="This campaign will no longer be visible to dealers or distributors."
-        confirmLabel="Deactivate"
-        onConfirm={handleToggleActive}
+        title={t("admin.campaigns.deactivateTitle")}
+        description={t("admin.campaigns.deactivateDescription")}
+        confirmLabel={t("common.deactivate")}        onConfirm={handleToggleActive}
         loading={toggleLoading}
         variant="destructive"
       />

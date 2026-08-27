@@ -1,9 +1,11 @@
 import type { DistributorComplaint } from "@/lib/mock/distributor/types";
 import { api } from "@/lib/api-client";
+import { isNotFoundError } from "@/lib/api-errors";
 
 export async function getComplaints(simulateError = false): Promise<DistributorComplaint[]> {
   if (simulateError) throw new Error("Failed to load complaints");
-  return api.get<DistributorComplaint[]>("/api/v1/complaints");
+  const res = await api.get<DistributorComplaint[] | { items: DistributorComplaint[] }>("/api/v1/complaints");
+  return Array.isArray(res) ? res : (res.items ?? []);
 }
 
 export async function getComplaintById(
@@ -12,10 +14,10 @@ export async function getComplaintById(
 ): Promise<DistributorComplaint | null> {
   if (simulateError) throw new Error("Failed to load complaint");
   try {
-    const all = await getComplaints();
-    return all.find((c) => c.id === id) ?? null;
-  } catch {
-    return null;
+    return await api.get<DistributorComplaint>(`/api/v1/complaints/${id}`);
+  } catch (error) {
+    if (isNotFoundError(error)) return null;
+    throw error;
   }
 }
 

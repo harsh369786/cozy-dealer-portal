@@ -16,10 +16,12 @@ export function getOtpProvider(): OtpProvider {
 
 export function generateOtpCode(environment?: string): string {
   const env = environment ?? (typeof process !== "undefined" ? process.env?.ENVIRONMENT : undefined);
-  if (env !== "production") {
-    return "123456";
+  if (env === "production") {
+    const random = new Uint32Array(1);
+    crypto.getRandomValues(random);
+    return String(100000 + (random[0]! % 900000));
   }
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return "123456";
 }
 
 export async function requestOtp(db: D1Database, phone: string, environment?: string) {
@@ -83,7 +85,7 @@ export async function verifyOtp(db: D1Database, phone: string, code: string) {
     .bind(normalized)
     .first<Record<string, unknown>>();
 
-  if (!user) throw new Error("Phone not registered. Apply via signup.");
+  if (!user) throw new Error("Invalid OTP");
   if (user.status === "rejected") throw new Error("Your signup request was rejected");
   if (user.status === "suspended") throw new Error("Account suspended. Contact support.");
   if (user.status !== "active" && user.status !== "pending_approval") {

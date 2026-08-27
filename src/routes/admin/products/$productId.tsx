@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
 import { ConfirmActionDialog } from "@/components/shared/dialogs";
@@ -17,6 +18,7 @@ export const Route = createFileRoute("/admin/products/$productId")({
 });
 
 function EditProductPage() {
+  const { t } = useTranslation();
   const { productId } = Route.useParams();
   const { can } = useAdminPermissions();
   const [confirmArchive, setConfirmArchive] = useState(false);
@@ -36,9 +38,9 @@ function EditProductPage() {
     setSaving(true);
     try {
       await saveProduct(local);
-      toast.success("Product saved");
+      toast.success(t("common.save"));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Save failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -49,20 +51,20 @@ function EditProductPage() {
     try {
       if (local.status === "active") {
         await archiveProduct(local.id);
-        toast.success("Product archived");
+        toast.success(t("common.archived"));
       } else {
         await restoreProduct(local.id);
-        toast.success("Product restored");
+        toast.success(t("common.activate"));
       }
       retry();
       setConfirmArchive(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Action failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     }
   };
 
   if (loading) return <PageSkeleton rows={4} />;
-  if (error || !local) return <ErrorState message={error ?? "Product not found"} onRetry={retry} />;
+  if (error || !local) return <ErrorState message={error ?? t("common.productNotFound")} onRetry={retry} />;
 
   return (
     <div>
@@ -72,10 +74,10 @@ function EditProductPage() {
         actions={
           <>
             <Badge variant={local.status === "active" ? "secondary" : "outline"} className="capitalize">
-              {local.status}
+              {local.status === "active" ? t("common.active") : t("common.archived")}
             </Badge>
             <Link to="/admin/products">
-              <Button variant="outline" className="rounded-2xl font-bold">← Back</Button>
+              <Button variant="outline" className="rounded-2xl font-bold">{t("common.backToHome")}</Button>
             </Link>
           </>
         }
@@ -94,13 +96,9 @@ function EditProductPage() {
         <ConfirmActionDialog
           open={confirmArchive}
           onOpenChange={setConfirmArchive}
-          title={local.status === "active" ? "Archive product?" : "Restore product?"}
-          description={
-            local.status === "active"
-              ? "Archived products are hidden from the dealer catalog."
-              : "This product will be visible in the catalog again."
-          }
-          confirmLabel={local.status === "active" ? "Archive" : "Restore"}
+          title={local.status === "active" ? t("common.deactivate") : t("common.activate")}
+          description={t("admin.products.description")}
+          confirmLabel={local.status === "active" ? t("common.deactivate") : t("common.activate")}
           onConfirm={handleArchive}
           variant={local.status === "active" ? "destructive" : "default"}
         />

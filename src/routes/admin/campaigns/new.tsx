@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-page-header";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
@@ -18,7 +19,6 @@ import {
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Textarea } from "@/components/ui/textarea";
-import { useAdminPermissions } from "@/hooks/use-admin-permissions";
 import type { AdminCampaign } from "@/lib/mock/admin/types";
 import type { CampaignStatus } from "@/lib/mock/distributor/types";
 import { saveCampaign } from "@/services/admin/campaigns";
@@ -32,6 +32,7 @@ function todayInputValue() {
 }
 
 function NewCampaignPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [campaign, setCampaign] = useState<AdminCampaign>({
     id: `camp-${Date.now()}`,
@@ -66,7 +67,7 @@ function NewCampaignPage() {
       toast.success("Campaign created");
       await navigate({ to: "/admin/campaigns/$campaignId", params: { campaignId: saved.id } });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Save failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -100,7 +101,7 @@ export function CampaignForm({
   saving?: boolean;
   readOnly?: boolean;
 }) {
-  const { isMasterAdmin } = useAdminPermissions();
+  const { t } = useTranslation();
   const patch = (p: Partial<AdminCampaign>) => onChange({ ...campaign, ...p });
   const formStatus = campaign.storedStatus ?? campaign.status;
 
@@ -170,7 +171,7 @@ export function CampaignForm({
             />
           </div>
         </div>
-        {isMasterAdmin && (
+        {!readOnly && (
           <div>
             <Label>Status</Label>
             <Select
@@ -232,7 +233,7 @@ export function CampaignForm({
         </div>
         {!readOnly && (
           <AdminPrimaryButton onClick={onSave} disabled={saving}>
-            {saving ? "Saving…" : "Save campaign"}
+            {saving ? t("common.saving") : "Save campaign"}
           </AdminPrimaryButton>
         )}
       </div>

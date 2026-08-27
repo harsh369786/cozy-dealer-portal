@@ -1,11 +1,5 @@
 import type { AdminAnalyticsReport, AnalyticsFilters } from "@/lib/admin/analytics";
 import { api } from "@/lib/api-client";
-import {
-  buildAdminAnalytics,
-  normalizeFilters,
-  type AdminAnalyticsReport as MockReport,
-} from "@/lib/admin/analytics";
-import { delay } from "./_utils";
 
 export type { AdminAnalyticsReport, AnalyticsFilters };
 
@@ -26,15 +20,10 @@ function qs(filters: AnalyticsFilters & { search?: string }) {
 export async function getAdminAnalytics(
   filters: AnalyticsFilters & { search?: string } = {},
 ): Promise<AdminAnalyticsReport> {
-  try {
-    return await api.get<AdminAnalyticsReport>(`/api/v1/admin/analytics${qs(filters)}`);
-  } catch {
-    await delay();
-    return buildAdminAnalytics(normalizeFilters(filters)) as MockReport;
-  }
+  return api.get<AdminAnalyticsReport>(`/api/v1/admin/analytics${qs(filters)}`);
 }
 
-export type ExploreLevel = "distributors" | "dealers" | "orders";
+export type ExploreLevel = "distributors" | "dealers" | "orders" | "all_dealers";
 
 export type ExploreItem = Record<string, unknown>;
 

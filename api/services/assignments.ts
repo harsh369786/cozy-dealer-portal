@@ -4,6 +4,7 @@ import {
   notifyDealerUsers,
   notifyDistributorsForOrg,
   notifySalesExecutive,
+  withNotificationI18n,
 } from "./notification-events";
 
 export type AssignmentRow = {
@@ -177,13 +178,81 @@ export async function getAssignmentOptions(db: D1Database) {
 
   const { results: salesExecutives } = await db
     .prepare(
-      `SELECT id, name, phone FROM users
-       WHERE role = 'sales_executive' AND deleted_at IS NULL AND status = 'active'
-       ORDER BY name`,
+      `SELECT u.id, u.name, u.phone,
+              COALESCE(
+                u.distributor_id,
+                (SELECT d.distributor_id FROM dealers d
+                 WHERE d.sales_executive_user_id = u.id AND d.deleted_at IS NULL
+                 LIMIT 1)
+              ) as distributor_id
+       FROM users u
+       WHERE u.role = 'sales_executive' AND u.deleted_at IS NULL AND u.status = 'active'
+       ORDER BY u.name`,
     )
-    .all<{ id: string; name: string; phone: string }>();
+    .all<{ id: string; name: string; phone: string; distributor_id: string | null }>();
 
-  return { distributors, salesExecutives };
+  return {
+    distributors,
+    salesExecutives: salesExecutives.map((u) => ({
+      id: u.id,
+      name: u.name,
+      phone: u.phone,
+      distributorId: u.distributor_id,
+    })),
+  };
+}
+
+/** SE picklists for signup approval — includes SEs linked via dealers / assignments under a distributor. */
+export async function getSignupApprovalOptions(db: D1Database, distributorId?: string) {
+  const { results: distributors } = await db
+    .prepare(`SELECT id, name, region FROM distributors WHERE deleted_at IS NULL ORDER BY name`)
+    .all<{ id: string; name: string; region: string }>();
+
+  let seSql = `
+    SELECT DISTINCT u.id, u.name, u.phone,
+      COALESCE(
+        u.distributor_id,
+        (SELECT d.distributor_id FROM dealers d
+         WHERE d.sales_executive_user_id = u.id AND d.deleted_at IS NULL
+         LIMIT 1)
+      ) as distributor_id
+    FROM users u
+    WHERE u.role = 'sales_executive' AND u.deleted_at IS NULL AND u.status = 'active'`;
+  const seBinds: unknown[] = [];
+
+  if (distributorId) {
+    seSql += `
+      AND (
+        u.distributor_id = ?
+        OR EXISTS (
+          SELECT 1 FROM dealers d
+          WHERE d.sales_executive_user_id = u.id AND d.distributor_id = ? AND d.deleted_at IS NULL
+        )
+        OR EXISTS (
+          SELECT 1 FROM dealer_assignments da
+          JOIN dealers d ON d.id = da.dealer_id AND d.deleted_at IS NULL
+          WHERE da.assignee_user_id = u.id AND da.assignee_role = 'sales_executive' AND d.distributor_id = ?
+        )
+      )`;
+    seBinds.push(distributorId, distributorId, distributorId);
+  }
+
+  seSql += ` ORDER BY u.name`;
+
+  const { results: salesExecutives } = await db
+    .prepare(seSql)
+    .bind(...seBinds)
+    .all<{ id: string; name: string; phone: string; distributor_id: string | null }>();
+
+  return {
+    distributors,
+    salesExecutives: salesExecutives.map((u) => ({
+      id: u.id,
+      name: u.name,
+      phone: u.phone,
+      distributorId: u.distributor_id,
+    })),
+  };
 }
 
 async function validateDistributorId(db: D1Database, distributorId: string | null | undefined) {
@@ -310,6 +379,10 @@ export async function updateDealerAssignment(
         title: "Dealer assigned to you",
         body: `${after.store_name} (${after.code}) is now under your portfolio`,
         link: `/distributor/dealers/${dealerId}`,
+        ...withNotificationI18n("notifications.dealerAssignedToYou.title", "notifications.dealerAssignedToYou.body", {
+          storeName: after.store_name,
+          code: after.code,
+        }),
       });
     }
     if (patch.distributorId !== undefined && patch.distributorId !== before.distributor_id) {
@@ -320,6 +393,10 @@ export async function updateDealerAssignment(
           title: "Dealer assigned",
           body: `${after.store_name} (${after.code}) joined your network`,
           link: `/distributor/dealers/${dealerId}`,
+          ...withNotificationI18n("notifications.dealerJoinedNetwork.title", "notifications.dealerJoinedNetwork.body", {
+            storeName: after.store_name,
+            code: after.code,
+          }),
         });
       }
       await notifyDealerUsers(db, dealerId, {
@@ -330,6 +407,13 @@ export async function updateDealerAssignment(
           ? `Your account is now linked to ${after.distributor_name}`
           : "Your distributor assignment has been updated",
         link: "/profile",
+        ...withNotificationI18n(
+          "notifications.distributorUpdated.title",
+          after.distributor_name
+            ? "notifications.distributorUpdated.bodyWithName"
+            : "notifications.distributorUpdated.body",
+          after.distributor_name ? { distributorName: after.distributor_name } : undefined,
+        ),
       });
     }
   }
@@ -344,16 +428,72 @@ export async function bulkUpdateAssignments(
   actorUserId: string,
 ) {
   if (!dealerIds.length) throw new Error("No dealers selected");
-  const results: AssignmentRow[] = [];
-  for (const dealerId of dealerIds) {
-    const row = await updateDealerAssignment(db, dealerId, patch, actorUserId);
-    if (row) results.push(row);
+  const MAX_BULK = 50;
+  if (dealerIds.length > MAX_BULK) {
+    throw new Error(`Maximum ${MAX_BULK} dealers per bulk update`);
   }
+  if (!patch.distributorId && !patch.salesExecutiveUserId) {
+    throw new Error("No assignment fields to update");
+  }
+
+  const ts = nowIso();
+  const placeholders = dealerIds.map(() => "?").join(",");
+
+  if (patch.distributorId !== undefined) {
+    if (patch.distributorId) {
+      const dist = await db
+        .prepare(`SELECT id FROM distributors WHERE id = ? AND deleted_at IS NULL`)
+        .bind(patch.distributorId)
+        .first();
+      if (!dist) throw new Error("Distributor not found");
+    }
+    await db
+      .prepare(
+        `UPDATE dealers SET distributor_id = ?, updated_at = ?
+         WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+      )
+      .bind(patch.distributorId, ts, ...dealerIds)
+      .run();
+  }
+
+  if (patch.salesExecutiveUserId !== undefined) {
+    if (patch.salesExecutiveUserId) {
+      const se = await db
+        .prepare(
+          `SELECT id FROM users WHERE id = ? AND role = 'sales_executive' AND deleted_at IS NULL`,
+        )
+        .bind(patch.salesExecutiveUserId)
+        .first();
+      if (!se) throw new Error("Sales executive not found");
+    }
+    await db
+      .prepare(
+        `UPDATE dealers SET sales_executive_user_id = ?, updated_at = ?
+         WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+      )
+      .bind(patch.salesExecutiveUserId, ts, ...dealerIds)
+      .run();
+  }
+
+  const { results } = await db
+    .prepare(
+      `SELECT d.id, d.store_name as name, d.code, d.location, d.distributor_id, d.sales_executive_user_id,
+              dist.name as distributor_name, se.name as sales_executive_name
+       FROM dealers d
+       LEFT JOIN distributors dist ON dist.id = d.distributor_id
+       LEFT JOIN users se ON se.id = d.sales_executive_user_id
+       WHERE d.id IN (${placeholders}) AND d.deleted_at IS NULL`,
+    )
+    .bind(...dealerIds)
+    .all<Record<string, unknown>>();
+
+  const rows = results.map((r) => mapRow(r));
+
   await writeAuditLog(db, {
     actorUserId,
     action: "assignment.bulk",
     entityType: "dealer_assignment",
-    after: { dealerIds, patch, count: results.length },
+    after: { dealerIds, patch, count: rows.length },
   });
-  return results;
+  return rows;
 }

@@ -4,18 +4,19 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public code?: string,
   ) {
     super(message);
     this.name = "ApiError";
   }
 }
 
-async function parseError(res: Response): Promise<string> {
+async function parseError(res: Response): Promise<{ message: string; code?: string }> {
   try {
-    const body = (await res.json()) as { error?: string };
-    return body.error ?? res.statusText;
+    const body = (await res.json()) as { error?: string; code?: string };
+    return { message: body.error ?? res.statusText, code: body.code };
   } catch {
-    return res.statusText;
+    return { message: res.statusText };
   }
 }
 
@@ -34,7 +35,8 @@ export async function apiRequest<T>(
   });
 
   if (!res.ok) {
-    throw new ApiError(await parseError(res), res.status);
+    const { message, code } = await parseError(res);
+    throw new ApiError(message, res.status, code);
   }
 
   if (res.status === 204) return undefined as T;
@@ -47,7 +49,11 @@ export const api = {
     apiRequest<T>(path, { method: "POST", body: JSON.stringify(body ?? {}) }),
   patch: <T>(path: string, body?: unknown) =>
     apiRequest<T>(path, { method: "PATCH", body: JSON.stringify(body ?? {}) }),
-  delete: <T>(path: string) => apiRequest<T>(path, { method: "DELETE" }),
+  delete: <T>(path: string, body?: unknown) =>
+    apiRequest<T>(path, {
+      method: "DELETE",
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    }),
   upload: async <T>(path: string, formData: FormData): Promise<T> => {
     const url = `${API_BASE}${path}`;
     const res = await fetch(url, {

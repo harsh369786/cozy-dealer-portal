@@ -145,6 +145,13 @@ export type AdminAnalyticsReport = {
   rewardStats: { totalClaims: number; pendingClaims: number; pointsOutstanding: number };
   complaintTrend: MonthlyCountRow[];
   approvalTrend: ApprovalTrendRow[];
+  visitMetrics?: {
+    total: number;
+    completed: number;
+    active: number;
+    monthlyTrend: Array<{ month: string; total: number; completed: number }>;
+    bySalesExecutive: Array<{ id: string; name: string; visits: number; completed: number }>;
+  };
   filterOptions: {
     months: string[];
     distributors: Array<{ id: string; name: string }>;

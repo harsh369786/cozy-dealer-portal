@@ -7,7 +7,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-const MONTHS = ["Mar", "Apr", "May", "Jun", "Jul", "Aug"] as const;
+const MONTHS = ["Apr", "May", "Jun", "Jul", "Aug"] as const;
 
 type Props = {
   fromMonth?: string;
@@ -22,11 +22,11 @@ export function MonthRangePicker({ fromMonth, toMonth, months = [...MONTHS], onC
   const to = toMonth ?? from;
 
   return (
-    <div className={cn("flex flex-wrap items-end gap-2", className)}>
-      <div className="min-w-[120px]">
+    <div className={cn("grid w-full grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-end", className)}>
+      <div className="min-w-0">
         <p className="mb-1 text-xs font-semibold text-muted-foreground">From</p>
         <Select value={from} onValueChange={(v) => onChange(v, to < v ? v : to)}>
-          <SelectTrigger className="rounded-lg">
+          <SelectTrigger className="w-full rounded-lg">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -38,10 +38,10 @@ export function MonthRangePicker({ fromMonth, toMonth, months = [...MONTHS], onC
           </SelectContent>
         </Select>
       </div>
-      <div className="min-w-[120px]">
+      <div className="min-w-0">
         <p className="mb-1 text-xs font-semibold text-muted-foreground">To</p>
         <Select value={to} onValueChange={(v) => onChange(from, v)}>
-          <SelectTrigger className="rounded-lg">
+          <SelectTrigger className="w-full rounded-lg">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

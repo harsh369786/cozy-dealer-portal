@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { DistributorShell } from "@/components/distributor-shell";
 import { NotificationItem } from "@/components/shared/notification-item";
 import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
@@ -18,17 +19,21 @@ export const Route = createFileRoute("/distributor/notifications")({
   component: NotificationsPage,
 });
 
-const filters: { id: NotificationCategory | "all"; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "orders", label: "Orders" },
-  { id: "campaigns", label: "Campaigns" },
-  { id: "complaints", label: "Complaints" },
-  { id: "system", label: "System" },
-];
-
 function NotificationsPage() {
+  const { t } = useTranslation();
   const [filter, setFilter] = useState<NotificationCategory | "all">("all");
   const [items, setItems] = useState<Awaited<ReturnType<typeof getNotifications>>>([]);
+
+  const filters = useMemo(
+    (): { id: NotificationCategory | "all"; label: string }[] => [
+      { id: "all", label: t("common.all") },
+      { id: "orders", label: t("notifications.categories.orders") },
+      { id: "campaigns", label: t("notifications.categories.campaigns") },
+      { id: "complaints", label: t("notifications.categories.complaints") },
+      { id: "system", label: t("notifications.categories.system") },
+    ],
+    [t],
+  );
 
   const { loading, error, retry } = useAsyncData(async () => {
     const data =
@@ -48,7 +53,7 @@ function NotificationsPage() {
   };
 
   return (
-    <DistributorShell title="Notifications" back="/distributor/dashboard" showBell={false}>
+    <DistributorShell title={t("distributor.notifications.title")} back="/distributor/dashboard" showBell={false}>
       <div className="mb-4 flex items-center justify-between gap-2">
         <div className="scrollbar-none flex gap-2 overflow-x-auto scroll-smooth-touch pb-1">
           {filters.map((f) => (
@@ -65,14 +70,17 @@ function NotificationsPage() {
           ))}
         </div>
         <Button variant="ghost" size="sm" onClick={handleMarkAll} className="shrink-0 text-xs">
-          Mark all read
+          {t("common.markAllRead")}
         </Button>
       </div>
 
       {loading && <PageSkeleton rows={4} />}
       {error && <ErrorState message={error} onRetry={retry} />}
       {!loading && !error && items.length === 0 && (
-        <EmptyState title="No notifications" description="You're all caught up." />
+        <EmptyState
+          title={t("notifications.noNotifications")}
+          description={t("notifications.allCaughtUp")}
+        />
       )}
       {!loading && !error && items.length > 0 && (
         <div className="space-y-2">

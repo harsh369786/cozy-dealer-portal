@@ -2,24 +2,23 @@ import { Link } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import type { PriceCampaign } from "@/lib/campaign-service";
 import { formatCampaignDate } from "@/lib/campaign-service";
-import { getProduct } from "@/lib/demo-data";
 import { markCampaignSeen } from "@/lib/notifications";
 
 type CampaignPopupProps = {
   campaign: PriceCampaign;
+  productName?: string;
+  userId?: string;
   onDismiss: () => void;
 };
 
-export function CampaignPopup({ campaign, onDismiss }: CampaignPopupProps) {
-  const product = getProduct(campaign.productId);
-
+export function CampaignPopup({ campaign, productName, userId, onDismiss }: CampaignPopupProps) {
   const dismiss = () => {
-    markCampaignSeen(campaign.id);
+    markCampaignSeen(campaign.id, userId);
     onDismiss();
   };
 
   const viewCampaign = () => {
-    markCampaignSeen(campaign.id);
+    markCampaignSeen(campaign.id, userId);
     onDismiss();
   };
 
@@ -41,7 +40,7 @@ export function CampaignPopup({ campaign, onDismiss }: CampaignPopupProps) {
         </div>
 
         <div className="p-6 text-center">
-          <p className="font-display text-2xl font-bold">{product.name} Mattress</p>
+          <p className="font-display text-2xl font-bold">{productName ?? "Product"} Mattress</p>
           <p className="mt-2 text-lg font-bold text-primary">{campaign.badgeLabel}</p>
           <p className="mt-3 text-sm text-muted-foreground">
             Valid until {formatCampaignDate(campaign.endAt)}
@@ -50,6 +49,7 @@ export function CampaignPopup({ campaign, onDismiss }: CampaignPopupProps) {
           <Link
             to="/products/$productId"
             params={{ productId: campaign.productId }}
+            search={{ campaignId: campaign.id }}
             onClick={viewCampaign}
             className="press mt-6 block rounded-2xl brand-gradient py-4 text-base font-bold text-primary-foreground"
           >

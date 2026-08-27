@@ -71,9 +71,8 @@ async function sendCampaignNotifications(db: D1Database, campaign: AdminCampaign
     campaignId: campaign.id,
     name: campaign.name,
     productName: campaign.product,
+    productId: campaign.productId,
     discountPercent: campaign.discountPercent,
-    targetDealers: campaign.whatsappTargetDealers,
-    targetDistributors: campaign.whatsappTargetDistributors,
     distributorId: campaign.distributorId ?? null,
   });
 }
@@ -122,41 +121,63 @@ async function loadCampaign(db: D1Database, campaignId: string): Promise<AdminCa
   return row ? mapCampaign(row) : null;
 }
 
-function matchesSearch(row: AdminCampaignRow, search?: string) {
-  if (!search?.trim()) return true;
-  const q = search.trim().toLowerCase();
-  return [row.name, row.product, row.description, row.badgeLabel, row.goal, row.reward]
-    .filter(Boolean)
-    .some((v) => String(v).toLowerCase().includes(q));
-}
-
 export async function listAdminCampaigns(db: D1Database, filters: CampaignFilters = {}) {
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
+  const today = new Date().toISOString().slice(0, 10);
+  const baseSql = `WITH campaign_rows AS (
+    SELECT pc.*, p.name AS product_name, d.name AS distributor_name,
+      CASE
+        WHEN date(pc.start_at) IS NULL OR date(pc.end_at) IS NULL THEN 'expired'
+        WHEN date(pc.end_at) < date(?) OR pc.status = 'expired' THEN 'expired'
+        WHEN date(pc.start_at) > date(?) OR pc.status = 'upcoming' THEN 'upcoming'
+        ELSE 'active'
+      END AS effective_status
+    FROM price_campaigns pc
+    LEFT JOIN products p ON p.id = pc.product_id
+    LEFT JOIN distributors d ON d.id = pc.distributor_id
+    WHERE pc.deleted_at IS NULL
+  )`;
+  let where = ` WHERE 1 = 1`;
+  const filterBinds: unknown[] = [];
 
+  if (filters.search?.trim()) {
+    const q = `%${filters.search.trim()}%`;
+    where += ` AND (
+      name LIKE ? OR COALESCE(product_name, product_id, 'All products') LIKE ?
+      OR COALESCE(description, '') LIKE ? OR COALESCE(badge_label, '') LIKE ?
+    )`;
+    filterBinds.push(q, q, q, q);
+  }
+  if (filters.status && filters.status !== "all") {
+    where += ` AND effective_status = ?`;
+    filterBinds.push(filters.status);
+  }
+  if (filters.active === "active") {
+    where += ` AND effective_status = 'active'`;
+  } else if (filters.active === "inactive") {
+    where += ` AND effective_status <> 'active'`;
+  }
+
+  const commonBinds = [today, today, ...filterBinds];
+  const countRow = await db
+    .prepare(`${baseSql} SELECT COUNT(*) AS total FROM campaign_rows${where}`)
+    .bind(...commonBinds)
+    .first<{ total: number }>();
+  const total = countRow?.total ?? 0;
+  const offset = (page - 1) * pageSize;
   const { results } = await db
     .prepare(
-      `SELECT pc.*, p.name as product_name, d.name as distributor_name
-       FROM price_campaigns pc
-       LEFT JOIN products p ON p.id = pc.product_id
-       LEFT JOIN distributors d ON d.id = pc.distributor_id
-       WHERE pc.deleted_at IS NULL`,
+      `${baseSql}
+       SELECT * FROM campaign_rows${where}
+       ORDER BY start_at DESC, id DESC
+       LIMIT ? OFFSET ?`,
     )
+    .bind(...commonBinds, pageSize, offset)
     .all();
 
-  let filtered = results.map(mapCampaign).filter((c) => matchesSearch(c, filters.search));
-  if (filters.status && filters.status !== "all") {
-    filtered = filtered.filter((c) => c.status === filters.status);
-  }
-  if (filters.active === "active") filtered = filtered.filter((c) => c.active);
-  if (filters.active === "inactive") filtered = filtered.filter((c) => !c.active);
-
-  filtered.sort((a, b) => b.startDate.localeCompare(a.startDate));
-  const total = filtered.length;
-  const offset = (page - 1) * pageSize;
-
   return {
-    items: filtered.slice(offset, offset + pageSize),
+    items: results.map(mapCampaign),
     page,
     pageSize,
     total,
@@ -228,7 +249,13 @@ export async function createCampaign(db: D1Database, input: CampaignInput, actor
     entityId: campaignId,
     after: created,
   });
-  if (created) await sendCampaignNotifications(db, created);
+  if (created) {
+    await sendCampaignNotifications(db, created);
+    await db
+      .prepare(`UPDATE price_campaigns SET notifications_sent_at = ? WHERE id = ?`)
+      .bind(nowIso(), campaignId)
+      .run();
+  }
   return created!;
 }
 
@@ -303,9 +330,20 @@ export async function archiveAdminCampaign(db: D1Database, campaignId: string, a
   return { ok: true };
 }
 
+async function shouldSendCampaignNotifications(notificationsSentAt: string | null | undefined) {
+  if (!notificationsSentAt) return true;
+  const hourAgo = Date.now() - 60 * 60 * 1000;
+  return new Date(notificationsSentAt).getTime() < hourAgo;
+}
+
 export async function activateAdminCampaign(db: D1Database, campaignId: string, actorUserId: string) {
   const before = await loadCampaign(db, campaignId);
   if (!before) throw new Error("Campaign not found");
+
+  const row = await db
+    .prepare(`SELECT notifications_sent_at FROM price_campaigns WHERE id = ?`)
+    .bind(campaignId)
+    .first<{ notifications_sent_at: string | null }>();
 
   await db
     .prepare(`UPDATE price_campaigns SET status = 'active', deleted_at = NULL WHERE id = ?`)
@@ -321,7 +359,13 @@ export async function activateAdminCampaign(db: D1Database, campaignId: string, 
     before,
     after,
   });
-  if (after) await sendCampaignNotifications(db, after);
+  if (after && shouldSendCampaignNotifications(row?.notifications_sent_at)) {
+    await sendCampaignNotifications(db, after);
+    await db
+      .prepare(`UPDATE price_campaigns SET notifications_sent_at = ? WHERE id = ?`)
+      .bind(nowIso(), campaignId)
+      .run();
+  }
   return after!;
 }
 
@@ -335,8 +379,3 @@ export async function saveAdminCampaign(
   if (existingId) return updateCampaign(db, existingId, payload, actorUserId);
   return createCampaign(db, payload, actorUserId);
 }
-
-/** @deprecated Use createCampaign */
-export const createPriceCampaign = createCampaign;
-/** @deprecated Use updateCampaign */
-export const updatePriceCampaign = updateCampaign;

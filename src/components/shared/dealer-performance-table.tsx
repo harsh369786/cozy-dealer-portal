@@ -20,10 +20,12 @@ export function DealerPerformanceTable({
   rows,
   currentMonth,
   previousMonth,
+  onDealerClick,
 }: {
   rows: DealerPerformanceRow[];
   currentMonth: string;
   previousMonth: string;
+  onDealerClick?: (dealerId: string) => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -55,9 +57,13 @@ export function DealerPerformanceTable({
                 row.salesChangePct > 0 ? ArrowUpRight : row.salesChangePct < 0 ? ArrowDownRight : Minus;
 
               return (
-                <tr key={row.id} className="border-t border-border">
+                <tr
+                  key={row.id}
+                  className={cn("border-t border-border", onDealerClick && "cursor-pointer hover:bg-secondary/40")}
+                  onClick={() => onDealerClick?.(row.id)}
+                >
                   <td className="p-3">
-                    <p className="font-bold">{row.name}</p>
+                    <p className="font-bold text-primary underline-offset-2 hover:underline">{row.name}</p>
                     <p className="text-xs text-muted-foreground">{row.code}</p>
                   </td>
                   <td className="p-3 font-semibold">{inr(row.currentSales)}</td>

@@ -1,7 +1,24 @@
 import type { AnalyticsFilters } from "./types";
 
-export const REPORT_MONTHS = ["Mar", "Apr", "May", "Jun", "Jul", "Aug"] as const;
-export const DEFAULT_MONTH = "Aug";
+export const REPORT_MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+const now = new Date();
+export const DEFAULT_TO_MONTH = REPORT_MONTHS[now.getMonth()]!;
+export const DEFAULT_FROM_MONTH = REPORT_MONTHS[(now.getMonth() + 8) % 12]!;
+export const DEFAULT_MONTH = DEFAULT_TO_MONTH;
 
 const MONTH_INDEX: Record<string, number> = Object.fromEntries(
   REPORT_MONTHS.map((m, i) => [m, i]),
@@ -11,8 +28,8 @@ export function normalizeFilters(raw: AnalyticsFilters): AnalyticsFilters {
   const month = raw.month && MONTH_INDEX[raw.month] !== undefined ? raw.month : DEFAULT_MONTH;
   return {
     month,
-    fromMonth: raw.fromMonth ?? "Mar",
-    toMonth: raw.toMonth ?? month,
+    fromMonth: raw.fromMonth ?? DEFAULT_FROM_MONTH,
+    toMonth: raw.toMonth ?? DEFAULT_TO_MONTH,
     distributorId: raw.distributorId || undefined,
     salesExecutiveId: raw.salesExecutiveId || undefined,
     dealerId: raw.dealerId || undefined,
@@ -25,13 +42,14 @@ export function monthInRange(month: string, from: string, to: string): boolean {
   const m = MONTH_INDEX[month] ?? -1;
   const f = MONTH_INDEX[from] ?? 0;
   const t = MONTH_INDEX[to] ?? REPORT_MONTHS.length - 1;
-  return m >= f && m <= t;
+  if (f <= t) return m >= f && m <= t;
+  return m >= f || m <= t;
 }
 
 export function previousMonth(month: string): string | undefined {
   const idx = MONTH_INDEX[month];
-  if (idx === undefined || idx === 0) return undefined;
-  return REPORT_MONTHS[idx - 1];
+  if (idx === undefined) return undefined;
+  return REPORT_MONTHS[(idx + 11) % 12];
 }
 
 export function parseOrderMonth(placedAt: string): string | undefined {

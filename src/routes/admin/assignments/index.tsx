@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AdminDataTable } from "@/components/admin/admin-data-table";
 import { AdminFilterTabs, AdminFiltersBar } from "@/components/admin/admin-filters-bar";
@@ -36,17 +37,21 @@ import {
   bulkUpdateAssignments,
   getAssignmentOptions,
   getAssignmentSummary,
+  getSignupApprovalOptions,
   listAssignments,
   updateDealerAssignment,
 } from "@/services/admin/assignments";
 import { listSignupApplications, reviewSignup } from "@/services/admin/users";
 import { Textarea } from "@/components/ui/textarea";
+import { formatDisplayDate } from "@/lib/date-format";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/admin/assignments/")({
   validateSearch: (s: Record<string, unknown>) => {
     const tab = s.tab as string;
-    if (tab === "sales_executive" || tab === "approvals") return { tab };
-    return { tab: "distributor" as const };
+    const signupId = (s.signupId as string) || undefined;
+    if (tab === "sales_executive" || tab === "approvals") return { tab, signupId };
+    return { tab: "distributor" as const, signupId };
   },
   component: AdminAssignmentsPage,
 });
@@ -64,11 +69,22 @@ const APPROVAL_ROLES: Array<{ value: Exclude<UserRole, "master_admin">; label: s
 ];
 
 function AdminAssignmentsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
-  const { can } = useAdminPermissions();
-  const { tab } = Route.useSearch();
+  const { can, isMasterAdmin, loading: permissionsLoading } = useAdminPermissions();
+  const { tab, signupId } = Route.useSearch();
   const activeTab: AssignmentTab =
     tab === "sales_executive" ? "sales_executive" : tab === "approvals" ? "approvals" : "distributor";
+  const canReadAssignments = can("assignments:read");
+  const canWriteAssignments = can("assignments:write");
+  const canReviewSignups = can("signup:review");
+
+  useEffect(() => {
+    if (permissionsLoading) return;
+    if (canReviewSignups && !canReadAssignments && activeTab !== "approvals") {
+      navigate({ to: "/admin/assignments", search: { tab: "approvals", signupId }, replace: true });
+    }
+  }, [permissionsLoading, canReviewSignups, canReadAssignments, activeTab, navigate, signupId]);
 
   const [searchInput, setSearchInput] = useState("");
   const search = useDebouncedValue(searchInput, 350);
@@ -112,7 +128,25 @@ function AdminAssignmentsPage() {
     };
   }, [search, page, distributorFilter, seFilter, unassignedFilter]);
 
-  const listQuery = useAsyncData(() => listAssignments(filters), [filters]);
+  const applyUnassignedFilter = (kind: "distributor" | "sales_executive") => {
+    setPage(1);
+    setSelectedIds(new Set());
+    if (unassignedFilter === kind) {
+      setUnassignedFilter("all");
+      return;
+    }
+    setUnassignedFilter(kind);
+    setDistributorFilter("all");
+    setSeFilter("all");
+  };
+
+  const listQuery = useAsyncData(
+    () =>
+      activeTab === "approvals"
+        ? Promise.resolve({ items: [], total: 0, page: 1, pageSize: 10, totalPages: 1 })
+        : listAssignments(filters),
+    [filters, activeTab],
+  );
   const signupsQuery = useAsyncData(
     () =>
       activeTab === "approvals"
@@ -124,7 +158,46 @@ function AdminAssignmentsPage() {
     () => (activeTab === "approvals" ? Promise.resolve(null) : getAssignmentSummary()),
     [activeTab],
   );
-  const optionsQuery = useAsyncData(() => getAssignmentOptions(), []);
+  const optionsQuery = useAsyncData(
+    () => (activeTab === "approvals" ? Promise.resolve(null) : getAssignmentOptions()),
+    [activeTab],
+  );
+  const signupDistributorsQuery = useAsyncData(
+    () => (activeTab === "approvals" ? getSignupApprovalOptions() : Promise.resolve(null)),
+    [activeTab],
+  );
+  const signupSeQuery = useAsyncData(
+    () =>
+      activeTab === "approvals" && approveDistributorId
+        ? getSignupApprovalOptions(approveDistributorId)
+        : Promise.resolve(null),
+    [activeTab, approveDistributorId],
+  );
+
+  const filteredSalesExecutives = useMemo(() => {
+    const all = optionsQuery.data?.salesExecutives ?? [];
+    const distId =
+      editDistributorId !== CLEAR_VALUE ? editDistributorId : editRow?.distributorId ?? distributorFilter;
+    if (!distId || distId === "all" || distId === UNASSIGNED_VALUE) return all;
+    return all.filter((u) => u.distributorId === distId);
+  }, [optionsQuery.data?.salesExecutives, editDistributorId, editRow?.distributorId, distributorFilter]);
+
+  const approvalSalesExecutives = useMemo(() => {
+    if (signupSeQuery.data?.salesExecutives?.length) return signupSeQuery.data.salesExecutives;
+    return signupDistributorsQuery.data?.salesExecutives ?? [];
+  }, [signupSeQuery.data, signupDistributorsQuery.data]);
+
+  const filterBarSalesExecutives = useMemo(() => {
+    const all = optionsQuery.data?.salesExecutives ?? [];
+    if (!distributorFilter || distributorFilter === "all" || distributorFilter === UNASSIGNED_VALUE) return all;
+    return all.filter((u) => u.distributorId === distributorFilter);
+  }, [optionsQuery.data?.salesExecutives, distributorFilter]);
+
+  useEffect(() => {
+    if (activeTab !== "approvals" || !signupId || !signupsQuery.data) return;
+    const row = signupsQuery.data.items.find((s) => s.id === signupId);
+    if (row) openReview(row);
+  }, [activeTab, signupId, signupsQuery.data]);
 
   const navigateTab = (next: AssignmentTab) => {
     navigate({ to: "/admin/assignments", search: { tab: next } });
@@ -170,7 +243,7 @@ function AdminAssignmentsPage() {
       setConfirmOpen(false);
       refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Update failed");
+      toast.error(err instanceof Error ? err.message : t("errors.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -208,7 +281,18 @@ function AdminAssignmentsPage() {
   const openReview = (row: SignupApplication) => {
     setReviewSignupRow(row);
     setApproveRole("dealer");
-    setApproveDistributorId("");
+    const distributors =
+      signupDistributorsQuery.data?.distributors ?? optionsQuery.data?.distributors ?? [];
+    const norm = row.distributorName?.trim().toLowerCase() ?? "";
+    let matchedId = "";
+    if (norm) {
+      const exact = distributors.find((d) => d.name.toLowerCase() === norm);
+      const partial = distributors.find(
+        (d) => d.name.toLowerCase().includes(norm) || norm.includes(d.name.toLowerCase()),
+      );
+      matchedId = exact?.id ?? partial?.id ?? "";
+    }
+    setApproveDistributorId(matchedId);
     setApproveSeId(CLEAR_VALUE);
     setRejectNote("");
   };
@@ -219,19 +303,13 @@ function AdminAssignmentsPage() {
       toast.error("Select a distributor for dealer approval");
       return;
     }
-    if (approveRole === "distributor" && !approveDistributorId) {
-      toast.error("Select a distributor record for this user");
-      return;
-    }
     setSaving(true);
     try {
       await reviewSignup(reviewSignupRow.id, {
         action: "approve",
         role: approveRole,
         distributorId:
-          approveRole === "dealer" || approveRole === "distributor"
-            ? approveDistributorId || null
-            : null,
+          approveRole === "dealer" ? approveDistributorId || null : null,
         salesExecutiveUserId:
           approveRole === "dealer" && approveSeId !== CLEAR_VALUE ? approveSeId : null,
       });
@@ -266,7 +344,7 @@ function AdminAssignmentsPage() {
   };
 
   if (activeTab === "approvals") {
-    if (!can("signup:review")) {
+    if (!canReviewSignups) {
       return <ErrorState message="You don't have permission to review signups." />;
     }
     if (signupsQuery.loading && !signupsQuery.data) return <PageSkeleton rows={4} />;
@@ -280,14 +358,20 @@ function AdminAssignmentsPage() {
     }
 
     const signupResult = signupsQuery.data;
-    const approvalOptions = optionsQuery.data ?? { distributors: [], salesExecutives: [] };
+    const approvalOptionsLoading =
+      (signupDistributorsQuery.loading && !signupDistributorsQuery.data) ||
+      (approveDistributorId && signupSeQuery.loading && !signupSeQuery.data);
+    const approvalOptions = {
+      distributors: signupDistributorsQuery.data?.distributors ?? [],
+      salesExecutives: approvalSalesExecutives,
+    };
 
     return (
       <AdminPermissionGate permission="signup:review">
         <div>
           <AdminPageHeader
-            title="Assignments"
-            description="Review pending signups and assign roles before users can access the app."
+            title={t("admin.assignments.title")}
+            description={t("admin.assignments.descriptionSignups")}
           />
 
           <div className="mb-4 flex flex-wrap gap-2">
@@ -295,18 +379,23 @@ function AdminAssignmentsPage() {
               value={activeTab}
               onChange={(v) => navigateTab(v as AssignmentTab)}
               tabs={[
-                { value: "distributor", label: "Distributor assignment" },
-                { value: "sales_executive", label: "Sales executive assignment" },
-                { value: "approvals", label: "Pending signups" },
+                ...(canReadAssignments
+                  ? [
+                      { value: "distributor" as const, label: t("admin.assignments.tabs.distributor") },
+                      { value: "sales_executive" as const, label: t("admin.assignments.tabs.salesExecutive") },
+                    ]
+                  : []),
+                { value: "approvals", label: t("admin.assignments.tabs.approvals") },
               ]}
             />
           </div>
 
-          <AdminFiltersBar search={search} onSearchChange={(v) => { setSearch(v); setPage(1); }} />
+          <AdminFiltersBar search={searchInput} onSearchChange={(v) => { setSearchInput(v); setPage(1); }} />
 
           <AdminDataTable
             data={signupResult.items}
             keyFn={(s) => s.id}
+            onRowClick={(s) => openReview(s)}
             emptyTitle="No pending signups"
             columns={[
               { key: "name", header: "Name", cell: (s) => <span className="font-bold">{s.contactName}</span> },
@@ -314,7 +403,7 @@ function AdminAssignmentsPage() {
               {
                 key: "submitted",
                 header: "Signup date",
-                cell: (s) => new Date(s.submittedAt).toLocaleDateString("en-IN"),
+                cell: (s) => formatDisplayDate(s.submittedAt),
                 hideOnMobile: true,
               },
               {
@@ -386,7 +475,10 @@ function AdminAssignmentsPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {APPROVAL_ROLES.map((r) => (
+                        {(isMasterAdmin
+                          ? APPROVAL_ROLES
+                          : APPROVAL_ROLES.filter((r) => r.value === "dealer")
+                        ).map((r) => (
                           <SelectItem key={r.value} value={r.value}>
                             {r.label}
                           </SelectItem>
@@ -395,12 +487,42 @@ function AdminAssignmentsPage() {
                     </Select>
                   </div>
 
-                  {(approveRole === "dealer" || approveRole === "distributor") && (
+                  {approveRole === "distributor" && (
+                    <p className="rounded-2xl bg-secondary/60 px-4 py-3 text-sm text-muted-foreground">
+                      A new distributor organization will be created from this signup. No additional
+                      assignment is required.
+                    </p>
+                  )}
+
+                  {approveRole === "dealer" && (
                     <div className="space-y-2">
                       <Label>Distributor</Label>
-                      <Select value={approveDistributorId} onValueChange={setApproveDistributorId}>
+                      {optionsQuery.error ? (
+                        <p className="text-sm text-destructive">
+                          Could not load distributors.{" "}
+                          <button
+                            type="button"
+                            className="font-semibold underline"
+                            onClick={() => optionsQuery.retry()}
+                          >
+                            Retry
+                          </button>
+                        </p>
+                      ) : null}
+                      <Select
+                        value={approveDistributorId}
+                        disabled={approvalOptionsLoading}
+                        onValueChange={(v) => {
+                          setApproveDistributorId(v);
+                          setApproveSeId(CLEAR_VALUE);
+                        }}
+                      >
                         <SelectTrigger className="rounded-2xl">
-                          <SelectValue placeholder="Select distributor" />
+                          <SelectValue
+                            placeholder={
+                              approvalOptionsLoading ? "Loading distributors…" : "Select distributor"
+                            }
+                          />
                         </SelectTrigger>
                         <SelectContent>
                           {approvalOptions.distributors.map((d) => (
@@ -422,7 +544,7 @@ function AdminAssignmentsPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value={CLEAR_VALUE}>Unassigned</SelectItem>
-                          {approvalOptions.salesExecutives.map((u) => (
+                          {approvalSalesExecutives.map((u) => (
                             <SelectItem key={u.id} value={u.id}>
                               {u.name}
                             </SelectItem>
@@ -493,11 +615,11 @@ function AdminAssignmentsPage() {
   const summary = summaryQuery.data;
 
   return (
-    <AdminPermissionGate permission="assignments:read" fallback={<ErrorState message="Master admin access required." />}>
+    <AdminPermissionGate permission="assignments:read" fallback={<ErrorState message="You don't have permission to view assignments." />}>
       <div>
         <AdminPageHeader
-          title="Assignments"
-          description="Assign dealers to distributors and sales executives. Changes apply immediately to access scope."
+          title={t("admin.assignments.title")}
+          description={t("admin.assignments.descriptionDealers")}
         />
 
         <div className="mb-4 flex flex-wrap gap-2">
@@ -505,10 +627,10 @@ function AdminAssignmentsPage() {
             value={activeTab}
             onChange={(v) => navigateTab(v as AssignmentTab)}
             tabs={[
-              { value: "distributor", label: "Distributor assignment" },
-              { value: "sales_executive", label: "Sales executive assignment" },
+              { value: "distributor", label: t("admin.assignments.tabs.distributor") },
+              { value: "sales_executive", label: t("admin.assignments.tabs.salesExecutive") },
               ...(can("signup:review")
-                ? [{ value: "approvals" as const, label: "Pending signups" }]
+                ? [{ value: "approvals" as const, label: t("admin.assignments.tabs.approvals") }]
                 : []),
             ]}
           />
@@ -518,8 +640,38 @@ function AdminAssignmentsPage() {
           <div className="mb-4 flex flex-wrap gap-2 text-sm">
             <Badge variant="secondary">Distributors ({summary.distributors.length})</Badge>
             <Badge variant="secondary">SEs ({summary.salesExecutives.length})</Badge>
-            <Badge variant="outline">Unassigned distributor ({summary.unassignedDistributor})</Badge>
-            <Badge variant="outline">Unassigned SE ({summary.unassignedSalesExecutive})</Badge>
+            <Badge
+              variant={unassignedFilter === "distributor" ? "default" : "outline"}
+              className={cn("cursor-pointer select-none press", summary.unassignedDistributor === 0 && "opacity-60")}
+              role="button"
+              tabIndex={0}
+              aria-pressed={unassignedFilter === "distributor"}
+              onClick={() => applyUnassignedFilter("distributor")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  applyUnassignedFilter("distributor");
+                }
+              }}
+            >
+              Unassigned distributor ({summary.unassignedDistributor})
+            </Badge>
+            <Badge
+              variant={unassignedFilter === "sales_executive" ? "default" : "outline"}
+              className={cn("cursor-pointer select-none press", summary.unassignedSalesExecutive === 0 && "opacity-60")}
+              role="button"
+              tabIndex={0}
+              aria-pressed={unassignedFilter === "sales_executive"}
+              onClick={() => applyUnassignedFilter("sales_executive")}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  applyUnassignedFilter("sales_executive");
+                }
+              }}
+            >
+              Unassigned SE ({summary.unassignedSalesExecutive})
+            </Badge>
           </div>
         )}
 
@@ -565,7 +717,7 @@ function AdminAssignmentsPage() {
             <SelectContent>
               <SelectItem value="all">All SEs</SelectItem>
               <SelectItem value={UNASSIGNED_VALUE}>Unassigned</SelectItem>
-              {options?.salesExecutives.map((u) => (
+              {filterBarSalesExecutives.map((u) => (
                 <SelectItem key={u.id} value={u.id}>
                   {u.name}
                 </SelectItem>
@@ -592,43 +744,52 @@ function AdminAssignmentsPage() {
           </Select>
         </AdminFiltersBar>
 
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <p className="text-sm text-muted-foreground">
-            {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select dealers for bulk assignment"}
-          </p>
-          <AdminPrimaryButton
-            disabled={selectedIds.size === 0}
-            onClick={() => {
-              setBulkValue("");
-              setBulkOpen(true);
-            }}
-          >
-            Bulk assign…
-          </AdminPrimaryButton>
-        </div>
+        {canWriteAssignments ? (
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              {selectedIds.size > 0 ? `${selectedIds.size} selected` : "Select dealers for bulk assignment"}
+            </p>
+            <AdminPrimaryButton
+              disabled={selectedIds.size === 0}
+              onClick={() => {
+                setBulkValue("");
+                setBulkOpen(true);
+              }}
+            >
+              Bulk assign…
+            </AdminPrimaryButton>
+          </div>
+        ) : (
+          <p className="mb-3 text-sm text-muted-foreground">View-only — contact a master admin to change assignments.</p>
+        )}
 
         <AdminDataTable
           data={listQuery.data.items}
           keyFn={(r) => r.id}
+          onRowClick={canWriteAssignments ? (r) => openEdit(r) : undefined}
           emptyTitle="No dealers match filters"
-          selection={{
-            selectedIds,
-            onToggle: (id, checked) => {
-              setSelectedIds((prev) => {
-                const next = new Set(prev);
-                if (checked) next.add(id);
-                else next.delete(id);
-                return next;
-              });
-            },
-            onToggleAll: (checked) => {
-              if (!checked) {
-                setSelectedIds(new Set());
-                return;
-              }
-              setSelectedIds(new Set(listQuery.data!.items.map((r) => r.id)));
-            },
-          }}
+          selection={
+            canWriteAssignments
+              ? {
+                  selectedIds,
+                  onToggle: (id, checked) => {
+                    setSelectedIds((prev) => {
+                      const next = new Set(prev);
+                      if (checked) next.add(id);
+                      else next.delete(id);
+                      return next;
+                    });
+                  },
+                  onToggleAll: (checked) => {
+                    if (!checked) {
+                      setSelectedIds(new Set());
+                      return;
+                    }
+                    setSelectedIds(new Set(listQuery.data!.items.map((r) => r.id)));
+                  },
+                }
+              : undefined
+          }
           columns={[
             { key: "dealer", header: "Dealer", cell: (r) => <span className="font-bold">{r.name}</span> },
             { key: "code", header: "Code", cell: (r) => r.code, hideOnMobile: true },
@@ -642,15 +803,19 @@ function AdminAssignmentsPage() {
               ),
               hideOnMobile: true,
             },
-            {
-              key: "actions",
-              header: "Actions",
-              cell: (r) => (
-                <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => openEdit(r)}>
-                  Edit
-                </Button>
-              ),
-            },
+            ...(canWriteAssignments
+              ? [
+                  {
+                    key: "actions",
+                    header: "Actions",
+                    cell: (r: AssignmentRow) => (
+                      <Button type="button" variant="outline" size="sm" className="rounded-xl" onClick={() => openEdit(r)}>
+                        Edit
+                      </Button>
+                    ),
+                  },
+                ]
+              : []),
           ]}
         />
 
@@ -667,7 +832,10 @@ function AdminAssignmentsPage() {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label>Distributor</Label>
-                <Select value={editDistributorId} onValueChange={setEditDistributorId}>
+                <Select value={editDistributorId} onValueChange={(v) => {
+                  setEditDistributorId(v);
+                  setEditSeId(CLEAR_VALUE);
+                }}>
                   <SelectTrigger className="rounded-2xl">
                     <SelectValue placeholder="Select distributor" />
                   </SelectTrigger>
@@ -689,7 +857,7 @@ function AdminAssignmentsPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={CLEAR_VALUE}>Unassigned</SelectItem>
-                    {options?.salesExecutives.map((u) => (
+                    {filteredSalesExecutives.map((u) => (
                       <SelectItem key={u.id} value={u.id}>
                         {u.name}
                       </SelectItem>
@@ -712,7 +880,7 @@ function AdminAssignmentsPage() {
         <ConfirmActionDialog
           open={confirmOpen}
           onOpenChange={setConfirmOpen}
-          title="Replace existing assignment?"
+          title={t("admin.assignments.replaceAssignmentTitle")}
           description="This dealer already has an assignee for one or more fields. Continuing will overwrite the current assignment."
           confirmLabel="Replace"
           onConfirm={() => void saveEdit()}

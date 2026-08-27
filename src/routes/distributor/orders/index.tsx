@@ -1,5 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 import { DistributorShell } from "@/components/distributor-shell";
 import { DateRangePicker } from "@/components/shared/date-range-picker";
 import { ListPagination } from "@/components/shared/list-pagination";
@@ -8,15 +10,40 @@ import { SearchBar } from "@/components/shared/search-bar";
 import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import { listOrdersPage } from "@/services/orders";
+import {
+  getOrderStatusCounts,
+  listOrdersPage,
+  type OrderStatusTab,
+} from "@/services/orders";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/distributor/orders/")({
   component: OrdersPage,
 });
 
-type Tab = "pending" | "all";
 type Period = "today" | "week" | "month" | "all" | "custom";
+
+const STATUS_TAB_ORDER: OrderStatusTab[] = [
+  "pending",
+  "approved",
+  "in_making",
+  "out_for_delivery",
+  "delivered",
+  "rejected",
+  "cancelled",
+  "all",
+];
+
+const STATUS_TAB_KEYS: Record<OrderStatusTab, string> = {
+  pending: "dealer.orders.statusTabs.pending",
+  approved: "dealer.orders.statusTabs.approved",
+  in_making: "dealer.orders.statusTabs.inMaking",
+  out_for_delivery: "dealer.orders.statusTabs.outForDelivery",
+  delivered: "dealer.orders.statusTabs.delivered",
+  rejected: "dealer.orders.statusTabs.rejected",
+  cancelled: "dealer.orders.statusTabs.cancelled",
+  all: "dealer.orders.statusTabs.all",
+};
 
 function defaultCustomRange() {
   const to = new Date();
@@ -56,7 +83,8 @@ function periodToDateRange(
 }
 
 function OrdersPage() {
-  const [tab, setTab] = useState<Tab>("pending");
+  const { t } = useTranslation();
+  const [statusTab, setStatusTab] = useState<OrderStatusTab>("pending");
   const [period, setPeriod] = useState<Period>("month");
   const [customRange, setCustomRange] = useState(defaultCustomRange);
   const [searchInput, setSearchInput] = useState("");
@@ -68,11 +96,13 @@ function OrdersPage() {
 
   const dateRange = periodToDateRange(period, customRange);
 
+  const countsQuery = useAsyncData(() => getOrderStatusCounts(), []);
+
   const { data, loading, error, retry } = useAsyncData(
     () => {
-      if (simulateError) throw new Error("Failed to load orders");
+      if (simulateError) throw new Error(t("errors.failedToLoadOrders"));
       return listOrdersPage({
-        status: tab === "pending" ? "order_placed" : undefined,
+        status: statusTab !== "all" ? statusTab : undefined,
         search: search || undefined,
         fromDate: dateRange.fromDate,
         toDate: dateRange.toDate,
@@ -80,28 +110,32 @@ function OrdersPage() {
         pageSize: 20,
       });
     },
-    [tab, search, period, customRange.from, customRange.to, page, simulateError],
+    [statusTab, search, period, customRange.from, customRange.to, page, simulateError, t],
   );
 
+  const counts = countsQuery.data;
+
   return (
-    <DistributorShell title="Orders">
+    <DistributorShell title={t("distributor.orders.title")}>
       <SearchBar
         value={searchInput}
         onChange={(value) => {
           setSearchInput(value);
           setPage(1);
         }}
-        placeholder="Search by Order ID, store or dealer name…"
+        placeholder={t("distributor.orders.searchPlaceholder")}
       />
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {([
-          ["today", "Today"],
-          ["week", "This week"],
-          ["month", "This month"],
-          ["all", "All time"],
-          ["custom", "Custom"],
-        ] as const).map(([id, label]) => (
+        {(
+          [
+            ["today", t("common.today")],
+            ["week", t("common.thisWeek")],
+            ["month", t("common.thisMonth")],
+            ["all", t("common.allTime")],
+            ["custom", t("common.custom")],
+          ] as const
+        ).map(([id, label]) => (
           <button
             key={id}
             type="button"
@@ -132,20 +166,22 @@ function OrdersPage() {
         />
       )}
 
-      <div className="mt-4 flex gap-2 rounded-xl bg-secondary p-1">
-        {(["pending", "all"] as const).map((t) => (
+      <div className="mt-4 flex gap-1 overflow-x-auto rounded-xl bg-secondary p-1">
+        {STATUS_TAB_ORDER.map((tabId) => (
           <button
-            key={t}
+            key={tabId}
+            type="button"
             onClick={() => {
-              setTab(t);
+              setStatusTab(tabId);
               setPage(1);
             }}
             className={cn(
-              "press flex-1 rounded-xl py-2.5 text-sm font-bold capitalize",
-              tab === t ? "bg-card shadow-soft" : "text-muted-foreground",
+              "press shrink-0 rounded-lg px-3 py-2 text-sm font-bold",
+              statusTab === tabId ? "bg-card shadow-soft" : "text-muted-foreground",
             )}
           >
-            {t === "pending" ? "Pending Approval" : "All Orders"}
+            {t(STATUS_TAB_KEYS[tabId])}
+            {counts && tabId !== "all" ? ` (${counts[tabId]})` : counts && tabId === "all" ? ` (${counts.all})` : ""}
           </button>
         ))}
       </div>
@@ -155,11 +191,15 @@ function OrdersPage() {
         {error && <ErrorState message={error} onRetry={retry} />}
         {!loading && !error && (data?.items.length ?? 0) === 0 && (
           <EmptyState
-            title={search ? "No matching orders" : tab === "pending" ? "No pending orders" : "No orders yet"}
-            description={
+            title={
               search
-                ? "Try a different Order ID, store name, or dealer name."
-                : "Orders from your dealers will appear here."
+                ? t("common.noOrdersSearch")
+                : statusTab === "pending"
+                  ? t("distributor.dashboard.noPendingOrders")
+                  : t("distributor.orders.noOrders")
+            }
+            description={
+              search ? t("common.noMatchingResults") : t("distributor.orders.noOrdersDesc")
             }
           />
         )}

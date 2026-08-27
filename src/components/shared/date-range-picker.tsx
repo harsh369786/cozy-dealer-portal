@@ -1,5 +1,7 @@
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
+import { useTranslation } from "react-i18next";
+import { useFormat } from "@/hooks/use-format";
 
 type Props = {
   fromDate?: string;
@@ -9,13 +11,15 @@ type Props = {
 };
 
 export function DateRangePicker({ fromDate, toDate, onChange, className }: Props) {
+  const { t } = useTranslation();
+  const { formatDisplayDate } = useFormat();
   const from = fromDate ?? "";
   const to = toDate ?? from;
 
   return (
     <div className={cn("flex flex-wrap items-end gap-2", className)}>
       <div className="min-w-[140px]">
-        <p className="mb-1 text-xs font-semibold text-muted-foreground">From</p>
+        <p className="mb-1 text-xs font-semibold text-muted-foreground">{t("common.from")}</p>
         <Input
           type="date"
           value={from}
@@ -25,9 +29,10 @@ export function DateRangePicker({ fromDate, toDate, onChange, className }: Props
           }}
           className="rounded-lg"
         />
+        {from && <p className="mt-1 text-xs text-muted-foreground">{formatDisplayDate(from)}</p>}
       </div>
       <div className="min-w-[140px]">
-        <p className="mb-1 text-xs font-semibold text-muted-foreground">To</p>
+        <p className="mb-1 text-xs font-semibold text-muted-foreground">{t("common.to")}</p>
         <Input
           type="date"
           value={to}
@@ -35,6 +40,7 @@ export function DateRangePicker({ fromDate, toDate, onChange, className }: Props
           onChange={(e) => onChange(from, e.target.value)}
           className="rounded-lg"
         />
+        {to && <p className="mt-1 text-xs text-muted-foreground">{formatDisplayDate(to)}</p>}
       </div>
     </div>
   );

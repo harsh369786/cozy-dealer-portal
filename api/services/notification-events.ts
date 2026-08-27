@@ -1,4 +1,5 @@
-import { createNotification, createNotificationsBatch } from "./notifications";
+import { permissionsForSharedRole, type SharedPermission } from "../../shared/rbac-permissions";
+import { createNotificationsBatch } from "./notifications";
 
 export type NotifyInput = {
   category: string;
@@ -9,6 +10,20 @@ export type NotifyInput = {
   isReminder?: boolean;
   metadata?: Record<string, unknown>;
 };
+
+export function withNotificationI18n(
+  titleKey: string,
+  bodyKey: string,
+  params?: Record<string, string | number>,
+  extra?: Record<string, unknown>,
+): Pick<NotifyInput, "metadata"> {
+  return {
+    metadata: {
+      ...extra,
+      i18n: { titleKey, bodyKey, params: params ?? {} },
+    },
+  };
+}
 
 async function notifyUserIds(db: D1Database, userIds: string[], input: NotifyInput) {
   const unique = [...new Set(userIds.filter(Boolean))];
@@ -45,17 +60,29 @@ export async function notifyAdminStaff(db: D1Database, input: NotifyInput) {
   );
 }
 
-export async function notifySignupReviewers(db: D1Database, input: NotifyInput) {
+/** Master admin always; admin_staff only when their role includes the permission. */
+export async function notifyOperationalAdmins(
+  db: D1Database,
+  permission: SharedPermission,
+  input: NotifyInput,
+) {
+  const staffHasPermission = permissionsForSharedRole("admin_staff").includes(permission);
   const { results } = await db
     .prepare(
-      `SELECT id FROM users WHERE role IN ('master_admin', 'admin_staff') AND status = 'active' AND deleted_at IS NULL`,
+      `SELECT id, role FROM users
+       WHERE status = 'active' AND deleted_at IS NULL
+         AND (role = 'master_admin'${staffHasPermission ? " OR role = 'admin_staff'" : ""})`,
     )
-    .all<{ id: string }>();
+    .all<{ id: string; role: string }>();
   await notifyUserIds(
     db,
     results.map((u) => u.id),
     input,
   );
+}
+
+export async function notifySignupReviewers(db: D1Database, input: NotifyInput) {
+  await notifyOperationalAdmins(db, "signup:review", input);
 }
 
 export async function notifyDistributorsForOrg(db: D1Database, distributorId: string, input: NotifyInput) {
@@ -143,6 +170,26 @@ export async function getOrderNotificationContext(db: D1Database, orderId: strin
     .first<{ id: string; dealer_id: string; distributor_id: string; dealer_name: string }>();
 }
 
+type OrderStatusPayload = {
+  dealer: NotifyInput;
+  distributor?: NotifyInput;
+  admin?: NotifyInput;
+};
+
+async function dispatchOrderStatusNotifications(
+  db: D1Database,
+  ctx: { dealer_id: string; distributor_id: string },
+  payloads: OrderStatusPayload,
+) {
+  await notifyDealerUsers(db, ctx.dealer_id, payloads.dealer);
+  if (payloads.distributor) {
+    await notifyDistributorsForOrg(db, ctx.distributor_id, payloads.distributor);
+  }
+  if (payloads.admin) {
+    await notifyOperationalAdmins(db, "orders:read", payloads.admin);
+  }
+}
+
 export async function notifyOrderStatusChange(
   db: D1Database,
   orderId: string,
@@ -158,47 +205,131 @@ export async function notifyOrderStatusChange(
   const store = ctx.dealer_name;
 
   if (toStatus === "approved") {
-    await notifyDealerUsers(db, ctx.dealer_id, {
-      category: "orders",
-      type: "order_approved",
-      title: "Order approved",
-      body: `Your order ${orderId} has been approved`,
-      link: dealerLink,
+    await dispatchOrderStatusNotifications(db, ctx, {
+      dealer: {
+        category: "orders",
+        type: "order_approved",
+        title: "Order approved",
+        body: `Your order ${orderId} has been approved`,
+        link: dealerLink,
+        ...withNotificationI18n("notifications.orderApproved.title", "notifications.orderApproved.body", {
+          orderId,
+        }),
+      },
+      distributor: {
+        category: "orders",
+        type: "order_approved",
+        title: "Order approved",
+        body: `Order ${orderId} for ${store} has been approved`,
+        link: distLink,
+        ...withNotificationI18n(
+          "notifications.orderApproved.title",
+          "notifications.orderApproved.bodyDistributor",
+          { orderId, storeName: store },
+        ),
+      },
     });
     return;
   }
 
   if (toStatus === "rejected") {
-    await notifyDealerUsers(db, ctx.dealer_id, {
-      category: "orders",
-      type: "order_rejected",
-      title: "Order rejected",
-      body: extra?.reason
-        ? `Order ${orderId} was rejected: ${extra.reason}`
-        : `Order ${orderId} was rejected`,
-      link: dealerLink,
+    const reasonSuffix = extra?.reason ? `: ${extra.reason}` : "";
+    const reasonParams = extra?.reason ? { reason: extra.reason } : {};
+    await dispatchOrderStatusNotifications(db, ctx, {
+      dealer: {
+        category: "orders",
+        type: "order_rejected",
+        title: "Order rejected",
+        body: `Order ${orderId} was rejected${reasonSuffix}`,
+        link: dealerLink,
+        ...withNotificationI18n(
+          "notifications.orderRejected.title",
+          extra?.reason ? "notifications.orderRejected.bodyWithReason" : "notifications.orderRejected.body",
+          { orderId, ...reasonParams },
+        ),
+      },
+      distributor: {
+        category: "orders",
+        type: "order_rejected",
+        title: "Order rejected",
+        body: `Order ${orderId} for ${store} was rejected${reasonSuffix}`,
+        link: distLink,
+        ...withNotificationI18n(
+          "notifications.orderRejected.title",
+          extra?.reason
+            ? "notifications.orderRejected.bodyDistributorWithReason"
+            : "notifications.orderRejected.bodyDistributor",
+          { orderId, storeName: store, ...reasonParams },
+        ),
+      },
+      admin: {
+        category: "orders",
+        type: "order_rejected",
+        title: "Order rejected",
+        body: `Order ${orderId} for ${store} was rejected${reasonSuffix}`,
+        link: adminLink,
+        ...withNotificationI18n(
+          "notifications.orderRejected.title",
+          extra?.reason ? "notifications.orderRejected.bodyAdminWithReason" : "notifications.orderRejected.bodyAdmin",
+          { orderId, storeName: store, ...reasonParams },
+        ),
+      },
     });
     return;
   }
 
   if (toStatus === "in_making") {
-    await notifyDealerUsers(db, ctx.dealer_id, {
-      category: "orders",
-      type: "order_in_making",
-      title: "Order in production",
-      body: `Order ${orderId} is now being manufactured`,
-      link: dealerLink,
+    await dispatchOrderStatusNotifications(db, ctx, {
+      dealer: {
+        category: "orders",
+        type: "order_in_making",
+        title: "Order in production",
+        body: `Order ${orderId} is now being manufactured`,
+        link: dealerLink,
+        ...withNotificationI18n("notifications.orderInMaking.title", "notifications.orderInMaking.body", { orderId }),
+      },
+      distributor: {
+        category: "orders",
+        type: "order_in_making",
+        title: "Order in production",
+        body: `Order ${orderId} for ${store} is now in production`,
+        link: distLink,
+        ...withNotificationI18n(
+          "notifications.orderInMaking.title",
+          "notifications.orderInMaking.bodyDistributor",
+          { orderId, storeName: store },
+        ),
+      },
     });
     return;
   }
 
   if (toStatus === "out_for_delivery") {
-    await notifyDealerUsers(db, ctx.dealer_id, {
-      category: "orders",
-      type: "order_out_for_delivery",
-      title: "Order out for delivery",
-      body: `Order ${orderId} is on the way to ${store}`,
-      link: dealerLink,
+    await dispatchOrderStatusNotifications(db, ctx, {
+      dealer: {
+        category: "orders",
+        type: "order_out_for_delivery",
+        title: "Order out for delivery",
+        body: `Order ${orderId} is on the way to ${store}`,
+        link: dealerLink,
+        ...withNotificationI18n(
+          "notifications.orderOutForDelivery.title",
+          "notifications.orderOutForDelivery.body",
+          { orderId, storeName: store },
+        ),
+      },
+      distributor: {
+        category: "orders",
+        type: "order_out_for_delivery",
+        title: "Order out for delivery",
+        body: `Order ${orderId} for ${store} is out for delivery`,
+        link: distLink,
+        ...withNotificationI18n(
+          "notifications.orderOutForDelivery.title",
+          "notifications.orderOutForDelivery.bodyDistributor",
+          { orderId, storeName: store },
+        ),
+      },
     });
     return;
   }
@@ -208,43 +339,90 @@ export async function notifyOrderStatusChange(
       extra?.points && extra.points > 0
         ? ` You earned ${extra.points} reward points.`
         : "";
-    await notifyDealerUsers(db, ctx.dealer_id, {
-      category: "orders",
-      type: "order_delivered",
-      body: `Order ${orderId} has been delivered.${pointsMsg}`,
-      link: dealerLink,
-    });
-    await notifyDistributorsForOrg(db, ctx.distributor_id, {
-      category: "orders",
-      type: "order_delivered",
-      body: `Order ${orderId} for ${store} has been delivered`,
-      link: distLink,
-    });
-    await notifyMasterAdmins(db, {
-      category: "orders",
-      type: "order_delivered",
-      body: `Order ${orderId} has been marked delivered`,
-      link: adminLink,
+    const hasPoints = Boolean(extra?.points && extra.points > 0);
+    await dispatchOrderStatusNotifications(db, ctx, {
+      dealer: {
+        category: "orders",
+        type: "order_delivered",
+        title: "Order delivered",
+        body: `Order ${orderId} has been delivered.${pointsMsg}`,
+        link: dealerLink,
+        ...withNotificationI18n(
+          "notifications.orderDelivered.title",
+          hasPoints ? "notifications.orderDelivered.bodyWithPoints" : "notifications.orderDelivered.body",
+          hasPoints ? { orderId, points: extra!.points! } : { orderId },
+        ),
+      },
+      distributor: {
+        category: "orders",
+        type: "order_delivered",
+        title: "Order delivered",
+        body: `Order ${orderId} for ${store} has been delivered`,
+        link: distLink,
+        ...withNotificationI18n(
+          "notifications.orderDelivered.title",
+          "notifications.orderDelivered.bodyDistributor",
+          { orderId, storeName: store },
+        ),
+      },
+      admin: {
+        category: "orders",
+        type: "order_delivered",
+        title: "Order delivered",
+        body: `Order ${orderId} for ${store} has been marked delivered`,
+        link: adminLink,
+        ...withNotificationI18n(
+          "notifications.orderDelivered.title",
+          "notifications.orderDelivered.bodyAdmin",
+          { orderId, storeName: store },
+        ),
+      },
     });
     return;
   }
 
   if (toStatus === "cancelled") {
-    await notifyDealerUsers(db, ctx.dealer_id, {
-      category: "orders",
-      type: "order_rejected",
-      title: "Order cancelled",
-      body: extra?.reason
-        ? `Order ${orderId} was cancelled: ${extra.reason}`
-        : `Order ${orderId} was cancelled`,
-      link: dealerLink,
-    });
-    await notifyDistributorsForOrg(db, ctx.distributor_id, {
-      category: "orders",
-      type: "order_rejected",
-      title: "Order cancelled",
-      body: `Order ${orderId} for ${store} was cancelled`,
-      link: distLink,
+    const reasonSuffix = extra?.reason ? `: ${extra.reason}` : "";
+    const reasonParams = extra?.reason ? { reason: extra.reason } : {};
+    await dispatchOrderStatusNotifications(db, ctx, {
+      dealer: {
+        category: "orders",
+        type: "order_cancelled",
+        title: "Order cancelled",
+        body: `Order ${orderId} was cancelled${reasonSuffix}`,
+        link: dealerLink,
+        ...withNotificationI18n(
+          "notifications.orderCancelled.title",
+          extra?.reason ? "notifications.orderCancelled.bodyWithReason" : "notifications.orderCancelled.body",
+          { orderId, ...reasonParams },
+        ),
+      },
+      distributor: {
+        category: "orders",
+        type: "order_cancelled",
+        title: "Order cancelled",
+        body: `Order ${orderId} for ${store} was cancelled${reasonSuffix}`,
+        link: distLink,
+        ...withNotificationI18n(
+          "notifications.orderCancelled.title",
+          extra?.reason
+            ? "notifications.orderCancelled.bodyDistributorWithReason"
+            : "notifications.orderCancelled.bodyDistributor",
+          { orderId, storeName: store, ...reasonParams },
+        ),
+      },
+      admin: {
+        category: "orders",
+        type: "order_cancelled",
+        title: "Order cancelled",
+        body: `Order ${orderId} for ${store} was cancelled${reasonSuffix}`,
+        link: adminLink,
+        ...withNotificationI18n(
+          "notifications.orderCancelled.title",
+          extra?.reason ? "notifications.orderCancelled.bodyAdminWithReason" : "notifications.orderCancelled.bodyAdmin",
+          { orderId, storeName: store, ...reasonParams },
+        ),
+      },
     });
   }
 }
@@ -252,30 +430,238 @@ export async function notifyOrderStatusChange(
 export async function notifyNewOrder(
   db: D1Database,
   orderId: string,
+  dealerId: string,
   dealerName: string,
   distributorId: string,
 ) {
+  const dealerLink = `/orders/${orderId}`;
+  const distLink = `/distributor/orders/${orderId}`;
+  const adminLink = `/admin/orders/${orderId}`;
+
+  await notifyDealerUsers(db, dealerId, {
+    category: "orders",
+    type: "order_placed",
+    title: "Order placed",
+    body: `Your order ${orderId} has been placed successfully`,
+    link: dealerLink,
+    ...withNotificationI18n("notifications.orderPlaced.title", "notifications.orderPlaced.body", { orderId }),
+  });
   await notifyDistributorsForOrg(db, distributorId, {
     category: "orders",
     type: "new_order",
-    title: "New order placed",
-    body: `${dealerName} placed order ${orderId}`,
-    link: `/distributor/orders/${orderId}`,
+    title: "New order pending approval",
+    body: `${dealerName} placed order ${orderId}. Action required: approve or reject.`,
+    link: distLink,
+    ...withNotificationI18n(
+      "notifications.newOrderPendingApproval.title",
+      "notifications.newOrderPendingApproval.body",
+      { dealerName, orderId },
+    ),
   });
-  await notifyMasterAdmins(db, {
+  const assignedSe = await db
+    .prepare(
+      `SELECT sales_executive_user_id FROM dealers WHERE id = ? AND sales_executive_user_id IS NOT NULL AND deleted_at IS NULL`,
+    )
+    .bind(dealerId)
+    .first<{ sales_executive_user_id: string }>();
+  if (assignedSe?.sales_executive_user_id) {
+    await notifySalesExecutive(db, assignedSe.sales_executive_user_id, {
+      category: "orders",
+      type: "new_order",
+      title: "New order placed",
+      body: `${dealerName} placed order ${orderId}`,
+      link: distLink,
+      ...withNotificationI18n("notifications.newOrder.title", "notifications.newOrder.body", {
+        dealerName,
+        orderId,
+      }),
+    });
+  }
+  await notifyOperationalAdmins(db, "orders:read", {
     category: "orders",
     type: "new_order",
     title: "New order placed",
     body: `${dealerName} placed order ${orderId}`,
-    link: `/admin/orders/${orderId}`,
+    link: adminLink,
+    ...withNotificationI18n("notifications.newOrder.title", "notifications.newOrder.body", {
+      dealerName,
+      orderId,
+    }),
   });
-  await notifyAdminStaff(db, {
-    category: "orders",
-    type: "new_order",
-    title: "New order placed",
-    body: `${dealerName} placed order ${orderId}`,
-    link: `/admin/orders/${orderId}`,
+}
+
+export async function notifyRewardClaim(
+  db: D1Database,
+  input: {
+    claimId: string;
+    dealerId: string;
+    dealerName: string;
+    distributorId: string;
+    rewardName: string;
+    pointsRequired: number;
+  },
+) {
+  const adminBody = `${input.dealerName} claimed ${input.rewardName} (${input.pointsRequired} points)`;
+
+  await notifyDealerUsers(db, input.dealerId, {
+    category: "system",
+    type: "reward_claim",
+    title: "Reward claim submitted",
+    body: `Your claim for ${input.rewardName} has been submitted`,
+    link: "/rewards",
+    ...withNotificationI18n(
+      "notifications.rewardClaimSubmitted.title",
+      "notifications.rewardClaimSubmitted.bodyDealer",
+      { rewardName: input.rewardName },
+    ),
   });
+  if (input.distributorId) {
+    await notifyDistributorsForOrg(db, input.distributorId, {
+    category: "system",
+    type: "reward_claim",
+    title: "Reward claim submitted",
+    body: adminBody,
+    link: "/distributor/rewards",
+    ...withNotificationI18n(
+      "notifications.rewardClaimSubmitted.title",
+      "notifications.rewardClaimSubmitted.bodyStaff",
+      {
+        dealerName: input.dealerName,
+        rewardName: input.rewardName,
+        pointsRequired: input.pointsRequired,
+      },
+    ),
+    });
+  }
+  await notifyOperationalAdmins(db, "rewards:read", {
+    category: "system",
+    type: "reward_claim",
+    title: "Reward claim submitted",
+    body: adminBody,
+    link: "/admin/rewards/claims",
+    ...withNotificationI18n(
+      "notifications.rewardClaimSubmitted.title",
+      "notifications.rewardClaimSubmitted.bodyStaff",
+      {
+        dealerName: input.dealerName,
+        rewardName: input.rewardName,
+        pointsRequired: input.pointsRequired,
+      },
+    ),
+  });
+}
+
+export async function notifyComplaintCreated(
+  db: D1Database,
+  input: {
+    complaintId: string;
+    orderId: string;
+    distributorId: string;
+    dealerName: string;
+  },
+) {
+  const body = `${input.dealerName} reported an issue on order ${input.orderId}`;
+  const adminLink = `/admin/complaints/${input.complaintId}`;
+  const distLink = `/distributor/complaints/${input.complaintId}`;
+
+  await notifyDistributorsForOrg(db, input.distributorId, {
+    category: "complaints",
+    type: "complaint_new",
+    title: "New complaint",
+    body,
+    link: distLink,
+    ...withNotificationI18n("notifications.complaintNew.title", "notifications.complaintNew.body", {
+      dealerName: input.dealerName,
+      orderId: input.orderId,
+    }),
+  });
+  await notifyOperationalAdmins(db, "complaints:read", {
+    category: "complaints",
+    type: "complaint_new",
+    title: "New complaint",
+    body,
+    link: adminLink,
+    ...withNotificationI18n("notifications.complaintNew.title", "notifications.complaintNew.body", {
+      dealerName: input.dealerName,
+      orderId: input.orderId,
+    }),
+  });
+}
+
+export async function notifyComplaintUpdated(
+  db: D1Database,
+  input: {
+    complaintId: string;
+    dealerId: string;
+    orderId: string;
+    status: string;
+  },
+) {
+  const statusLabel = input.status.replace(/_/g, " ");
+  await notifyDealerUsers(db, input.dealerId, {
+    category: "complaints",
+    type: "complaint_update",
+    title: "Complaint updated",
+    body: `Your complaint on order ${input.orderId} is now ${statusLabel}`,
+    link: `/complaints/${input.complaintId}`,
+    ...withNotificationI18n("notifications.complaintUpdated.title", "notifications.complaintUpdated.body", {
+      orderId: input.orderId,
+      statusLabel,
+    }),
+  });
+}
+
+export async function notifySignupRejected(
+  _db: D1Database,
+  _userId: string,
+  _note?: string | null,
+) {
+  // Rejected users cannot authenticate (requireActiveAccount blocks them), so an in-app
+  // notification would never be readable. Rejection is communicated via the signup review note
+  // and audit log; use WhatsApp/email channels if outbound messaging is required.
+}
+
+export async function notifyDealerVisitCheckIn(
+  db: D1Database,
+  input: {
+    visitId: string;
+    salesExecutiveName: string;
+    storeName: string;
+    dealerName: string;
+  },
+) {
+  await notifyOperationalAdmins(db, "visits:read", {
+    category: "system",
+    type: "system",
+    title: "Sales executive check-in",
+    body: `${input.salesExecutiveName} checked in at ${input.storeName} (${input.dealerName})`,
+    link: `/admin/visits/${input.visitId}`,
+    ...withNotificationI18n("notifications.visitCheckIn.title", "notifications.visitCheckIn.body", {
+      salesExecutiveName: input.salesExecutiveName,
+      storeName: input.storeName,
+      dealerName: input.dealerName,
+    }),
+  });
+}
+
+async function filterCampaignRecipientsWithoutDuplicate(
+  db: D1Database,
+  userIds: string[],
+  eventKey: string,
+): Promise<string[]> {
+  if (!userIds.length) return [];
+  const placeholders = userIds.map(() => "?").join(", ");
+  const { results } = await db
+    .prepare(
+      `SELECT recipient_user_id FROM notifications
+       WHERE recipient_user_id IN (${placeholders})
+         AND type = 'campaign_new'
+         AND metadata LIKE ?`,
+    )
+    .bind(...userIds, `%"eventKey":"${eventKey}"%`)
+    .all<{ recipient_user_id: string }>();
+  const already = new Set(results.map((r) => r.recipient_user_id));
+  return userIds.filter((id) => !already.has(id));
 }
 
 export async function notifyCampaignPublished(
@@ -284,9 +670,8 @@ export async function notifyCampaignPublished(
     campaignId: string;
     name: string;
     productName: string;
+    productId?: string | null;
     discountPercent?: number;
-    targetDealers: boolean;
-    targetDistributors: boolean;
     distributorId?: string | null;
   },
 ) {
@@ -294,12 +679,37 @@ export async function notifyCampaignPublished(
     ? `${input.name}: extra ${input.discountPercent}% off ${input.productName}`
     : `${input.name} is now live for ${input.productName}`;
 
+  const eventKey = `campaign:${input.campaignId}:published`;
+  const bodyKey = input.discountPercent
+    ? "notifications.campaignNew.bodyDiscount"
+    : "notifications.campaignNew.bodyLive";
+  const i18nParams = input.discountPercent
+    ? {
+        name: input.name,
+        percent: input.discountPercent,
+        productName: input.productName,
+      }
+    : { name: input.name, productName: input.productName };
+  const metadata = {
+    eventKey,
+    i18n: {
+      titleKey: "notifications.campaignNew.title",
+      bodyKey,
+      params: i18nParams,
+    },
+  };
+
+  const dealerLink = input.productId
+    ? `/products/${input.productId}?campaignId=${input.campaignId}`
+    : `/campaigns/${input.campaignId}`;
+
   const dealerPayload: NotifyInput = {
     category: "campaigns",
     type: "campaign_new",
     title: "New campaign",
     body,
-    link: `/campaigns/${input.campaignId}`,
+    link: dealerLink,
+    metadata,
   };
 
   const distPayload: NotifyInput = {
@@ -308,21 +718,57 @@ export async function notifyCampaignPublished(
     title: "New campaign",
     body,
     link: `/distributor/campaigns/${input.campaignId}`,
+    metadata,
   };
 
-  if (input.targetDealers) {
-    if (input.distributorId) {
-      await notifyDealerUsersForDistributor(db, input.distributorId, dealerPayload);
-    } else {
-      await notifyAllDealerUsers(db, dealerPayload);
-    }
+  if (input.distributorId) {
+    const dealerUsers = await db
+      .prepare(
+        `SELECT u.id FROM users u
+         JOIN dealers d ON d.id = u.dealer_id
+         WHERE d.distributor_id = ? AND u.role = 'dealer' AND u.status = 'active' AND u.deleted_at IS NULL`,
+      )
+      .bind(input.distributorId)
+      .all<{ id: string }>();
+    const distUsers = await db
+      .prepare(
+        `SELECT id FROM users WHERE distributor_id = ? AND role = 'distributor' AND status = 'active' AND deleted_at IS NULL`,
+      )
+      .bind(input.distributorId)
+      .all<{ id: string }>();
+
+    const dealerIds = await filterCampaignRecipientsWithoutDuplicate(
+      db,
+      dealerUsers.results.map((u) => u.id),
+      eventKey,
+    );
+    const distIds = await filterCampaignRecipientsWithoutDuplicate(
+      db,
+      distUsers.results.map((u) => u.id),
+      eventKey,
+    );
+    if (dealerIds.length) await notifyUserIds(db, dealerIds, dealerPayload);
+    if (distIds.length) await notifyUserIds(db, distIds, distPayload);
+    return;
   }
 
-  if (input.targetDistributors) {
-    if (input.distributorId) {
-      await notifyDistributorsForOrg(db, input.distributorId, distPayload);
-    } else {
-      await notifyAllDistributorUsers(db, distPayload);
-    }
-  }
+  const allDealers = await db
+    .prepare(`SELECT id FROM users WHERE role = 'dealer' AND status = 'active' AND deleted_at IS NULL`)
+    .all<{ id: string }>();
+  const allDists = await db
+    .prepare(`SELECT id FROM users WHERE role = 'distributor' AND status = 'active' AND deleted_at IS NULL`)
+    .all<{ id: string }>();
+
+  const dealerIds = await filterCampaignRecipientsWithoutDuplicate(
+    db,
+    allDealers.results.map((u) => u.id),
+    eventKey,
+  );
+  const distIds = await filterCampaignRecipientsWithoutDuplicate(
+    db,
+    allDists.results.map((u) => u.id),
+    eventKey,
+  );
+  if (dealerIds.length) await notifyUserIds(db, dealerIds, dealerPayload);
+  if (distIds.length) await notifyUserIds(db, distIds, distPayload);
 }

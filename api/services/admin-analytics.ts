@@ -1,3 +1,6 @@
+import { getVisitSummary } from "./dealer-visits";
+import { formatInLabel, formatYearMonthLabel } from "../utils";
+
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
 
 function inrCompact(n: number) {
@@ -24,14 +27,26 @@ function monthIndex(label: string): number {
   return idx >= 0 ? idx : new Date().getMonth();
 }
 
+function defaultAnalyticsMonths() {
+  const now = new Date();
+  return {
+    from: MONTHS[(now.getMonth() + 8) % 12]!,
+    to: MONTHS[now.getMonth()]!,
+  };
+}
+
 function monthRange(filters: AdminAnalyticsQuery) {
-  const year = new Date().getFullYear();
-  const from = filters.fromMonth ?? filters.month ?? "Aug";
-  const to = filters.toMonth ?? filters.month ?? from;
+  const defaults = defaultAnalyticsMonths();
+  const now = new Date();
+  const from = filters.fromMonth ?? filters.month ?? defaults.from;
+  const to = filters.toMonth ?? filters.month ?? defaults.to;
   const startMonth = monthIndex(from);
   const endMonth = monthIndex(to);
-  const start = new Date(year, Math.min(startMonth, endMonth), 1);
-  const end = new Date(year, Math.max(startMonth, endMonth) + 1, 0, 23, 59, 59);
+  const endYear = now.getFullYear();
+  let startYear = endYear;
+  if (startMonth > endMonth) startYear = endYear - 1;
+  const start = new Date(startYear, startMonth, 1);
+  const end = new Date(endYear, endMonth + 1, 0, 23, 59, 59, 999);
   return { startIso: start.toISOString(), endIso: end.toISOString() };
 }
 
@@ -93,7 +108,7 @@ async function loadFilterOptions(db: D1Database, filters: AdminAnalyticsQuery) {
     .all<{ product: string }>();
 
   return {
-    months: ["Mar", "Apr", "May", "Jun", "Jul", "Aug"],
+    months: [...MONTHS],
     distributors: distributors.map((d) => ({ id: d.id, name: d.name })),
     salesExecutives: salesExecutives.map((s) => ({
       id: s.id,
@@ -129,7 +144,7 @@ function buildDealerWhere(filters: AdminAnalyticsQuery, binds: unknown[]) {
 }
 
 function buildOrderWhere(filters: AdminAnalyticsQuery, range: { startIso: string; endIso: string }, binds: unknown[]) {
-  let sql = ` AND o.deleted_at IS NULL AND o.placed_at >= ? AND o.placed_at <= ?`;
+  let sql = ` AND o.deleted_at IS NULL AND o.status NOT IN ('rejected', 'cancelled') AND o.placed_at >= ? AND o.placed_at <= ?`;
   binds.push(range.startIso, range.endIso);
   if (filters.distributorId) {
     sql += ` AND o.distributor_id = ?`;
@@ -195,7 +210,12 @@ function buildBreadcrumb(filters: AdminAnalyticsQuery, names: {
   if (filters.distributorId) {
     crumbs.push({
       label: names.distributor ?? "Distributor",
-      filters: { ...filters, salesExecutiveId: undefined, dealerId: undefined, product: undefined },
+      filters: {
+        month: filters.month,
+        fromMonth: filters.fromMonth,
+        toMonth: filters.toMonth,
+        distributorId: filters.distributorId,
+      },
     });
   }
   if (filters.salesExecutiveId) {
@@ -213,8 +233,57 @@ function buildBreadcrumb(filters: AdminAnalyticsQuery, names: {
   return crumbs;
 }
 
+async function fetchPrevRankingSales(
+  db: D1Database,
+  filters: AdminAnalyticsQuery,
+  prevRange: { startIso: string; endIso: string },
+  rankingLevel: "distributor" | "sales_executive" | "dealer" | "product",
+  entityIds: string[],
+) {
+  const map = new Map<string, number>();
+  if (!entityIds.length) return map;
+
+  const placeholders = entityIds.map(() => "?").join(",");
+  let sql = "";
+  const binds: unknown[] = [prevRange.startIso, prevRange.endIso];
+
+  if (rankingLevel === "product") {
+    binds.push(...entityIds);
+    sql = `SELECT oi.product_name as id, SUM(oi.line_total) as sales
+      FROM order_items oi JOIN orders o ON o.id = oi.order_id AND o.deleted_at IS NULL
+        AND o.status NOT IN ('rejected', 'cancelled')
+        AND o.placed_at >= ? AND o.placed_at <= ?
+      WHERE oi.product_name IN (${placeholders})
+      GROUP BY oi.product_name`;
+  } else if (rankingLevel === "dealer") {
+    binds.push(...entityIds);
+    sql = `SELECT d.id, COALESCE(SUM(o.total_value), 0) as sales
+      FROM dealers d LEFT JOIN orders o ON o.dealer_id = d.id AND o.deleted_at IS NULL
+        AND o.status NOT IN ('rejected', 'cancelled')
+        AND o.placed_at >= ? AND o.placed_at <= ?
+      WHERE d.id IN (${placeholders}) GROUP BY d.id`;
+  } else {
+    binds.push(...entityIds);
+    sql = `SELECT dist.id, COALESCE(SUM(o.total_value), 0) as sales
+      FROM distributors dist LEFT JOIN orders o ON o.distributor_id = dist.id AND o.deleted_at IS NULL
+        AND o.status NOT IN ('rejected', 'cancelled')
+        AND o.placed_at >= ? AND o.placed_at <= ?
+      WHERE dist.id IN (${placeholders}) GROUP BY dist.id`;
+  }
+
+  const { results } = await db.prepare(sql).bind(...binds).all<{ id: string; sales: number }>();
+  for (const row of results) map.set(row.id, row.sales);
+  return map;
+}
+
 export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyticsQuery = {}) {
-  const filters: AdminAnalyticsQuery = { ...raw };
+  const defaults = defaultAnalyticsMonths();
+  const filters: AdminAnalyticsQuery = {
+    ...raw,
+    fromMonth: raw.fromMonth ?? defaults.from,
+    toMonth: raw.toMonth ?? defaults.to,
+    month: raw.month ?? raw.toMonth ?? defaults.to,
+  };
   const range = monthRange(filters);
   const filterOptions = await loadFilterOptions(db, filters);
   const scopeLevel = resolveScopeLevel(filters);
@@ -233,43 +302,43 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
   const orderBinds: unknown[] = [];
   const orderWhere = buildOrderWhere(filters, range, orderBinds);
 
-  const summary = await db
-    .prepare(
-      `SELECT COUNT(*) as orders, COALESCE(SUM(o.total_value), 0) as sales
-       FROM orders o WHERE 1=1${orderWhere}`,
-    )
-    .bind(...orderBinds)
-    .first<{ orders: number; sales: number }>();
-
   const prevStart = new Date(range.startIso);
   prevStart.setMonth(prevStart.getMonth() - 1);
   const prevEnd = new Date(range.endIso);
   prevEnd.setMonth(prevEnd.getMonth() - 1);
+  const prevRange = { startIso: prevStart.toISOString(), endIso: prevEnd.toISOString() };
+
   const prevBinds: unknown[] = [];
-  const prevWhere = buildOrderWhere(
-    filters,
-    { startIso: prevStart.toISOString(), endIso: prevEnd.toISOString() },
-    prevBinds,
-  );
-  const prevSummary = await db
-    .prepare(
-      `SELECT COUNT(*) as orders, COALESCE(SUM(o.total_value), 0) as sales
-       FROM orders o WHERE 1=1${prevWhere}`,
-    )
-    .bind(...prevBinds)
-    .first<{ orders: number; sales: number }>();
+  const prevWhere = buildOrderWhere(filters, prevRange, prevBinds);
 
   const pendingBinds: unknown[] = [];
   let pendingSql = `SELECT COUNT(*) as c FROM orders o JOIN dealers d ON d.id = o.dealer_id
     WHERE o.status IN ('order_placed','pending_approval') AND o.deleted_at IS NULL`;
   pendingSql += buildDealerWhere(filters, pendingBinds);
-  const pending = await db.prepare(pendingSql).bind(...pendingBinds).first<{ c: number }>();
 
   const complaintBinds: unknown[] = [];
   let complaintSql = `SELECT COUNT(*) as c FROM complaints c JOIN dealers d ON d.id = c.dealer_id
     WHERE c.status IN ('pending','in_progress') AND c.deleted_at IS NULL`;
   complaintSql += buildDealerWhere(filters, complaintBinds);
-  const complaints = await db.prepare(complaintSql).bind(...complaintBinds).first<{ c: number }>();
+
+  const [summary, prevSummary, pending, complaints] = await Promise.all([
+    db
+      .prepare(
+        `SELECT COUNT(*) as orders, COALESCE(SUM(o.total_value), 0) as sales
+         FROM orders o WHERE 1=1${orderWhere}`,
+      )
+      .bind(...orderBinds)
+      .first<{ orders: number; sales: number }>(),
+    db
+      .prepare(
+        `SELECT COUNT(*) as orders, COALESCE(SUM(o.total_value), 0) as sales
+         FROM orders o WHERE 1=1${prevWhere}`,
+      )
+      .bind(...prevBinds)
+      .first<{ orders: number; sales: number }>(),
+    db.prepare(pendingSql).bind(...pendingBinds).first<{ c: number }>(),
+    db.prepare(complaintSql).bind(...complaintBinds).first<{ c: number }>(),
+  ]);
 
   const sales = summary?.sales ?? 0;
   const orders = summary?.orders ?? 0;
@@ -280,20 +349,21 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
   let trendSql = `SELECT strftime('%Y-%m', o.placed_at) as ym, SUM(o.total_value) as sales, COUNT(*) as orders
     FROM orders o WHERE o.deleted_at IS NULL`;
   const trendStart = new Date();
-  trendStart.setMonth(trendStart.getMonth() - 5, 1);
+  trendStart.setMonth(trendStart.getMonth() - 4, 1);
   trendStart.setHours(0, 0, 0, 0);
   trendSql += buildOrderWhere(filters, { startIso: trendStart.toISOString(), endIso: range.endIso }, trendBinds);
-  trendSql += ` GROUP BY ym ORDER BY ym ASC LIMIT 6`;
+  trendSql += ` GROUP BY ym ORDER BY ym ASC LIMIT 5`;
   const { results: trendRows } = await db.prepare(trendSql).bind(...trendBinds).all<{
     ym: string;
     sales: number;
     orders: number;
   }>();
 
-  const salesTrend = trendRows.map((r) => {
-    const d = new Date(`${r.ym}-01`);
-    return { month: formatMonthLabel(d), sales: r.sales, orders: r.orders };
-  });
+  const salesTrend = trendRows.map((r) => ({
+    month: formatYearMonthLabel(r.ym),
+    sales: r.sales,
+    orders: r.orders,
+  }));
 
   let rankingLevel: "distributor" | "sales_executive" | "dealer" | "product" = "distributor";
   let rankingSql = "";
@@ -310,6 +380,7 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
     rankingSql = `SELECT d.id, d.store_name as name, d.code as subtitle,
       COALESCE(SUM(o.total_value), 0) as sales, COUNT(o.id) as orders
       FROM dealers d LEFT JOIN orders o ON o.dealer_id = d.id AND o.deleted_at IS NULL
+        AND o.status NOT IN ('rejected', 'cancelled')
         AND o.placed_at >= ? AND o.placed_at <= ?
       WHERE d.deleted_at IS NULL`;
     rankBinds.push(range.startIso, range.endIso);
@@ -319,6 +390,7 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
     rankingSql = `SELECT dist.id, dist.name, '' as subtitle,
       COALESCE(SUM(o.total_value), 0) as sales, COUNT(o.id) as orders
       FROM distributors dist LEFT JOIN orders o ON o.distributor_id = dist.id AND o.deleted_at IS NULL
+        AND o.status NOT IN ('rejected', 'cancelled')
         AND o.placed_at >= ? AND o.placed_at <= ?
       WHERE dist.deleted_at IS NULL GROUP BY dist.id ORDER BY sales DESC LIMIT 10`;
     rankBinds.push(range.startIso, range.endIso);
@@ -332,39 +404,63 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
     orders: number;
   }>();
 
+  const prevSalesMap = await fetchPrevRankingSales(
+    db,
+    filters,
+    prevRange,
+    rankingLevel,
+    rankRows.map((r) => r.id),
+  );
+
   const avgSales = rankRows.length ? rankRows.reduce((s, r) => s + r.sales, 0) / rankRows.length : 0;
+  const mapRankingRow = (r: { id: string; name: string; subtitle?: string; sales: number; orders: number }) => ({
+    id: r.id,
+    name: r.name,
+    subtitle: r.subtitle,
+    sales: r.sales,
+    orders: r.orders,
+    growthPct: pctChange(r.sales, prevSalesMap.get(r.id) ?? 0),
+    vsAvgPct: avgSales ? Math.round(((r.sales - avgSales) / avgSales) * 100) : 0,
+  });
   const rankings = {
     level: rankingLevel,
-    top: rankRows.slice(0, 5).map((r) => ({
-      id: r.id,
-      name: r.name,
-      subtitle: r.subtitle,
-      sales: r.sales,
-      orders: r.orders,
-      growthPct: 0,
-      vsAvgPct: avgSales ? Math.round(((r.sales - avgSales) / avgSales) * 100) : 0,
-    })),
-    bottom: [...rankRows].reverse().slice(0, 5).map((r) => ({
-      id: r.id,
-      name: r.name,
-      subtitle: r.subtitle,
-      sales: r.sales,
-      orders: r.orders,
-      growthPct: 0,
-      vsAvgPct: avgSales ? Math.round(((r.sales - avgSales) / avgSales) * 100) : 0,
-    })),
+    top: rankRows.slice(0, 5).map(mapRankingRow),
+    bottom: [...rankRows].reverse().slice(0, 5).map(mapRankingRow),
   };
 
   const shareBinds: unknown[] = [range.startIso, range.endIso];
-  const { results: shareRows } = await db
-    .prepare(
-      `SELECT dist.id, dist.name, COALESCE(SUM(o.total_value), 0) as value
-       FROM distributors dist LEFT JOIN orders o ON o.distributor_id = dist.id AND o.deleted_at IS NULL
-         AND o.placed_at >= ? AND o.placed_at <= ?
-       WHERE dist.deleted_at IS NULL GROUP BY dist.id ORDER BY value DESC`,
-    )
-    .bind(...shareBinds)
-    .all<{ id: string; name: string; value: number }>();
+  const productBinds: unknown[] = [];
+
+  const [shareResult, productResult, rewardStatsRow, visitMetrics] = await Promise.all([
+    db
+      .prepare(
+        `SELECT dist.id, dist.name, COALESCE(SUM(o.total_value), 0) as value
+         FROM distributors dist LEFT JOIN orders o ON o.distributor_id = dist.id AND o.deleted_at IS NULL
+           AND o.status NOT IN ('rejected', 'cancelled')
+           AND o.placed_at >= ? AND o.placed_at <= ?
+         WHERE dist.deleted_at IS NULL GROUP BY dist.id ORDER BY value DESC`,
+      )
+      .bind(...shareBinds)
+      .all<{ id: string; name: string; value: number }>(),
+    db
+      .prepare(
+        `SELECT oi.product_name as product, SUM(oi.line_total) as sales, SUM(oi.quantity) as units
+         FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE 1=1${buildOrderWhere(filters, range, productBinds)}
+         GROUP BY oi.product_name ORDER BY sales DESC LIMIT 8`,
+      )
+      .bind(...productBinds)
+      .all<{ product: string; sales: number; units: number }>(),
+    db
+      .prepare(
+        `SELECT COUNT(*) as total, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending FROM reward_claims`,
+      )
+      .first<{ total: number; pending: number }>(),
+    getVisitSummary(db),
+  ]);
+
+  const shareRows = shareResult.results;
+  const productRows = productResult.results;
+
   const shareTotal = shareRows.reduce((s, r) => s + r.value, 0) || 1;
   const distributorShare = shareRows.map((r) => ({
     id: r.id,
@@ -372,20 +468,6 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
     value: r.value,
     pct: Math.round((r.value / shareTotal) * 100),
   }));
-
-  const productBinds: unknown[] = [];
-  const { results: productRows } = await db
-    .prepare(
-      `SELECT oi.product_name as product, SUM(oi.line_total) as sales, SUM(oi.quantity) as units
-       FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE 1=1${buildOrderWhere(filters, range, productBinds)}
-       GROUP BY oi.product_name ORDER BY sales DESC LIMIT 8`,
-    )
-    .bind(...productBinds)
-    .all<{ product: string; sales: number; units: number }>();
-
-  const rewardStatsRow = await db
-    .prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending FROM reward_claims`)
-    .first<{ total: number; pending: number }>();
 
   const insights: Array<{
     id: string;
@@ -440,6 +522,9 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
   }
 
   const isEmpty = sales === 0 && orders === 0 && rankRows.length === 0;
+  const periodStart = new Date(range.startIso);
+  const periodEnd = new Date(range.endIso);
+  const periodLabel = `${formatMonthLabel(periodStart)}–${formatMonthLabel(periodEnd)} ${periodStart.getFullYear()}`;
 
   return {
     filters,
@@ -457,6 +542,7 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
         label: "Sales",
         value: sales,
         formatted: inrCompact(sales),
+        sub: periodLabel,
         mom: deltaMetric(sales, prevSales),
       },
       {
@@ -464,6 +550,7 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
         label: "Orders",
         value: orders,
         formatted: String(orders),
+        sub: periodLabel,
         mom: deltaMetric(orders, prevOrders),
       },
       {
@@ -506,6 +593,7 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
     },
     complaintTrend: [],
     approvalTrend: [],
+    visitMetrics,
     filterOptions,
   };
 }
@@ -513,7 +601,7 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
 export async function exploreAdminHierarchy(
   db: D1Database,
   query: {
-    level?: "distributors" | "dealers" | "orders";
+    level?: "distributors" | "dealers" | "orders" | "all_dealers";
     distributorId?: string;
     dealerId?: string;
     search?: string;
@@ -527,11 +615,31 @@ export async function exploreAdminHierarchy(
   const search = query.search?.trim();
   const q = search ? `%${search}%` : null;
 
+  if (level === "all_dealers") {
+    const binds: unknown[] = [from, to];
+    let sql = `SELECT d.id, d.store_name as name, d.code as code, d.distributor_id as distributorId, dist.name as distributorName,
+      COALESCE(SUM(o.total_value),0) as sales, COUNT(o.id) as orders
+      FROM dealers d
+      JOIN distributors dist ON dist.id = d.distributor_id
+      LEFT JOIN orders o ON o.dealer_id = d.id AND o.deleted_at IS NULL
+        AND o.status NOT IN ('rejected', 'cancelled')
+        AND o.placed_at >= ? AND o.placed_at <= ?
+      WHERE d.deleted_at IS NULL`;
+    if (q) {
+      sql += ` AND (d.store_name LIKE ? OR d.code LIKE ? OR dist.name LIKE ?)`;
+      binds.push(q, q, q);
+    }
+    sql += ` GROUP BY d.id ORDER BY sales DESC LIMIT 200`;
+    const { results } = await db.prepare(sql).bind(...binds).all();
+    return { level, items: results };
+  }
+
   if (level === "distributors") {
     const binds: unknown[] = [from, to];
     let sql = `SELECT dist.id, dist.name, COALESCE(SUM(o.total_value),0) as sales, COUNT(o.id) as orders,
       (SELECT COUNT(*) FROM dealers d WHERE d.distributor_id = dist.id AND d.deleted_at IS NULL) as dealerCount
       FROM distributors dist LEFT JOIN orders o ON o.distributor_id = dist.id AND o.deleted_at IS NULL
+        AND o.status NOT IN ('rejected', 'cancelled')
         AND o.placed_at >= ? AND o.placed_at <= ?
       WHERE dist.deleted_at IS NULL`;
     if (q) {
@@ -549,6 +657,7 @@ export async function exploreAdminHierarchy(
     let sql = `SELECT d.id, d.store_name as name, d.code as code,
       COALESCE(SUM(o.total_value),0) as sales, COUNT(o.id) as orders
       FROM dealers d LEFT JOIN orders o ON o.dealer_id = d.id AND o.deleted_at IS NULL
+        AND o.status NOT IN ('rejected', 'cancelled')
         AND o.placed_at >= ? AND o.placed_at <= ?
       WHERE d.deleted_at IS NULL AND d.distributor_id = ?`;
     if (q) {
@@ -563,12 +672,18 @@ export async function exploreAdminHierarchy(
   if (!query.dealerId) return { level, items: [] };
   const binds: unknown[] = [query.dealerId, from, to];
   let sql = `SELECT o.id, o.placed_at as placedAt, o.status, o.total_value as value, o.total_items as quantity
-    FROM orders o WHERE o.dealer_id = ? AND o.deleted_at IS NULL AND o.placed_at >= ? AND o.placed_at <= ?`;
+    FROM orders o WHERE o.dealer_id = ? AND o.deleted_at IS NULL AND o.status NOT IN ('rejected', 'cancelled') AND o.placed_at >= ? AND o.placed_at <= ?`;
   if (q) {
     sql += ` AND o.id LIKE ?`;
     binds.push(q);
   }
   sql += ` ORDER BY o.placed_at DESC LIMIT 100`;
   const { results } = await db.prepare(sql).bind(...binds).all();
-  return { level, items: results };
+  return {
+    level,
+    items: results.map((row) => ({
+      ...row,
+      placedAt: row.placedAt ? formatInLabel(String(row.placedAt)) : row.placedAt,
+    })),
+  };
 }

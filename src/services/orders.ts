@@ -2,7 +2,7 @@ import type { DistributorOrder, OrderStatus } from "@/lib/mock/distributor/types
 import { api } from "@/lib/api-client";
 
 type OrdersQuery = {
-  status?: OrderStatus | "order_placed" | "pending_approval";
+  status?: OrderStatus | "order_placed" | "pending_approval" | OrderStatusTab;
   search?: string;
   fromDate?: string;
   toDate?: string;
@@ -13,6 +13,10 @@ type OrdersQuery = {
 type PaginatedOrdersResponse = {
   items: DistributorOrder[];
   total: number;
+  summary: {
+    totalSales: number;
+    totalPoints: number;
+  };
   page: number;
   pageSize: number;
   totalPages: number;
@@ -60,6 +64,13 @@ export async function listOrdersPage(
   return {
     items,
     total: items.length,
+    summary: {
+      totalSales: items.reduce((sum, order) => sum + order.totalValue, 0),
+      totalPoints: items.reduce(
+        (sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + (item.points ?? 0), 0),
+        0,
+      ),
+    },
     page,
     pageSize,
     totalPages: Math.max(1, Math.ceil(items.length / pageSize)),
@@ -194,11 +205,17 @@ export async function listDealerOrdersPage(params: {
   page?: number;
   pageSize?: number;
   search?: string;
+  status?: OrderStatusTab;
+  fromDate?: string;
+  toDate?: string;
 } = {}) {
   const res = await listOrdersPage({
     page: params.page ?? 1,
     pageSize: params.pageSize ?? 10,
     search: params.search,
+    fromDate: params.fromDate,
+    toDate: params.toDate,
+    status: params.status && params.status !== "all" ? params.status : undefined,
   });
   return {
     ...res,
@@ -210,6 +227,41 @@ export async function getPriceQuote(input: {
   productId: string;
   quantity: number;
   thickness?: string;
+  campaignId?: string;
+  lengthIn?: number;
+  breadthIn?: number;
 }) {
   return api.post("/api/v1/catalog/price-quote", input);
+}
+
+export type OrderStatusTab =
+  | "pending"
+  | "approved"
+  | "in_making"
+  | "out_for_delivery"
+  | "delivered"
+  | "rejected"
+  | "cancelled"
+  | "all";
+
+export type OrderStatusCounts = {
+  pending: number;
+  approved: number;
+  in_making: number;
+  out_for_delivery: number;
+  delivered: number;
+  rejected: number;
+  cancelled: number;
+  all: number;
+};
+
+export async function getOrderStatusCounts(): Promise<OrderStatusCounts> {
+  return api.get<OrderStatusCounts>("/api/v1/orders/status-counts");
+}
+
+export async function updateOrderLineItems(
+  orderId: string,
+  input: Record<string, unknown>,
+) {
+  return api.patch<DistributorOrder>(`/api/v1/orders/${orderId}/items`, input);
 }

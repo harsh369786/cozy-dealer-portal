@@ -1,4 +1,4 @@
-import { id, nowIso } from "../utils";
+import { formatInLabel, id, nowIso } from "../utils";
 
 export async function writeAuditLog(
   db: D1Database,
@@ -166,7 +166,7 @@ export async function listAuditLogs(db: D1Database, opts: { limit?: number } = {
 
   return results.map((row) => ({
     id: row.id as string,
-    created_at: row.created_at as string,
+    created_at: formatInLabel(String(row.created_at ?? "")),
     actor_name: (row.actor_name as string) ?? "System",
     actor_role: (row.actor_role as string) ?? "master_admin",
     action: row.action as string,

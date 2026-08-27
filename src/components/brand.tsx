@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { assetPublicPath, STATIC_ASSET_KEYS } from "@/lib/asset-url";
 import { cn } from "@/lib/utils";
+import { normalizeRewardPoints } from "@/lib/rewards";
 
 const LOGO_SRC = assetPublicPath(STATIC_ASSET_KEYS.brand.logo);
 
@@ -17,18 +18,19 @@ export function Logo({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
 }
 
 export function CountUp({ value, className }: { value: number; className?: string }) {
+  const safeValue = normalizeRewardPoints(value, 0);
   const [n, setN] = useState(0);
   const raf = useRef<number | undefined>(undefined);
   useEffect(() => {
     const start = performance.now();
     const tick = (t: number) => {
       const p = Math.min(1, (t - start) / 900);
-      setN(Math.round(value * (1 - Math.pow(1 - p, 3))));
+      setN(Math.round(safeValue * (1 - Math.pow(1 - p, 3))));
       if (p < 1) raf.current = requestAnimationFrame(tick);
     };
     raf.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf.current!);
-  }, [value]);
+  }, [safeValue]);
   return <span className={className}>{n.toLocaleString("en-IN")}</span>;
 }
 

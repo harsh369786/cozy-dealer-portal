@@ -1,5 +1,6 @@
 import type { AuditLogEntry, ListFilters, PaginatedResult } from "@/lib/mock/admin/types";
 import { api } from "@/lib/api-client";
+import { formatTimestamp } from "@/lib/date-format";
 import { matchesQuery, paginate } from "./_utils";
 
 type AuditRow = {
@@ -16,7 +17,7 @@ type AuditRow = {
 function mapAuditRow(row: AuditRow): AuditLogEntry {
   return {
     id: row.id,
-    timestamp: row.created_at,
+    timestamp: formatTimestamp(row.created_at),
     actorName: row.actor_name ?? "System",
     actorRole: (row.actor_role ?? "master_admin") as AuditLogEntry["actorRole"],
     action: row.action,

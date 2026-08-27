@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-page-header";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
@@ -43,6 +44,7 @@ const emptyProduct = (): AdminProduct => ({
 });
 
 function NewProductPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [product, setProduct] = useState(emptyProduct);
   const [saving, setSaving] = useState(false);
@@ -60,7 +62,7 @@ function NewProductPage() {
       toast.success("Product saved");
       await navigate({ to: "/admin/products/$productId", params: { productId: product.id } });
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Save failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -319,7 +321,7 @@ export function ProductEditor({
       {!readOnly && (
         <div className="flex gap-2">
           <AdminPrimaryButton onClick={onSave} disabled={saving}>
-            {saving ? "Saving…" : "Save product"}
+            {saving ? t("common.saving") : "Save product"}
           </AdminPrimaryButton>
           {onArchive && (
             <Button variant="outline" className="rounded-2xl font-bold" onClick={onArchive}>

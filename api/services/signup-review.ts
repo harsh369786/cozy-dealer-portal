@@ -1,6 +1,7 @@
 import { formatInLabel, id, nowIso } from "../utils";
+import type { SessionUser } from "../types";
 import { writeAuditLog } from "./audit";
-import { notifySalesExecutive, notifyUser } from "./notification-events";
+import { notifySalesExecutive, notifySignupRejected, notifyUser, withNotificationI18n } from "./notification-events";
 
 export type SignupReviewFilters = {
   search?: string;
@@ -36,7 +37,6 @@ function mapSignupRow(r: Record<string, unknown>) {
     distributorName: r.distributor_name as string,
     status: r.status as string,
     reviewNote: (r.review_note as string) ?? null,
-    createdAt: r.created_at as string,
     submittedAtLabel: formatInLabel((r.created_at as string) ?? nowIso()),
   };
 }
@@ -71,14 +71,11 @@ function slugCode(value: string) {
 
 async function uniqueDealerCode(db: D1Database, storeName: string) {
   const base = slugCode(storeName) || "dealer";
-  let code = base;
-  let n = 1;
-  while (true) {
-    const row = await db.prepare(`SELECT id FROM dealers WHERE code = ?`).bind(code).first();
-    if (!row) return code;
-    n += 1;
-    code = `${base}-${n}`;
-  }
+  const suffix = Date.now().toString(36).slice(-5);
+  let code = `${base}-${suffix}`;
+  const existing = await db.prepare(`SELECT id FROM dealers WHERE code = ?`).bind(code).first();
+  if (!existing) return code;
+  return `${base}-${id("d").slice(-8)}`;
 }
 
 function locationFromAddress(address: string) {
@@ -130,7 +127,7 @@ export async function reviewSignupApplication(
   db: D1Database,
   applicationId: string,
   input: ApproveSignupInput | RejectSignupInput,
-  actorUserId: string,
+  actor: Pick<SessionUser, "id" | "role">,
 ) {
   const app = await db
     .prepare(`SELECT * FROM signup_applications WHERE id = ?`)
@@ -157,100 +154,149 @@ export async function reviewSignupApplication(
   }
 
   if (input.action === "reject") {
+    const claim = await db
+      .prepare(
+        `UPDATE signup_applications SET status = 'rejected', reviewed_by = ?, review_note = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
+      )
+      .bind(actor.id, input.note ?? null, ts, applicationId)
+      .run();
+    if ((claim.meta.changes ?? 0) !== 1) throw new Error("Signup application is no longer pending");
+
     await db.batch([
       db
         .prepare(`UPDATE users SET status = 'rejected', updated_at = ? WHERE id = ?`)
         .bind(ts, userId),
-      db
-        .prepare(
-          `UPDATE signup_applications SET status = 'rejected', reviewed_by = ?, review_note = ?, updated_at = ? WHERE id = ?`,
-        )
-        .bind(actorUserId, input.note ?? null, ts, applicationId),
       db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(userId),
     ]);
 
     await writeAuditLog(db, {
-      actorUserId,
+      actorUserId: actor.id,
       action: "signup.reject",
       entityType: "signup_application",
       entityId: applicationId,
       after: { status: "rejected", note: input.note ?? null },
     });
 
-    await notifyUser(db, userId, {
-      category: "system",
-      type: "system",
-      title: "Signup not approved",
-      body: input.note?.trim()
-        ? `Your signup request was not approved: ${input.note.trim()}`
-        : "Your signup request was not approved. Contact support if you need help.",
-      link: "/",
-    });
+    await notifySignupRejected(db, userId, input.note ?? null);
 
     return { status: "rejected" as const };
   }
 
   if (!APPROVE_ROLES.has(input.role)) throw new Error("Invalid role for approval");
+  if (input.role === "admin_staff" && actor.role !== "master_admin") {
+    throw new Error("Forbidden: only a master admin can approve admin staff");
+  }
+  if (input.role !== "dealer" && actor.role !== "master_admin") {
+    throw new Error("Forbidden: only a master admin can approve this role");
+  }
+
+  const claim = await db
+    .prepare(
+      `UPDATE signup_applications SET status = 'approved', reviewed_by = ?, updated_at = ? WHERE id = ? AND status = 'pending'`,
+    )
+    .bind(actor.id, ts, applicationId)
+    .run();
+  if ((claim.meta.changes ?? 0) !== 1) throw new Error("Signup application is no longer pending");
 
   let dealerId: string | null = null;
   let distributorId: string | null = null;
+  let createdDistributorId: string | null = null;
 
-  if (input.role === "dealer") {
-    if (!input.distributorId) throw new Error("Dealer approval requires a distributor");
-    await validateDistributorId(db, input.distributorId);
-    await validateSalesExecutiveId(db, input.salesExecutiveUserId ?? null);
+  try {
+    const stmts: D1PreparedStatement[] = [];
 
-    dealerId = id("dlr");
-    const code = await uniqueDealerCode(db, app.store_name as string);
-    const location = locationFromAddress(app.address as string);
+    if (input.role === "dealer") {
+      if (!input.distributorId) throw new Error("Dealer approval requires a distributor");
+      await validateDistributorId(db, input.distributorId);
+      await validateSalesExecutiveId(db, input.salesExecutiveUserId ?? null);
 
+      dealerId = id("dlr");
+      const code = await uniqueDealerCode(db, app.store_name as string);
+      const location = locationFromAddress(app.address as string);
+
+      stmts.push(
+        db
+          .prepare(
+            `INSERT INTO dealers (
+               id, distributor_id, sales_executive_user_id, code, store_name, contact_name,
+               location, address, phone, gst_number, active, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+          )
+          .bind(
+            dealerId,
+            input.distributorId,
+            input.salesExecutiveUserId ?? null,
+            code,
+            app.store_name,
+            app.name,
+            location,
+            app.address,
+            app.phone,
+            app.gst_number ?? null,
+            ts,
+            ts,
+          ),
+      );
+    } else if (input.role === "distributor") {
+      if (input.distributorId) {
+        await validateDistributorId(db, input.distributorId);
+        distributorId = input.distributorId;
+      } else {
+        distributorId = id("dist");
+        createdDistributorId = distributorId;
+        const location = locationFromAddress(app.address as string);
+        stmts.push(
+          db
+            .prepare(
+              `INSERT INTO distributors (id, name, region, phone, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+            )
+            .bind(distributorId, app.store_name, location, app.phone, ts, ts),
+        );
+      }
+    } else if (input.role === "sales_executive" || input.role === "admin_staff") {
+      if (input.distributorId || input.salesExecutiveUserId) {
+        throw new Error("Admin and sales roles cannot be assigned distributor or sales executive links");
+      }
+    }
+
+    stmts.push(
+      db
+        .prepare(
+          `UPDATE users SET role = ?, dealer_id = ?, distributor_id = ?, status = 'active', updated_at = ? WHERE id = ?`,
+        )
+        .bind(input.role, dealerId, distributorId, ts, userId),
+      db
+        .prepare(
+          `UPDATE signup_applications SET created_dealer_id = ?, updated_at = ? WHERE id = ? AND status = 'approved'`,
+        )
+        .bind(dealerId, ts, applicationId),
+    );
+    await db.batch(stmts);
+  } catch (err) {
     await db
       .prepare(
-        `INSERT INTO dealers (
-           id, distributor_id, sales_executive_user_id, code, store_name, contact_name,
-           location, address, phone, gst_number, active, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+        `UPDATE signup_applications SET status = 'pending', reviewed_by = NULL, created_dealer_id = NULL, updated_at = ? WHERE id = ? AND status = 'approved'`,
       )
-      .bind(
-        dealerId,
-        input.distributorId,
-        input.salesExecutiveUserId ?? null,
-        code,
-        app.store_name,
-        app.name,
-        location,
-        app.address,
-        app.phone,
-        app.gst_number ?? null,
-        ts,
-        ts,
-      )
+      .bind(nowIso(), applicationId)
       .run();
-  } else if (input.role === "distributor") {
-    if (!input.distributorId) throw new Error("Distributor role requires distributorId");
-    await validateDistributorId(db, input.distributorId);
-    distributorId = input.distributorId;
-  } else if (input.role === "sales_executive" || input.role === "admin_staff") {
-    if (input.distributorId || input.salesExecutiveUserId) {
-      throw new Error("Admin and sales roles cannot be assigned distributor or sales executive links");
+    await db
+      .prepare(
+        `UPDATE users SET dealer_id = NULL, distributor_id = NULL, status = 'pending_approval', updated_at = ? WHERE id = ? AND status = 'active'`,
+      )
+      .bind(nowIso(), userId)
+      .run();
+    if (dealerId) {
+      await db.prepare(`DELETE FROM dealers WHERE id = ?`).bind(dealerId).run();
     }
+    if (createdDistributorId) {
+      await db.prepare(`DELETE FROM distributors WHERE id = ?`).bind(createdDistributorId).run();
+    }
+    throw err;
   }
 
-  await db.batch([
-    db
-      .prepare(
-        `UPDATE users SET role = ?, dealer_id = ?, distributor_id = ?, status = 'active', updated_at = ? WHERE id = ?`,
-      )
-      .bind(input.role, dealerId, distributorId, ts, userId),
-    db
-      .prepare(
-        `UPDATE signup_applications SET status = 'approved', reviewed_by = ?, created_dealer_id = ?, updated_at = ? WHERE id = ?`,
-      )
-      .bind(actorUserId, dealerId, ts, applicationId),
-  ]);
-
   await writeAuditLog(db, {
-    actorUserId,
+    actorUserId: actor.id,
     action: "signup.approve",
     entityType: "signup_application",
     entityId: applicationId,
@@ -272,6 +318,7 @@ export async function reviewSignupApplication(
     title: "Account approved",
     body: "Your signup has been approved. You can now use the portal.",
     link: postLoginPath,
+    ...withNotificationI18n("notifications.accountApproved.title", "notifications.accountApproved.body"),
   });
 
   if (input.role === "dealer" && dealerId && input.salesExecutiveUserId) {
@@ -281,6 +328,9 @@ export async function reviewSignupApplication(
       title: "New dealer assigned",
       body: `${app.store_name as string} has been assigned to you`,
       link: `/distributor/dealers/${dealerId}`,
+      ...withNotificationI18n("notifications.newDealerAssigned.title", "notifications.newDealerAssigned.body", {
+        storeName: app.store_name as string,
+      }),
     });
   }
 

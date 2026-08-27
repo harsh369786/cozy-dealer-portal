@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { AdminDataTable } from "@/components/admin/admin-data-table";
 import { AdminFilterTabs, AdminFiltersBar } from "@/components/admin/admin-filters-bar";
@@ -40,7 +41,8 @@ export const Route = createFileRoute("/admin/rewards/claims")({
 });
 
 function RewardClaimsPage() {
-  const { can } = useAdminPermissions();
+  const { t } = useTranslation();
+  const { can, isMasterAdmin } = useAdminPermissions();
   const [searchInput, setSearchInput] = useState("");
   const search = useDebouncedValue(searchInput, 350);
   const [status, setStatus] = useState<"all" | "pending" | "delivered">("all");
@@ -51,7 +53,13 @@ function RewardClaimsPage() {
   const [editNotif, setEditNotif] = useState<{ id: string; title: string; body: string } | null>(null);
   const [deleteNotifId, setDeleteNotifId] = useState<string | null>(null);
 
-  const notifQuery = useAsyncData(() => listSystemNotifications("system"), []);
+  const notifQuery = useAsyncData(async () => {
+    try {
+      return await listSystemNotifications("system");
+    } catch {
+      return [];
+    }
+  }, []);
 
   const { data, loading, error, retry } = useAsyncData(
     () => listRewardClaims({ search, status, page, pageSize: 10 }),
@@ -63,11 +71,11 @@ function RewardClaimsPage() {
     setLoadingAction(true);
     try {
       await markClaimDelivered(deliverId);
-      toast.success("Marked as delivered");
+      toast.success(t("common.statusDelivered"));
       setDeliverId(null);
       retry();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Update failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     } finally {
       setLoadingAction(false);
     }
@@ -155,11 +163,11 @@ function RewardClaimsPage() {
             header: "",
             cell: (c) => (
               <div className="flex flex-wrap gap-1">
-                {c.status === "pending" ? (
+                {c.status === "pending" && isMasterAdmin ? (
                   <Button size="sm" className="rounded-lg font-bold" onClick={() => setDeliverId(c.id)}>
                     Mark delivered
                   </Button>
-                ) : (
+                ) : c.status === "delivered" && isMasterAdmin ? (
                   <Button
                     size="sm"
                     variant="outline"
@@ -168,8 +176,8 @@ function RewardClaimsPage() {
                   >
                     Mark pending
                   </Button>
-                )}
-                {can("catalog:write") && (
+                ) : null}
+                {isMasterAdmin && (
                   <Button
                     size="sm"
                     variant="destructive"
@@ -291,7 +299,7 @@ function RewardClaimsPage() {
                   setEditNotif(null);
                   notifQuery.retry();
                 } catch (e) {
-                  toast.error(e instanceof Error ? e.message : "Update failed");
+                  toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
                 } finally {
                   setLoadingAction(false);
                 }
@@ -320,7 +328,7 @@ function RewardClaimsPage() {
             setDeleteNotifId(null);
             notifQuery.retry();
           } catch (e) {
-            toast.error(e instanceof Error ? e.message : "Delete failed");
+            toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
           } finally {
             setLoadingAction(false);
           }

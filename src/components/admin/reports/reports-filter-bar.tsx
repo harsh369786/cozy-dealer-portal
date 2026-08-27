@@ -34,12 +34,13 @@ export function ReportsFilterBar({ report, onChange, search, onSearchChange }: P
       {onSearchChange && (
         <SearchBar value={search ?? ""} onChange={onSearchChange} placeholder="Search distributor, dealer or product…" />
       )}
-      <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-end">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <MonthRangePicker
           fromMonth={filters.fromMonth ?? filters.month}
           toMonth={filters.toMonth ?? filters.month ?? filters.fromMonth}
           months={filterOptions.months}
           onChange={(fromMonth, toMonth) => update({ fromMonth, toMonth, month: toMonth })}
+          className="sm:col-span-2 lg:col-span-1"
         />
         <FilterSelect
           label="Distributor"
@@ -85,10 +86,10 @@ function FilterSelect({
   options: Array<{ value: string; label: string }>;
 }) {
   return (
-    <div className="min-w-0 flex-1 sm:max-w-[200px]">
+    <div className="min-w-0 w-full sm:max-w-none sm:flex-1">
       <p className="mb-1 text-xs font-semibold text-muted-foreground">{label}</p>
       <Select value={value} onValueChange={onValueChange}>
-        <SelectTrigger className="rounded-lg">
+        <SelectTrigger className="w-full rounded-lg">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

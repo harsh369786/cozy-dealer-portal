@@ -1,12 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/app-shell";
+import { OrderHelpPanel } from "@/components/shared/order-help-panel";
 import { SearchBar, matchesSearch } from "@/components/shared/search-bar";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
 import { requireRoles } from "@/lib/auth-guard";
 import type { ComplaintStatus } from "@/lib/mock/distributor/types";
 import { useAsyncData } from "@/hooks/use-async-data";
+import { useFormat } from "@/hooks/use-format";
 import { getComplaints } from "@/services/complaints";
 
 export const Route = createFileRoute("/complaints/")({
@@ -15,7 +18,10 @@ export const Route = createFileRoute("/complaints/")({
 });
 
 function DealerComplaintsPage() {
+  const { t } = useTranslation();
+  const { formatTimestamp } = useFormat();
   const [search, setSearch] = useState("");
+  const [showNew, setShowNew] = useState(false);
   const { data, loading, error, retry } = useAsyncData(() => getComplaints(), []);
 
   const filtered = useMemo(
@@ -27,26 +33,34 @@ function DealerComplaintsPage() {
   );
 
   return (
-    <AppShell title="Help Requests" back="/orders">
+    <AppShell title={t("dealer.complaints.title")} back="/orders">
       <SearchBar
         value={search}
         onChange={setSearch}
-        placeholder="Search by ID, order or description…"
+        placeholder={t("common.searchComplaints")}
       />
 
-      <p className="mb-4 mt-4 text-sm text-muted-foreground">
-        Track status of help requests you submitted from your orders.
-      </p>
+      <button
+        type="button"
+        onClick={() => setShowNew((v) => !v)}
+        className="press mt-4 w-full rounded-2xl border border-primary bg-primary/10 py-3 text-sm font-bold text-primary"
+      >
+        {showNew ? t("common.hideNewRequestForm") : t("common.newHelpRequest")}
+      </button>
+
+      {showNew && <OrderHelpPanel allowOrderLookup onSubmitted={() => { setShowNew(false); retry(); }} />}
+
+      <p className="mb-4 mt-4 text-sm text-muted-foreground">{t("common.trackHelpRequests")}</p>
 
       {loading && <PageSkeleton rows={4} />}
       {error && <ErrorState message={error} onRetry={retry} />}
       {!loading && !error && filtered.length === 0 && (
         <EmptyState
-          title={search.trim() ? "No matching requests" : "No help requests yet"}
+          title={search.trim() ? t("common.noMatchingRequests") : t("common.noHelpRequestsYet")}
           description={
             search.trim()
-              ? "Try a different ID, order number, or keyword."
-              : "Open an order and tap Need Help? to submit a request."
+              ? t("common.noMatchingRequestsHint")
+              : t("common.noHelpRequestsHint")
           }
         />
       )}
@@ -62,12 +76,14 @@ function DealerComplaintsPage() {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="font-display font-bold">{c.id}</p>
-                  <p className="text-sm text-muted-foreground">Order {c.orderId}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {t("dealer.complaints.orderLabel", { orderId: c.orderId })}
+                  </p>
                 </div>
                 <StatusBadge kind="complaint" status={c.status as ComplaintStatus} />
               </div>
               <p className="mt-2 line-clamp-2 text-sm text-muted-foreground">{c.description}</p>
-              <p className="mt-2 text-xs text-muted-foreground">{c.createdAt}</p>
+              <p className="mt-2 text-xs text-muted-foreground">{formatTimestamp(c.createdAt)}</p>
             </Link>
           ))}
         </div>

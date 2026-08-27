@@ -1,6 +1,12 @@
+# Production deploy: wrangler deploy --env production
+# WARNING: the default Worker (no --env) and [env.production] currently share the same D1 id.
+# Default ENVIRONMENT is "development" (fixed OTP 123456) for local `vite` / `wrangler dev`.
+# Do not run `npm run deploy:staging` against this database. Provision a separate staging D1
+# and point the default [[d1_databases]] at it before using a staging Worker on live data.
 name = "backrest-pwa"
 main = "src/server.ts"
 compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
@@ -20,8 +26,69 @@ max_batch_timeout = 30
 crons = ["*/15 * * * *"]
 
 [vars]
-ENVIRONMENT = "staging"
+ENVIRONMENT = "development"
+ALLOWED_ORIGINS = ""
+
+[[ratelimits]]
+name = "OTP_IP_RATE_LIMITER"
+namespace_id = "10001"
+
+[ratelimits.simple]
+limit = 10
+period = 60
+
+[[ratelimits]]
+name = "OTP_PHONE_RATE_LIMITER"
+namespace_id = "10002"
+
+[ratelimits.simple]
+limit = 3
+period = 60
 
 [assets]
 directory = "./public"
 binding = "ASSETS"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[env.production]
+name = "backrest-pwa"
+
+[[env.production.d1_databases]]
+binding = "DB"
+database_name = "backrest-db"
+database_id = "0960e05b-0400-4450-aecb-a20c315063ca"
+
+[[env.production.queues.producers]]
+binding = "WHATSAPP_QUEUE"
+queue = "whatsapp-outbox"
+
+[[env.production.queues.consumers]]
+queue = "whatsapp-outbox"
+max_batch_size = 10
+max_batch_timeout = 30
+
+[env.production.vars]
+ENVIRONMENT = "production"
+ALLOWED_ORIGINS = ""
+
+[[env.production.ratelimits]]
+name = "OTP_IP_RATE_LIMITER"
+namespace_id = "10001"
+
+[env.production.ratelimits.simple]
+limit = 10
+period = 60
+
+[[env.production.ratelimits]]
+name = "OTP_PHONE_RATE_LIMITER"
+namespace_id = "10002"
+
+[env.production.ratelimits.simple]
+limit = 3
+period = 60

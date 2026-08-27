@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { AlertCircle, Inbox } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 
 export function EmptyState({
@@ -23,16 +24,25 @@ export function EmptyState({
 }
 
 export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  const { t } = useTranslation();
+
+  const title =
+    message.includes("permission") || message.includes("Forbidden") || message.includes(t("errors.forbidden"))
+      ? t("errors.accessRestricted")
+      : message.includes("Not found") || message.includes(t("errors.notFound"))
+        ? t("errors.notFound")
+        : t("errors.somethingWentWrong");
+
   return (
     <div className="flex flex-col items-center justify-center rounded-3xl border border-destructive/30 bg-destructive/5 px-6 py-12 text-center">
       <span className="grid h-14 w-14 place-items-center rounded-full bg-destructive/10">
         <AlertCircle className="h-7 w-7 text-destructive" />
       </span>
-      <p className="mt-4 font-display text-lg font-bold">Something went wrong</p>
+      <p className="mt-4 font-display text-lg font-bold">{title}</p>
       <p className="mt-1 max-w-xs text-sm text-muted-foreground">{message}</p>
       {onRetry && (
         <Button onClick={onRetry} className="mt-4 rounded-2xl" variant="outline">
-          Try again
+          {t("common.tryAgain")}
         </Button>
       )}
     </div>

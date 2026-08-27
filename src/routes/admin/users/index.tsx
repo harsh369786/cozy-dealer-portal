@@ -1,10 +1,10 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { AdminDataTable } from "@/components/admin/admin-data-table";
 import { AdminFilterTabs, AdminFiltersBar } from "@/components/admin/admin-filters-bar";
 import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-page-header";
 import { AdminPagination } from "@/components/admin/admin-pagination";
-import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
 import { Badge } from "@/components/ui/badge";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
@@ -19,33 +19,32 @@ export const Route = createFileRoute("/admin/users/")({
   component: AdminUsersPage,
 });
 
-const ROLE_TABS = [
-  { value: "all", label: "All" },
-  { value: "admin_staff", label: "Admin Staff" },
-  { value: "distributor", label: "Distributors" },
-  { value: "sales_executive", label: "Sales Execs" },
-  { value: "dealer", label: "Dealers" },
-  { value: "signup", label: "Pending signups" },
-] as const;
-
 function statusBadgeVariant(status: AdminUser["status"]) {
   if (status === "active") return "secondary";
   if (status === "pending_invite") return "default";
   return "destructive";
 }
 
-function statusLabel(status: AdminUser["status"]) {
-  if (status === "pending_invite") return "Pending invite";
-  return status;
-}
-
 function AdminUsersPage() {
+  const { t } = useTranslation();
   const { tab } = Route.useSearch();
   const navigate = useNavigate();
   const { can, loading: permissionsLoading } = useAdminPermissions();
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const roleTab = tab || "all";
+
+  const roleTabs = useMemo(
+    () => [
+      { value: "all", label: t("admin.users.tabs.all") },
+      { value: "admin_staff", label: t("admin.users.tabs.adminStaff") },
+      { value: "distributor", label: t("admin.users.tabs.distributors") },
+      { value: "sales_executive", label: t("admin.users.tabs.salesExecs") },
+      { value: "dealer", label: t("admin.users.tabs.dealers") },
+      { value: "signup", label: t("admin.users.tabs.pendingSignups") },
+    ],
+    [t],
+  );
 
   const usersQuery = useAsyncData(
     () =>
@@ -68,7 +67,7 @@ function AdminUsersPage() {
   if (permissionsLoading) return <PageSkeleton rows={4} />;
 
   if (!can("users:read") && !can("signup:review")) {
-    return <ErrorState message="You don't have access to user management." />;
+    return <ErrorState message={t("errors.noAccessUserManagement")} />;
   }
 
   const loading = isSignupTab ? signupsQuery.loading : usersQuery.loading;
@@ -79,21 +78,24 @@ function AdminUsersPage() {
   if (error || !result) {
     return (
       <ErrorState
-        message={error ?? "Failed to load users"}
+        message={error ?? t("errors.failedToLoadUsers")}
         onRetry={() => (isSignupTab ? signupsQuery.retry() : usersQuery.retry())}
       />
     );
   }
 
+  const statusLabel = (status: AdminUser["status"]) =>
+    status === "pending_invite" ? t("admin.users.statusPendingInvite") : status;
+
   return (
     <div>
       <AdminPageHeader
-        title="Users"
-        description="Manage admin staff, distributors, sales executives and dealers."
+        title={t("admin.users.title")}
+        description={t("admin.users.description")}
         actions={
           can("users:write") ? (
             <Link to="/admin/users/new">
-              <AdminPrimaryButton>Create user</AdminPrimaryButton>
+              <AdminPrimaryButton>{t("admin.users.createUser")}</AdminPrimaryButton>
             </Link>
           ) : undefined
         }
@@ -103,63 +105,66 @@ function AdminUsersPage() {
         <AdminFilterTabs
           value={roleTab}
           onChange={(v) => navigate({ to: "/admin/users", search: { tab: v } })}
-          tabs={ROLE_TABS.map((t) => ({ ...t }))}
+          tabs={roleTabs}
         />
       </AdminFiltersBar>
 
       {isSignupTab ? (
         <>
           <p className="mb-4 text-sm text-muted-foreground">
-            Approve or reject signups from{" "}
+            {t("admin.assignments.descriptionSignups")}{" "}
             <Link to="/admin/assignments" search={{ tab: "approvals" }} className="font-semibold text-primary">
-              Assignments → Pending signups
+              {t("nav.admin.assignments")} → {t("nav.admin.pendingSignups")}
             </Link>
             .
           </p>
           <AdminDataTable
-          data={result.items}
-          keyFn={(s) => s.id}
-          emptyTitle="No pending signups"
-          columns={[
-            { key: "business", header: "Business", cell: (s) => <span className="font-bold">{s.businessName}</span> },
-            { key: "contact", header: "Contact", cell: (s) => s.contactName },
-            { key: "phone", header: "Phone", cell: (s) => s.phone, hideOnMobile: true },
-            { key: "city", header: "City", cell: (s) => s.city },
-            {
-              key: "status",
-              header: "Status",
-              cell: (s) => (
-                <Badge variant={s.status === "pending" ? "default" : "secondary"} className="capitalize">
-                  {s.status}
-                </Badge>
-              ),
-            },
-          ]}
-        />
+            data={result.items}
+            keyFn={(s) => s.id}
+            onRowClick={(s) =>
+              navigate({ to: "/admin/assignments", search: { tab: "approvals", signupId: s.id } })
+            }
+            emptyTitle={t("admin.dashboard.pendingSignups")}
+            columns={[
+              { key: "business", header: t("common.storeName"), cell: (s) => <span className="font-bold">{s.businessName}</span> },
+              { key: "contact", header: t("common.contactName"), cell: (s) => s.contactName },
+              { key: "phone", header: t("common.mobile"), cell: (s) => s.phone, hideOnMobile: true },
+              { key: "city", header: t("common.region"), cell: (s) => s.city },
+              {
+                key: "status",
+                header: t("common.status"),
+                cell: (s) => (
+                  <Badge variant={s.status === "pending" ? "default" : "secondary"} className="capitalize">
+                    {s.status === "pending" ? t("common.pending") : s.status}
+                  </Badge>
+                ),
+              },
+            ]}
+          />
         </>
       ) : (
         <AdminDataTable
           data={result.items as AdminUser[]}
           keyFn={(u) => u.id}
           onRowClick={(u) => navigate({ to: "/admin/users/$userId", params: { userId: u.id } })}
-          emptyTitle="No users found"
+          emptyTitle={t("common.noMatchingResults")}
           columns={[
-            { key: "name", header: "Name", cell: (u) => <span className="font-bold">{u.name}</span> },
-            { key: "phone", header: "Phone", cell: (u) => u.phone, hideOnMobile: true },
+            { key: "name", header: t("common.name"), cell: (u) => <span className="font-bold">{u.name}</span> },
+            { key: "phone", header: t("common.mobile"), cell: (u) => u.phone, hideOnMobile: true },
             {
               key: "role",
-              header: "Role",
+              header: t("common.status"),
               cell: (u) => <span className="capitalize">{u.role.replace("_", " ")}</span>,
             },
             {
               key: "linked",
-              header: "Linked entity",
+              header: t("admin.users.assignments"),
               cell: (u) => u.dealerName ?? u.distributorName ?? "—",
               hideOnMobile: true,
             },
             {
               key: "status",
-              header: "Status",
+              header: t("common.status"),
               cell: (u) => (
                 <Badge variant={statusBadgeVariant(u.status)} className="capitalize">
                   {statusLabel(u.status)}

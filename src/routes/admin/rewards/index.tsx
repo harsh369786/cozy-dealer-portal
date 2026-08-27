@@ -1,5 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { toast } from "sonner";
+import { useTranslation } from "react-i18next";
 import { AdminDataTable } from "@/components/admin/admin-data-table";
 import { AdminFiltersBar } from "@/components/admin/admin-filters-bar";
 import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-page-header";
@@ -11,14 +13,16 @@ import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { Switch } from "@/components/ui/switch";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
+import { useFormat } from "@/hooks/use-format";
 import { listRewardCatalog, saveRewardItem } from "@/services/admin/rewards";
-import { toast } from "sonner";
 
 export const Route = createFileRoute("/admin/rewards/")({
   component: AdminRewardsPage,
 });
 
 function AdminRewardsPage() {
+  const { t } = useTranslation();
+  const { formatNumber } = useFormat();
   const navigate = useNavigate();
   const { can } = useAdminPermissions();
   const [search, setSearch] = useState("");
@@ -34,31 +38,33 @@ function AdminRewardsPage() {
     if (!item || !can("catalog:write")) return;
     try {
       await saveRewardItem({ ...item, active });
-      toast.success(active ? "Reward activated" : "Reward deactivated");
+      toast.success(active ? t("common.activate") : t("common.deactivate"));
       retry();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Update failed");
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
     }
   };
 
   if (loading) return <PageSkeleton rows={4} />;
-  if (error || !data) return <ErrorState message={error ?? "Failed to load rewards"} onRetry={retry} />;
+  if (error || !data) {
+    return <ErrorState message={error ?? t("errors.somethingWentWrong")} onRetry={retry} />;
+  }
 
   return (
     <div>
       <AdminPageHeader
-        title="Rewards"
-        description="Manage the reward catalogue and delivery claims."
+        title={t("admin.rewards.title")}
+        description={t("admin.rewards.description")}
         actions={
           <div className="flex flex-wrap gap-2">
             <Link to="/admin/rewards/claims">
               <Button variant="outline" className="rounded-2xl font-bold">
-                View claims
+                {t("admin.rewards.claims")}
               </Button>
             </Link>
             {can("catalog:write") && (
               <Link to="/admin/rewards/new">
-                <AdminPrimaryButton>Add reward</AdminPrimaryButton>
+                <AdminPrimaryButton>{t("admin.rewards.addReward")}</AdminPrimaryButton>
               </Link>
             )}
           </div>
@@ -71,26 +77,26 @@ function AdminRewardsPage() {
           setSearch(v);
           setPage(1);
         }}
-        searchPlaceholder="Search rewards…"
+        searchPlaceholder={t("common.search")}
       />
 
       <AdminDataTable
         data={data.items}
         keyFn={(r) => r.id}
         onRowClick={(r) => navigate({ to: "/admin/rewards/$rewardId", params: { rewardId: r.id } })}
-        emptyTitle="No rewards in catalogue"
+        emptyTitle={t("common.noRewardsAvailable")}
         columns={[
           { key: "emoji", header: "", cell: (r) => <span className="text-xl">{r.emoji}</span> },
-          { key: "name", header: "Reward", cell: (r) => <span className="font-bold">{r.name}</span> },
-          { key: "points", header: "Points", cell: (r) => r.pointsRequired.toLocaleString("en-IN") },
+          { key: "name", header: t("admin.rewards.title"), cell: (r) => <span className="font-bold">{r.name}</span> },
+          { key: "points", header: t("common.points"), cell: (r) => formatNumber(r.pointsRequired) },
           {
             key: "active",
-            header: "Active",
+            header: t("common.active"),
             cell: (r) => (
               <AdminPermissionGate
                 permission="catalog:write"
                 fallback={
-                  <Badge variant={r.active ? "secondary" : "outline"}>{r.active ? "Yes" : "No"}</Badge>
+                  <Badge variant={r.active ? "secondary" : "outline"}>{r.active ? t("common.yes") : t("common.no")}</Badge>
                 }
               >
                 <Switch

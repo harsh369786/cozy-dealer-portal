@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { DistributorShell } from "@/components/distributor-shell";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { formatCampaignDate } from "@/lib/campaign-service";
+import { useFormat } from "@/hooks/use-format";
 import { getCampaignById } from "@/services/campaigns";
 
 export const Route = createFileRoute("/distributor/campaigns/$campaignId")({
@@ -11,6 +12,8 @@ export const Route = createFileRoute("/distributor/campaigns/$campaignId")({
 });
 
 function CampaignDetailPage() {
+  const { t } = useTranslation();
+  const { formatDisplayDate } = useFormat();
   const { campaignId } = Route.useParams();
   const { data, loading, error, retry } = useAsyncData(
     () => getCampaignById(campaignId),
@@ -19,7 +22,7 @@ function CampaignDetailPage() {
 
   if (loading) {
     return (
-      <DistributorShell title="Campaign" back="/distributor/campaigns" showBell={false}>
+      <DistributorShell title={t("distributor.campaigns.title")} back="/distributor/campaigns" showBell={false}>
         <PageSkeleton rows={3} />
       </DistributorShell>
     );
@@ -27,8 +30,8 @@ function CampaignDetailPage() {
 
   if (error || !data) {
     return (
-      <DistributorShell title="Campaign" back="/distributor/campaigns" showBell={false}>
-        <ErrorState message={error ?? "Campaign not found"} onRetry={retry} />
+      <DistributorShell title={t("distributor.campaigns.title")} back="/distributor/campaigns" showBell={false}>
+        <ErrorState message={error ?? t("errors.notFound")} onRetry={retry} />
       </DistributorShell>
     );
   }
@@ -51,20 +54,19 @@ function CampaignDetailPage() {
         <p className="text-lg font-semibold text-primary">{data.discountLabel}</p>
         <p className="text-muted-foreground">{data.description}</p>
         <div className="rounded-3xl border border-border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Duration</p>
+          <p className="text-sm text-muted-foreground">{t("common.validUntil")}</p>
           <p className="font-semibold">
-            {formatCampaignDate(data.startDate)} — {formatCampaignDate(data.endDate)}
+            {formatDisplayDate(data.startDate)} — {formatDisplayDate(data.endDate)}
           </p>
           {data.applicableDealers && (
             <p className="mt-3 text-sm text-muted-foreground">
-              Limited to {data.applicableDealers.length} selected dealers.
+              {data.applicableDealers.length} {t("common.dealer")}
             </p>
           )}
         </div>
         {data.productId && data.status === "active" && (
           <p className="rounded-2xl border border-primary/20 bg-secondary/40 p-4 text-sm font-semibold text-muted-foreground">
-            Dealers ordering {data.product} during this campaign see the offer highlighted in the
-            app.
+            {t("common.campaignOffer")}: {data.product}
           </p>
         )}
       </div>

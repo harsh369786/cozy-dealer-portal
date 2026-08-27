@@ -1,5 +1,6 @@
 import { createFileRoute, Link, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
   Check,
@@ -18,31 +19,71 @@ import { cn } from "@/lib/utils";
 import { Confetti, ProgressBar } from "@/components/brand";
 import {
   fetchActivePriceCampaign,
-  getCampaignPrice,
-  getCampaignSavings,
   formatCampaignDate,
   type PriceCampaign,
 } from "@/lib/campaign-service";
-import {
-  FREE_ITEM,
-  dealer,
-  getProduct,
-  inr,
-} from "@/lib/demo-data";
 import { requireRoles } from "@/lib/auth-guard";
+import { useFormat } from "@/hooks/use-format";
+import { useFormatApiError } from "@/lib/api-errors";
+import i18n from "@/lib/i18n";
 import { resolveAssetUrl } from "@/lib/asset-url";
-import { createDealerOrder } from "@/services/orders";
-import { getSalespeople } from "@/services/catalog";
-import { formatSizeLabel, mapToNearestStandardSize } from "@/lib/mattress-size";
+import { getProductDetail } from "@/services/catalog";
+import { createDealerOrder, getPriceQuote } from "@/services/orders";
+import { recordOrderPlaced } from "@/lib/browser-notifications";
+import { useDealerRewards } from "@/hooks/use-dealer-rewards";
+import { computeDealerRewardsSummary } from "@/lib/dealer-rewards-summary";
+import { PlacingOrderOverlay } from "@/components/shared/placing-order-overlay";
+import {
+  BREADTHS,
+  formatRequestedVsStandard,
+  formatSizeLabel,
+  getMattressDimensionError,
+  LENGTHS,
+  MAX_MATTRESS_BREADTH_IN,
+  MAX_MATTRESS_LENGTH_IN,
+  MIN_MATTRESS_BREADTH_IN,
+  MIN_MATTRESS_LENGTH_IN,
+  mapToCeilStandardSize,
+  parseDimensionInput,
+  snapDimensionInput,
+  snapToCeilStandardInput,
+} from "@/lib/mattress-size";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { ErrorState, PageSkeleton } from "@/components/shared/states";
+import { useAsyncData } from "@/hooks/use-async-data";
+
+type ProductDetail = {
+  id: string;
+  name: string;
+  category: string;
+  guarantee: string;
+  fixed_size?: string;
+  image_url?: string;
+  thicknesses?: string[];
+  mrp?: number;
+  price?: number;
+  points?: number;
+  free?: string;
+};
+
+type PriceQuote = {
+  mrp: number;
+  dealerPrice: number;
+  campaignPrice: number | null;
+  discountPercent: number | null;
+  unitPrice: number;
+  lineTotal: number;
+  pointsEarned: number;
+  campaign: {
+    id: string;
+    name: string;
+    badgeLabel: string | null;
+    discountPercent: number;
+    endAt: string;
+  } | null;
+  freeItems?: string | null;
+};
 
 export const Route = createFileRoute("/products/$productId")({
   validateSearch: (search: Record<string, unknown>) => ({
@@ -51,16 +92,15 @@ export const Route = createFileRoute("/products/$productId")({
   beforeLoad: () => requireRoles(["dealer"]),
   head: () => ({
     meta: [
-      { title: "Build Your Order — BackRest Dealer App" },
+      { title: i18n.t("dealer.meta.productDetailTitle") },
       {
         name: "description",
-        content:
-          "Enter size, thickness, farma and quantity, then place your BackRest order in one tap.",
+        content: i18n.t("dealer.meta.productDetailDescription"),
       },
-      { property: "og:title", content: "Build Your Order — BackRest Dealer App" },
+      { property: "og:title", content: i18n.t("dealer.meta.productDetailTitle") },
       {
         property: "og:description",
-        content: "Fast dealer ordering: size, thickness, farma, quantity, done.",
+        content: i18n.t("dealer.meta.productDetailDescription"),
       },
     ],
   }),
@@ -69,34 +109,59 @@ export const Route = createFileRoute("/products/$productId")({
 
 type PermaCorners = { tl: boolean; tr: boolean; bl: boolean; br: boolean };
 
-function selectedCornerLabels(corners: PermaCorners) {
+function translateMattressDimensionError(
+  err: string,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  if (err === "Enter valid length and width") return t("validation.enterValidLengthWidth");
+  const lengthMin = err.match(/^Length must be at least (\d+)"$/);
+  if (lengthMin) return t("validation.lengthMin", { min: lengthMin[1] });
+  const lengthMax = err.match(/^Length must be at most (\d+)"$/);
+  if (lengthMax) return t("validation.lengthMax", { max: lengthMax[1] });
+  const widthMin = err.match(/^Width must be at least (\d+)"$/);
+  if (widthMin) return t("validation.widthMin", { min: widthMin[1] });
+  const widthMax = err.match(/^Width must be at most (\d+)"$/);
+  if (widthMax) return t("validation.widthMax", { max: widthMax[1] });
+  return err;
+}
+
+function selectedCornerLabels(corners: PermaCorners, t: (key: string) => string) {
   const labels: string[] = [];
-  if (corners.tl) labels.push("Top Left");
-  if (corners.tr) labels.push("Top Right");
-  if (corners.bl) labels.push("Bottom Left");
-  if (corners.br) labels.push("Bottom Right");
+  if (corners.tl) labels.push(t("common.topLeft"));
+  if (corners.tr) labels.push(t("common.topRight"));
+  if (corners.bl) labels.push(t("common.bottomLeft"));
+  if (corners.br) labels.push(t("common.bottomRight"));
   return labels;
 }
 
 
 function Configurator() {
+  const { t } = useTranslation();
+  const { formatCurrency, formatNumber } = useFormat();
+  const formatApiError = useFormatApiError();
   const { productId } = useParams({ from: "/products/$productId" });
   const { campaignId } = Route.useSearch();
-  const product = getProduct(productId);
-  const isPillow = product.category === "Pillows";
-  const isFoldable = product.category === "Foldable";
-  const isMattress = !isPillow && !isFoldable;
 
-  const [lengthInput, setLengthInput] = useState("72");
-  const [breadthInput, setBreadthInput] = useState("60");
-  const length = Number(lengthInput) || 0;
-  const breadth = Number(breadthInput) || 0;
+  const { data: product, loading: productLoading, error: productError, retry } = useAsyncData(
+    () => getProductDetail(productId) as Promise<ProductDetail>,
+    [productId],
+  );
+
+  const isPillow = product?.category === "Pillows";
+  const isFoldable = product?.category === "Foldable";
+  const isMattress = product ? !isPillow && !isFoldable : false;
+
+  const [lengthInput, setLengthInput] = useState("");
+  const [breadthInput, setBreadthInput] = useState("");
+  const length = parseDimensionInput(lengthInput);
+  const breadth = parseDimensionInput(breadthInput);
   const mapped = useMemo(
-    () => (isMattress ? mapToNearestStandardSize(length, breadth) : null),
+    () => (isMattress ? mapToCeilStandardSize(length, breadth) : null),
     [isMattress, length, breadth],
   );
-  const standardLength = mapped?.standardLength ?? length;
-  const standardBreadth = mapped?.standardBreadth ?? breadth;
+  const sizeDisplay = mapped
+    ? formatRequestedVsStandard(length, breadth, mapped)
+    : { requested: "", standard: null as string | null };
 
   const [thickness, setThickness] = useState("");
   const [perma, setPerma] = useState(false);
@@ -108,8 +173,7 @@ function Configurator() {
   });
   const [permaNotes, setPermaNotes] = useState("");
   const [qty, setQty] = useState(1);
-  const [placedBy, setPlacedBy] = useState<string>("");
-  const [salespeople, setSalespeople] = useState<string[]>([]);
+  const [placedBy, setPlacedBy] = useState("");
   const [placing, setPlacing] = useState(false);
   const [notes, setNotes] = useState("");
   const [customer, setCustomer] = useState({ name: "", address: "", mobile: "", email: "" });
@@ -117,51 +181,117 @@ function Configurator() {
   const [confirm, setConfirm] = useState(false);
   const [placed, setPlaced] = useState<string | null>(null);
   const [campaign, setCampaign] = useState<PriceCampaign | null>(null);
+  const [quote, setQuote] = useState<PriceQuote | null>(null);
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const { summary: rewardsSummary } = useDealerRewards();
 
   useEffect(() => {
-    getSalespeople()
-      .then((list) => {
-        setSalespeople(list.map((s) => s.name));
-        if (list[0]) setPlacedBy(list[0].name);
-      })
-      .catch(() => setSalespeople([]));
+    if (!productId) return;
     fetchActivePriceCampaign(productId, campaignId)
       .then(setCampaign)
       .catch(() => setCampaign(null));
   }, [productId, campaignId]);
 
-  const unitDealerPrice = product.price;
-  const unitCampaignPrice = campaign
-    ? getCampaignPrice(unitDealerPrice, campaign.discountPercent)
-    : null;
-  const unitPrice = unitCampaignPrice ?? unitDealerPrice;
-  const unitSavings = campaign ? getCampaignSavings(unitDealerPrice, unitCampaignPrice!) : 0;
-
-  const total = unitPrice * qty;
-  const mrpTotal = product.mrp * qty;
-  const dealerTotal = unitDealerPrice * qty;
-  const savingsTotal = unitSavings * qty;
-  const points = product.points * qty;
-  const newPoints = dealer.points + points;
-  const remaining = Math.max(0, dealer.nextRewardAt - newPoints);
-  const pct = Math.min(100, (newPoints / dealer.nextRewardAt) * 100);
+  useEffect(() => {
+    if (!product) return;
+    const thicknesses = product.thicknesses ?? [];
+    if (thicknesses.length && !thickness) {
+      setThickness(thicknesses[0]!);
+    }
+  }, [product, thickness]);
 
   const showPrice = isPillow || Boolean(thickness);
+  const dimensionError = isMattress ? getMattressDimensionError(length, breadth) : null;
+  const canQuote = Boolean(
+    product && showPrice && (!isMattress || (length > 0 && breadth > 0 && !dimensionError)),
+  );
 
+  useEffect(() => {
+    if (!canQuote || !product) {
+      setQuote(null);
+      return;
+    }
+    let cancelled = false;
+    setQuoteLoading(true);
+    getPriceQuote({
+      productId: product.id,
+      quantity: qty,
+      thickness: thickness || undefined,
+      campaignId: campaignId ?? campaign?.id,
+      lengthIn: isMattress ? (mapped?.standardLength ?? length) : undefined,
+      breadthIn: isMattress ? (mapped?.standardBreadth ?? breadth) : undefined,
+    })
+      .then((res) => {
+        if (!cancelled) setQuote(res as PriceQuote);
+      })
+      .catch(() => {
+        if (!cancelled) setQuote(null);
+      })
+      .finally(() => {
+        if (!cancelled) setQuoteLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canQuote, product, qty, thickness, campaignId, campaign?.id, length, breadth, isMattress]);
+
+  const unitDealerPrice = quote?.dealerPrice ?? product?.price ?? 0;
+  const unitCampaignPrice = quote?.campaignPrice ?? null;
+  const unitPrice = quote?.unitPrice ?? unitCampaignPrice ?? unitDealerPrice;
+  const unitSavings = unitCampaignPrice != null ? unitDealerPrice - unitCampaignPrice : 0;
+
+  const total = quote?.lineTotal ?? unitPrice * qty;
+  const mrpTotal = (quote?.mrp ?? product?.mrp ?? 0) * qty;
+  const dealerTotal = unitDealerPrice * qty;
+  const savingsTotal = unitSavings * qty;
+  const points = quote?.pointsEarned ?? (product?.points ?? 0) * qty;
+  const rewardsNow = rewardsSummary;
+  const rewardsAfterOrder =
+    rewardsNow && points > 0
+      ? computeDealerRewardsSummary(
+          rewardsNow.balance,
+          rewardsNow.nextRewardAt,
+          rewardsNow.catalog,
+          rewardsNow.balance + points,
+        )
+      : rewardsNow;
+  const pointsRemainingAfterOrder = rewardsAfterOrder?.remaining ?? 0;
+  const progressAfterOrderPct = rewardsAfterOrder?.pct ?? 0;
+
+  const standardLength = mapped?.standardLength ?? length;
+  const standardBreadth = mapped?.standardBreadth ?? breadth;
   const sizeLabel = isPillow
-    ? product.fixedSize!
+    ? product?.fixed_size ?? ""
     : formatSizeLabel(standardLength, standardBreadth, thickness || undefined);
 
   const placeOrder = async () => {
+    if (!product) return;
+    if (!placedBy.trim()) {
+      toast.error(t("errors.orderPlacedByRequired"));
+      return;
+    }
+    if (isMattress) {
+      const err = getMattressDimensionError(length, breadth);
+      if (err) {
+        toast.error(translateMattressDimensionError(err, t));
+        return;
+      }
+    }
     setPlacing(true);
     try {
-      const cornerLabels = selectedCornerLabels(permaCorners);
+      const cornerLabels = selectedCornerLabels(permaCorners, t);
       const order = await createDealerOrder({
         productId: product.id,
         quantity: qty,
         thickness: thickness || undefined,
+        lengthIn: isMattress ? mapped!.standardLength : undefined,
+        breadthIn: isMattress ? mapped!.standardBreadth : undefined,
+        campaignId: quote?.campaign?.id ?? campaignId ?? campaign?.id,
         sizeRequested: isMattress ? `${length}" × ${breadth}"` : undefined,
-        sizeStandard: isMattress && mapped ? `${mapped.standardLength}" × ${mapped.standardBreadth}"` : undefined,
+        sizeStandard:
+          isMattress && mapped
+            ? `${mapped.standardLength}" × ${mapped.standardBreadth}"`
+            : undefined,
         perma: isMattress ? perma : undefined,
         permaCorners: perma && cornerLabels.length ? JSON.stringify(permaCorners) : undefined,
         permaNotes: perma ? permaNotes : undefined,
@@ -169,33 +299,70 @@ function Configurator() {
         customerPhone: customer.mobile || undefined,
         customerAddress: customer.address || undefined,
         customerEmail: customer.email || undefined,
-        notes: notes || undefined,
+        notes:
+          [`Order placed by: ${placedBy.trim()}`, notes.trim() || null]
+            .filter(Boolean)
+            .join("\n\n") || undefined,
       });
       setPlaced(order.id);
-      toast.success("Order placed", {
-        description: "Confirmation will be sent via WhatsApp.",
+      setConfirm(false);
+      recordOrderPlaced();
+      toast.success(t("common.orderPlacedSuccess"), {
+        description: t("common.whatsappConfirmation"),
       });
-    } catch {
-      toast.error("Could not place order");
+    } catch (error) {
+      toast.error(formatApiError(error, "common.couldNotPlaceOrder"));
     } finally {
       setPlacing(false);
     }
   };
 
+  if (productLoading && !product) {
+    return (
+      <AppShell title={t("dealer.productDetail.title")} back="/products">
+        <PageSkeleton rows={5} />
+      </AppShell>
+    );
+  }
+
+  if (productError || !product) {
+    return (
+      <AppShell title={t("dealer.productDetail.title")} back="/products">
+        <ErrorState message={productError ?? t("common.productNotFound")} onRetry={retry} />
+      </AppShell>
+    );
+  }
+
+  const thicknesses = product.thicknesses ?? [];
+  const activeCampaign = campaign ?? (quote?.campaign
+    ? {
+        id: quote.campaign.id,
+        productId: product.id,
+        name: quote.campaign.name,
+        discountPercent: quote.campaign.discountPercent,
+        startAt: "",
+        endAt: quote.campaign.endAt,
+        badgeLabel: quote.campaign.badgeLabel ?? t("dealer.productDetail.campaignBadgeDefault"),
+        description: "",
+      }
+    : null);
+
   return (
     <AppShell title={product.name} back="/products">
-      {campaign && <CampaignBadge label={campaign.badgeLabel ?? "Special Offer"} />}
+      {activeCampaign && (
+        <CampaignBadge label={activeCampaign.badgeLabel ?? t("common.specialOffer")} />
+      )}
 
       {!isPillow && (
         <p className="animate-rise flex gap-2 rounded-2xl border border-primary/30 bg-secondary p-4 text-sm font-bold">
           <Info className="h-5 w-5 shrink-0 text-primary" />
-          All sizes should be entered as the exact size required, as per the bed size.
+          {t("common.sizeHint")}
         </p>
       )}
 
       <div className="mt-4 flex gap-3 rounded-3xl border border-border bg-card p-3 shadow-soft">
         <img
-          src={resolveAssetUrl(product.image)}
+          src={resolveAssetUrl(product.image_url ?? "")}
           alt={product.name}
           width={400}
           height={400}
@@ -205,26 +372,57 @@ function Configurator() {
           <p className="font-display text-lg font-bold">{product.name}</p>
           <p className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-            {product.guarantee} Guarantee
+            {product.guarantee} {t("common.guarantee")}
           </p>
-          <p className="mt-1 text-sm text-muted-foreground">MRP {inr(product.mrp)}</p>
-          {showPrice ? (
-            campaign ? (
-              <>
-                <p className="text-sm text-muted-foreground">Dealer {inr(product.price)}</p>
-                <p className="font-display text-xl font-bold text-primary">
-                  {inr(unitCampaignPrice!)}
-                </p>
-              </>
+          {showPrice && quote && !quoteLoading ? (
+            <div className="mt-2 space-y-1 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">{t("common.mrp")}</span>
+                <span>{formatCurrency((quote.mrp ?? product.mrp ?? 0) * qty)}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className={cn(unitCampaignPrice != null && "text-muted-foreground")}>
+                  {t("common.dealerPrice")}
+                </span>
+                <span
+                  className={cn(
+                    "font-semibold",
+                    unitCampaignPrice != null && "text-muted-foreground line-through",
+                  )}
+                >
+                  {formatCurrency(dealerTotal)}
+                </span>
+              </div>
+              {unitCampaignPrice != null && (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">{t("common.campaignDiscount")}</span>
+                    <span className="font-semibold text-primary">
+                      {quote.discountPercent ?? activeCampaign?.discountPercent ?? 0}%
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold">{t("common.finalDiscountedPrice")}</span>
+                    <span className="font-display text-xl font-bold text-primary">{formatCurrency(total)}</span>
+                  </div>
+                </>
+              )}
+              {unitCampaignPrice == null && (
+                <p className="font-display text-xl font-bold text-primary">{formatCurrency(dealerTotal)}</p>
+              )}
+            </div>
+          ) : showPrice ? (
+            quoteLoading ? (
+              <p className="text-sm font-semibold text-muted-foreground">{t("common.calculatingPrice")}</p>
             ) : (
-              <p className="font-display text-xl font-bold text-primary">{inr(product.price)}</p>
+              <p className="font-display text-xl font-bold text-primary">{formatCurrency(unitDealerPrice)}</p>
             )
           ) : (
-            <p className="text-sm font-semibold text-muted-foreground">Select thickness for price</p>
+            <p className="text-sm font-semibold text-muted-foreground">{t("common.selectThicknessForPrice")}</p>
           )}
-          {campaign && (
+          {activeCampaign && (
             <p className="mt-1 text-xs font-semibold text-primary">
-              Valid until {formatCampaignDate(campaign.endAt)}
+              {t("common.validUntil")} {formatCampaignDate(activeCampaign.endAt)}
             </p>
           )}
         </div>
@@ -232,19 +430,19 @@ function Configurator() {
 
       {isPillow ? (
         <div className="mt-5 rounded-3xl border border-border bg-card p-4">
-          <p className="text-base font-bold">Size</p>
-          <p className="mt-1 font-display text-2xl font-bold">{product.fixedSize}</p>
+          <p className="text-base font-bold">{t("common.size")}</p>
+          <p className="mt-1 font-display text-2xl font-bold">{product.fixed_size}</p>
         </div>
       ) : isFoldable ? (
         <>
           <div className="mt-5 rounded-3xl border border-border bg-card p-4">
-            <p className="text-base font-bold">Size</p>
-            <p className="mt-1 font-display text-2xl font-bold">{product.fixedSize}</p>
+            <p className="text-base font-bold">{t("common.size")}</p>
+            <p className="mt-1 font-display text-2xl font-bold">{product.fixed_size}</p>
           </div>
           <div className="mt-5">
-            <p className="text-base font-bold">Thickness</p>
+            <p className="text-base font-bold">{t("common.thickness")}</p>
             <div className="mt-3 flex flex-wrap gap-3">
-              {product.thicknesses.map((t) => (
+              {thicknesses.map((t) => (
                 <button
                   key={t}
                   onClick={() => setThickness(t)}
@@ -265,45 +463,80 @@ function Configurator() {
         <>
           <div className="mt-5 grid grid-cols-2 gap-3">
             <div>
-              <p className="text-base font-bold">Length (inches)</p>
+              <p className="text-base font-bold">{t("common.lengthInches")}</p>
+              <p className="text-xs text-muted-foreground">
+                {t("common.lengthRange", {
+                  min: MIN_MATTRESS_LENGTH_IN,
+                  max: MAX_MATTRESS_LENGTH_IN,
+                })}
+              </p>
               <input
-                inputMode="numeric"
+                inputMode="decimal"
+                min={MIN_MATTRESS_LENGTH_IN}
+                max={MAX_MATTRESS_LENGTH_IN}
                 value={lengthInput}
-                onChange={(e) => setLengthInput(e.target.value.replace(/[^\d]/g, ""))}
-                placeholder="e.g. 71"
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^\d.]/g, "");
+                  if ((v.match(/\./g) ?? []).length <= 1) setLengthInput(v);
+                }}
+                onBlur={() =>
+                  setLengthInput((v) => snapToCeilStandardInput(snapDimensionInput(v), LENGTHS))
+                }
+                placeholder={t("common.lengthPlaceholder")}
                 className="mt-2 h-14 w-full rounded-2xl border border-input bg-card px-4 text-center text-lg font-bold outline-none focus:border-ring"
               />
             </div>
             <div>
-              <p className="text-base font-bold">Width (inches)</p>
+              <p className="text-base font-bold">{t("common.widthInches")}</p>
+              <p className="text-xs text-muted-foreground">
+                {t("common.widthRange", {
+                  min: MIN_MATTRESS_BREADTH_IN,
+                  max: MAX_MATTRESS_BREADTH_IN,
+                })}
+              </p>
               <input
-                inputMode="numeric"
+                inputMode="decimal"
+                min={MIN_MATTRESS_BREADTH_IN}
+                max={MAX_MATTRESS_BREADTH_IN}
                 value={breadthInput}
-                onChange={(e) => setBreadthInput(e.target.value.replace(/[^\d]/g, ""))}
-                placeholder="e.g. 59"
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[^\d.]/g, "");
+                  if ((v.match(/\./g) ?? []).length <= 1) setBreadthInput(v);
+                }}
+                onBlur={() =>
+                  setBreadthInput((v) => snapToCeilStandardInput(snapDimensionInput(v), BREADTHS))
+                }
+                placeholder={t("common.widthPlaceholder")}
                 className="mt-2 h-14 w-full rounded-2xl border border-input bg-card px-4 text-center text-lg font-bold outline-none focus:border-ring"
               />
             </div>
           </div>
 
-          {mapped && length > 0 && breadth > 0 && (
+          {dimensionError && length > 0 && breadth > 0 && (
+            <p className="mt-2 text-sm font-semibold text-destructive">
+              {translateMattressDimensionError(dimensionError, t)}
+            </p>
+          )}
+
+          {mapped && length > 0 && breadth > 0 && !dimensionError && (
             <div className="mt-3 rounded-2xl border border-primary/30 bg-secondary/60 px-4 py-3 text-sm">
-              <p className="font-semibold text-muted-foreground">Maps to standard size</p>
-              <p className="mt-1 font-display text-lg font-bold">
-                {mapped.standardLength}" × {mapped.standardBreadth}"
-              </p>
-              {(mapped.standardLength !== length || mapped.standardBreadth !== breadth) && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Your entry {length}" × {breadth}" rounds to the nearest standard.
-                </p>
+              <p className="font-semibold text-muted-foreground">{t("common.yourSize")}</p>
+              <p className="mt-1 font-display text-lg font-bold">{sizeDisplay.requested}</p>
+              {sizeDisplay.standard && (
+                <>
+                  <p className="mt-2 font-semibold text-muted-foreground">
+                    {t("common.standardSizeForPricing")}
+                  </p>
+                  <p className="mt-1 font-display text-base font-bold">{sizeDisplay.standard}</p>
+                </>
               )}
             </div>
           )}
 
           <div className="mt-5">
-            <p className="text-base font-bold">Thickness</p>
+            <p className="text-base font-bold">{t("common.thickness")}</p>
             <div className="mt-3 flex flex-wrap gap-3">
-              {product.thicknesses.map((t) => (
+              {thicknesses.map((t) => (
                 <button
                   key={t}
                   onClick={() => setThickness(t)}
@@ -321,7 +554,7 @@ function Configurator() {
           </div>
 
           <div className="mt-5">
-            <p className="text-base font-bold">Perma</p>
+            <p className="text-base font-bold">{t("common.farma")}</p>
             <div className="mt-3 grid grid-cols-2 gap-3">
               {[true, false].map((v) => (
                 <button
@@ -334,7 +567,7 @@ function Configurator() {
                       : "border-border bg-card",
                   )}
                 >
-                  {v ? "Yes" : "No"}
+                  {v ? t("common.yes") : t("common.no")}
                 </button>
               ))}
             </div>
@@ -342,16 +575,16 @@ function Configurator() {
 
           {perma && (
             <div className="animate-rise mt-4 space-y-4 rounded-3xl border border-border bg-card p-4">
-              <p className="text-sm font-bold">Select corners for Perma</p>
+              <p className="text-sm font-bold">{t("common.selectCornersForFarma")}</p>
               <div className="grid grid-cols-2 gap-3">
                 {(
                   [
-                    ["tl", "Top Left"],
-                    ["tr", "Top Right"],
-                    ["bl", "Bottom Left"],
-                    ["br", "Bottom Right"],
+                    ["tl", "common.topLeft"],
+                    ["tr", "common.topRight"],
+                    ["bl", "common.bottomLeft"],
+                    ["br", "common.bottomRight"],
                   ] as const
-                ).map(([key, label]) => (
+                ).map(([key, labelKey]) => (
                   <label
                     key={key}
                     className="flex cursor-pointer items-center gap-3 rounded-2xl border border-border bg-secondary/40 px-3 py-3"
@@ -362,16 +595,16 @@ function Configurator() {
                         setPermaCorners((prev) => ({ ...prev, [key]: checked === true }))
                       }
                     />
-                    <span className="text-sm font-semibold">{label}</span>
+                    <span className="text-sm font-semibold">{t(labelKey)}</span>
                   </label>
                 ))}
               </div>
               <div>
-                <p className="text-sm font-bold">Perma notes</p>
+                <p className="text-sm font-bold">{t("common.farmaNotes")}</p>
                 <Textarea
                   value={permaNotes}
                   onChange={(e) => setPermaNotes(e.target.value)}
-                  placeholder="Special instructions for Perma corners…"
+                  placeholder={t("common.farmaNotesPlaceholder")}
                   className="mt-2 min-h-24 rounded-2xl text-base"
                 />
               </div>
@@ -381,11 +614,11 @@ function Configurator() {
       )}
 
       <div className="mt-5">
-        <p className="text-base font-bold">Quantity</p>
+        <p className="text-base font-bold">{t("common.quantity")}</p>
         <div className="mt-3 flex items-center justify-between rounded-2xl border border-border bg-card p-2">
           <button
             onClick={() => setQty((q) => Math.max(1, q - 1))}
-            aria-label="Reduce quantity"
+            aria-label={t("common.reduceQuantity")}
             className="press grid h-14 w-14 place-items-center rounded-xl bg-secondary"
           >
             <Minus className="h-6 w-6" />
@@ -393,7 +626,7 @@ function Configurator() {
           <span className="font-display text-3xl font-bold">{qty}</span>
           <button
             onClick={() => setQty((q) => q + 1)}
-            aria-label="Increase quantity"
+            aria-label={t("common.increaseQuantity")}
             className="press grid h-14 w-14 place-items-center rounded-xl bg-secondary"
           >
             <Plus className="h-6 w-6" />
@@ -401,56 +634,52 @@ function Configurator() {
         </div>
       </div>
 
-      {product.free && (
+      {(quote?.freeItems || product.free) && (
         <div className="mt-5 rounded-3xl border-2 border-primary/40 bg-secondary p-4">
-          <p className="font-display text-base font-bold">🎁 Free With This Mattress</p>
+          <p className="font-display text-base font-bold">{t("common.freeWithMattress")}</p>
           <div className="mt-3 flex items-center gap-3">
             <span className="rounded-lg brand-gradient px-2.5 py-1 text-xs font-bold text-primary-foreground">
-              FREE
+              {t("common.free")}
             </span>
             <div>
-              <p className="text-base font-bold">{qty * 2} × Fiber Pillows</p>
-              <p className="text-xs text-muted-foreground">
-                Included with this mattress · worth {inr(FREE_ITEM.value * qty)}
-              </p>
+              <p className="text-base font-bold">{quote?.freeItems || product.free}</p>
             </div>
           </div>
         </div>
       )}
 
-      {showPrice ? (
+      {showPrice && quote ? (
         <div className="mt-5 rounded-3xl border border-border surface-gradient p-5">
           <CampaignPriceBlock
-            mrp={product.mrp}
-            dealerPrice={product.price}
-            campaignPrice={unitCampaignPrice ?? undefined}
+            mrp={quote.mrp}
+            dealerPrice={quote.dealerPrice}
+            campaignPrice={quote.campaignPrice ?? undefined}
+            discountPercent={quote.discountPercent}
             qty={qty}
           />
           <p className="mt-2 text-center text-sm font-semibold text-muted-foreground">{sizeLabel}</p>
           <p className="mt-3 rounded-2xl bg-card/70 px-4 py-3 text-sm font-bold">
-            You'll earn {points} reward points 🎁
+            {t("common.youllEarnPoints", { points })}
           </p>
         </div>
+      ) : showPrice ? (
+        <p className="mt-5 text-center text-sm text-muted-foreground">{t("common.updatingPrice")}</p>
       ) : (
         <p className="mt-5 rounded-2xl border border-dashed border-border bg-secondary/40 px-4 py-4 text-center text-sm font-semibold text-muted-foreground">
-          Select thickness to see price
+          {t("common.selectThicknessToSeePrice")}
         </p>
       )}
 
       <div className="mt-5">
-        <p className="text-base font-bold">Order Placed By</p>
-        <Select value={placedBy} onValueChange={setPlacedBy}>
-          <SelectTrigger className="mt-3 h-14 rounded-2xl text-base font-semibold">
-            <SelectValue placeholder="Select Salesperson" />
-          </SelectTrigger>
-          <SelectContent>
-            {salespeople.map((name) => (
-              <SelectItem key={name} value={name} className="text-base">
-                {name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <p className="text-base font-bold">
+          {t("common.orderPlacedBy")} <span className="text-destructive">*</span>
+        </p>
+        <Field
+          label=""
+          value={placedBy}
+          onChange={setPlacedBy}
+          placeholder={t("common.personNamePlaceholder")}
+        />
       </div>
 
       <div className="mt-5 rounded-3xl border border-border bg-card">
@@ -459,8 +688,8 @@ function Configurator() {
           className="press flex w-full items-center justify-between px-4 py-4"
         >
           <span className="text-base font-bold">
-            Customer Details{" "}
-            <span className="text-xs font-semibold text-muted-foreground">Optional</span>
+            {t("common.customerDetails")}{" "}
+            <span className="text-xs font-semibold text-muted-foreground">{t("common.optional")}</span>
           </span>
           <ChevronDown
             className={cn("h-5 w-5 transition-transform", showCustomer && "rotate-180")}
@@ -469,23 +698,23 @@ function Configurator() {
         {showCustomer && (
           <div className="animate-rise space-y-3 px-4 pb-4">
             <Field
-              label="Customer Name"
+              label={t("common.name")}
               value={customer.name}
               onChange={(v) => setCustomer({ ...customer, name: v })}
             />
             <Field
-              label="Address"
+              label={t("common.address")}
               value={customer.address}
               onChange={(v) => setCustomer({ ...customer, address: v })}
             />
             <Field
-              label="Mobile"
+              label={t("common.mobile")}
               value={customer.mobile}
               onChange={(v) => setCustomer({ ...customer, mobile: v })}
               inputMode="numeric"
             />
             <Field
-              label="Email"
+              label={t("common.email")}
               value={customer.email}
               onChange={(v) => setCustomer({ ...customer, email: v })}
             />
@@ -495,119 +724,132 @@ function Configurator() {
 
       <div className="mt-5">
         <p className="text-base font-bold">
-          Special Requirements / Notes{" "}
-          <span className="text-xs font-semibold text-muted-foreground">Optional</span>
+          {t("common.specialRequirements")}{" "}
+          <span className="text-xs font-semibold text-muted-foreground">{t("common.optional")}</span>
         </p>
         <Textarea
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
-          placeholder="Add any special requirements for this order…"
+          placeholder={t("common.specialRequirementsPlaceholder")}
           className="mt-3 min-h-28 rounded-2xl border-input text-base"
         />
       </div>
 
       <button
         onClick={() => setConfirm(true)}
-        disabled={!showPrice}
+        disabled={!showPrice || !quote || quoteLoading}
         className={cn(
           "press mt-6 h-16 w-full rounded-2xl text-lg font-bold text-primary-foreground",
           showPrice ? "brand-gradient" : "bg-muted text-muted-foreground",
         )}
       >
-        Review Order
+        {t("common.reviewOrder")}
       </button>
 
       {confirm && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-foreground/50 p-0 backdrop-blur-sm">
           <div className="scrollbar-none animate-rise max-h-[88vh] w-full max-w-[430px] overflow-y-auto scroll-smooth-touch rounded-t-3xl border border-border bg-card p-5 md:max-w-[520px]">
             <div className="flex items-center justify-between">
-              <h3 className="font-display text-xl font-bold">Confirm Your Order</h3>
+              <h3 className="font-display text-xl font-bold">{t("common.confirmOrder")}</h3>
               <button
-                onClick={() => setConfirm(false)}
-                aria-label="Close"
-                className="press grid h-10 w-10 place-items-center rounded-full bg-secondary"
+                onClick={() => !placing && setConfirm(false)}
+                disabled={placing}
+                aria-label={t("common.close")}
+                className="press grid h-10 w-10 place-items-center rounded-full bg-secondary disabled:opacity-50"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             <div className="mt-4 divide-y divide-border rounded-2xl border border-border">
-              <Line label="Model" value={product.name} />
-              <Line label="Guarantee" value={product.guarantee} />
+              <Line label={t("common.model")} value={product.name} />
+              <Line label={t("common.guarantee")} value={product.guarantee} />
               {isPillow ? (
-                <Line label="Size" value={product.fixedSize!} />
+                <Line label={t("common.size")} value={product.fixed_size!} />
               ) : isFoldable ? (
                 <>
-                  <Line label="Size" value={product.fixedSize!} />
-                  <Line label="Thickness" value={thickness} />
+                  <Line label={t("common.size")} value={product.fixed_size!} />
+                  <Line label={t("common.thickness")} value={thickness} />
                 </>
               ) : (
                 <>
-                  <Line label="Requested" value={`${length}" × ${breadth}"`} />
-                  <Line label="Standard size" value={sizeLabel} />
-                  <Line label="Perma" value={perma ? "Yes" : "No"} />
-                  {perma && selectedCornerLabels(permaCorners).length > 0 && (
+                  <Line label={t("common.requested")} value={sizeDisplay.requested} />
+                  {sizeDisplay.standard && (
+                    <Line label={t("common.standardSize")} value={sizeDisplay.standard} />
+                  )}
+                  <Line label={t("common.thickness")} value={thickness} />
+                  <Line label={t("common.farma")} value={perma ? t("common.yes") : t("common.no")} />
+                  {perma && selectedCornerLabels(permaCorners, t).length > 0 && (
                     <Line
-                      label="Perma corners"
-                      value={selectedCornerLabels(permaCorners).join(", ")}
+                      label={t("common.farmaCorners")}
+                      value={selectedCornerLabels(permaCorners, t).join(", ")}
                     />
                   )}
-                  {perma && permaNotes && <Line label="Perma notes" value={permaNotes} />}
+                  {perma && permaNotes && <Line label={t("common.farmaNotes")} value={permaNotes} />}
                 </>
               )}
-              <Line label="Quantity" value={String(qty)} />
-              <Line label="MRP" value={inr(mrpTotal)} />
+              <Line label={t("common.quantity")} value={String(qty)} />
+              <Line label={t("common.mrp")} value={formatCurrency(mrpTotal)} />
               <Line
-                label="Dealer Price"
-                value={inr(dealerTotal)}
-                strong={!campaign}
+                label={t("common.dealerPrice")}
+                value={formatCurrency(dealerTotal)}
+                muted={unitCampaignPrice != null}
               />
-              {campaign && (
+              {unitCampaignPrice != null && (
                 <>
-                  <Line label="Campaign Price" value={inr(total)} strong />
-                  <Line label="You save" value={inr(savingsTotal)} strong />
+                  <Line
+                    label={t("common.campaignDiscount")}
+                    value={`${quote?.discountPercent ?? activeCampaign?.discountPercent ?? 0}%`}
+                  />
+                  <Line label={t("common.finalDiscountedPrice")} value={formatCurrency(total)} strong />
+                  <Line label={t("common.youSave")} value={formatCurrency(savingsTotal)} strong />
                 </>
               )}
-              {product.free && <Line label="Free items" value={`${qty * 2} × Fiber Pillows`} />}
-              <Line label="Reward points" value={`+${points}`} strong />
+              {(quote?.freeItems || product.free) && (
+                <Line
+                  label={t("common.freeItems")}
+                  value={String(quote?.freeItems || product.free)}
+                />
+              )}
+              <Line label={t("dealer.orders.rewardPointsLabel")} value={`+${points}`} strong />
               <Line
-                label="Points remaining"
-                value={String(Math.max(0, dealer.nextRewardAt - newPoints))}
+                label={t("common.pointsRemaining")}
+                value={String(pointsRemainingAfterOrder)}
               />
-              <Line label="Order Placed By" value={placedBy} />
-              {notes && <Line label="Special Requirements" value={notes} />}
-              {customer.name && <Line label="Customer" value={customer.name} />}
-              {customer.mobile && <Line label="Mobile" value={customer.mobile} />}
-              {customer.address && <Line label="Address" value={customer.address} />}
-              {customer.email && <Line label="Email" value={customer.email} />}
-              <Line label="Delivery" value="Free · 5–7 days" />
+              <Line label={t("common.orderPlacedBy")} value={placedBy.trim()} />
+              {notes && <Line label={t("common.specialRequirementsShort")} value={notes} />}
+              {customer.name && <Line label={t("common.customer")} value={customer.name} />}
+              {customer.mobile && <Line label={t("common.mobile")} value={customer.mobile} />}
+              {customer.address && <Line label={t("common.address")} value={customer.address} />}
+              {customer.email && <Line label={t("common.email")} value={customer.email} />}
+              <Line label={t("common.delivery")} value={t("common.deliveryFree")} />
             </div>
 
             <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-              <MessageCircle className="h-4 w-4" /> Order details will be sent to your WhatsApp.
+              <MessageCircle className="h-4 w-4" /> {t("common.whatsappOrderDetails")}
             </p>
 
             <div className="mt-5 flex gap-3">
               <button
                 onClick={() => setConfirm(false)}
-                className="press h-14 flex-1 rounded-2xl border border-border bg-background text-base font-bold"
+                disabled={placing}
+                className="press h-14 flex-1 rounded-2xl border border-border bg-background text-base font-bold disabled:opacity-50"
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
-                onClick={async () => {
-                  setConfirm(false);
-                  await placeOrder();
-                }}
+                onClick={() => void placeOrder()}
                 disabled={placing}
                 className="press h-14 flex-[1.4] rounded-2xl brand-gradient text-base font-bold text-primary-foreground disabled:opacity-50"
               >
-                {placing ? "Placing…" : "Place Order"}
+                {t("common.placeOrder")}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {placing && <PlacingOrderOverlay />}
 
       {placed && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 p-5 backdrop-blur-sm">
@@ -617,39 +859,47 @@ function Configurator() {
               <Check className="h-10 w-10 text-primary-foreground" strokeWidth={3} />
             </div>
             <h2 className="animate-rise mt-5 font-display text-2xl font-bold">
-              🎉 Order Placed Successfully!
+              {t("common.orderPlacedSuccessTitle")}
             </h2>
-            <p className="mt-3 font-display text-xl font-bold">Order Number: {placed}</p>
-            <p className="mt-2 text-base font-bold text-primary">Reward Points Earned: {points}</p>
+            <p className="mt-3 font-display text-xl font-bold">
+              {t("common.orderNumberLabel")}: {placed}
+            </p>
+            <p className="mt-2 text-base font-bold text-primary">
+              {t("common.rewardPointsEarned")}: {points}
+            </p>
 
-            {campaign && savingsTotal > 0 && (
+            {activeCampaign && savingsTotal > 0 && (
               <div className="mt-4 rounded-2xl border border-primary/30 bg-secondary px-4 py-3">
-                <p className="text-sm font-bold text-primary">Campaign Discount Applied</p>
-                <p className="mt-1 font-display text-xl font-bold">You saved {inr(savingsTotal)}</p>
+                <p className="text-sm font-bold text-primary">{t("common.campaignDiscountApplied")}</p>
+                <p className="mt-1 font-display text-xl font-bold">
+                  {t("common.youSaved", { amount: formatCurrency(savingsTotal) })}
+                </p>
               </div>
             )}
 
             <div className="mt-5 rounded-2xl border border-border surface-gradient p-4 text-left">
-              <ProgressBar value={pct} />
+              <ProgressBar value={progressAfterOrderPct} />
               <p className="mt-3 text-sm font-semibold">
-                {remaining > 0
-                  ? `Points remaining for your next reward: ${remaining}`
-                  : "Reward unlocked! Claim it in Rewards 🎁"}
+                {pointsRemainingAfterOrder > 0
+                  ? t("common.pointsRemainingForReward", {
+                      count: formatNumber(pointsRemainingAfterOrder),
+                    })
+                  : t("common.rewardUnlocked")}
               </p>
             </div>
 
             <p className="mt-4 flex items-center justify-center gap-2 rounded-2xl bg-secondary px-4 py-3 text-sm font-bold text-success">
-              <MessageCircle className="h-4 w-4" /> ✓ Confirmation sent via WhatsApp
+              <MessageCircle className="h-4 w-4" /> {t("common.whatsappConfirmationSent")}
             </p>
 
             <Link
               to="/orders"
               className="press mt-5 block rounded-2xl brand-gradient px-8 py-4 text-lg font-bold text-primary-foreground"
             >
-              View Order
+              {t("common.viewOrder")}
             </Link>
             <Link to="/home" className="mt-3 block text-sm font-bold text-muted-foreground">
-              Back to Home
+              {t("common.backToHome")}
             </Link>
           </div>
         </div>
@@ -663,20 +913,32 @@ function Field({
   value,
   onChange,
   inputMode,
+  placeholder,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   inputMode?: "numeric" | "text";
+  placeholder?: string;
 }) {
+  const { t } = useTranslation();
+
   return (
     <label className="block">
-      <span className="text-xs font-semibold text-muted-foreground">{label} · Optional</span>
+      {label ? (
+        <span className="text-xs font-semibold text-muted-foreground">
+          {label} · {t("common.optional")}
+        </span>
+      ) : null}
       <input
         value={value}
         inputMode={inputMode}
+        placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 h-14 w-full rounded-2xl border border-input bg-background px-4 text-base outline-none focus:border-ring"
+        className={cn(
+          "h-14 w-full rounded-2xl border border-input bg-background px-4 text-base outline-none focus:border-ring",
+          label ? "mt-1" : "mt-3",
+        )}
       />
     </label>
   );

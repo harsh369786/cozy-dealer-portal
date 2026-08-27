@@ -1,8 +1,17 @@
-import type { PriceCampaign } from "@/lib/demo-data";
-import { priceCampaigns } from "@/lib/demo-data";
+import { formatDisplayDate } from "@/lib/date-format";
 import { api } from "@/lib/api-client";
 
-export type { PriceCampaign };
+export type PriceCampaign = {
+  id: string;
+  name: string;
+  productId: string;
+  discountPercent: number;
+  startAt: string;
+  endAt: string;
+  description: string;
+  terms?: string;
+  badgeLabel?: string;
+};
 
 export function isCampaignActive(campaign: PriceCampaign, at = new Date()): boolean {
   const today = at.toISOString().slice(0, 10);
@@ -60,11 +69,6 @@ export async function fetchPriceQuote(
   }>("/api/v1/catalog/price-quote", { productId, quantity, campaignId });
 }
 
-/** Sync demo helper retained for dealer home preview layout only. */
-export function getActivePriceCampaign(productId: string, at = new Date()): PriceCampaign | null {
-  return priceCampaigns.find((c) => c.productId === productId && isCampaignActive(c, at)) ?? null;
-}
-
 export function getCampaignPrice(dealerPrice: number, discountPercent: number): number {
   return Math.round(dealerPrice * (1 - discountPercent / 100));
 }
@@ -74,9 +78,5 @@ export function getCampaignSavings(dealerPrice: number, campaignPrice: number): 
 }
 
 export function formatCampaignDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  return formatDisplayDate(iso);
 }

@@ -10,11 +10,14 @@ import {
 import { useEffect, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
+import "@/lib/i18n";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { Toaster } from "../components/ui/sonner";
 import { OfflineBanner } from "../components/shared/offline-banner";
 import { PwaInstallPrompt } from "../components/shared/pwa-install-prompt";
 import { useOnline } from "../hooks/use-online";
+import { useNotificationBridge } from "../hooks/use-notification-bridge";
+import { PushNotificationPrompt } from "../components/shared/push-notification-prompt";
 
 function NotFoundComponent() {
   return (
@@ -92,7 +95,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:description", content: "Sleep. Reset. Perform. The BackRest dealer app." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "theme-color", content: "#F7F1E6" },
+      { name: "theme-color", content: "#F3E8D8" },
     ],
     links: [
       {
@@ -104,12 +107,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon.png" },
+      { rel: "icon", type: "image/png", href: "/icons/icon-192.png" },
       { rel: "manifest", href: "/manifest.webmanifest" },
       {
         rel: "apple-touch-icon",
-        type: "image/png",
-        sizes: "180x180",
         href: "/icons/apple-touch-icon.png",
       },
     ],
@@ -126,12 +127,8 @@ function RootShell({ children }: { children: ReactNode }) {
     <html lang="en">
       <head>
         <link rel="manifest" href="/manifest.webmanifest" />
-        <link
-          rel="apple-touch-icon"
-          type="image/png"
-          sizes="180x180"
-          href="/icons/apple-touch-icon.png"
-        />
+        <link rel="icon" type="image/png" href="/icons/icon-192.png" />
+        <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <script
           dangerouslySetInnerHTML={{
             __html: `if("serviceWorker"in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js",{scope:"/",updateViaCache:"none"}).catch(function(){});});}`,
@@ -151,6 +148,7 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const { online, mounted } = useOnline();
   const showOffline = mounted && !online;
+  useNotificationBridge();
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -159,6 +157,7 @@ function RootComponent() {
         {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
         <Outlet />
       </div>
+      <PushNotificationPrompt />
       <PwaInstallPrompt />
       <Toaster position="top-center" richColors />
     </QueryClientProvider>

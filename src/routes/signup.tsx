@@ -1,9 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { ArrowRight, Check, ChevronLeft, ShieldCheck } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { assetPublicPath, STATIC_ASSET_KEYS } from "@/lib/asset-url";
 import { Logo } from "@/components/brand";
+import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,30 +30,14 @@ export const Route = createFileRoute("/signup")({
   component: SignUpPage,
 });
 
-const signupSchema = z.object({
-  name: z.string().trim().min(2, "Enter your full name"),
-  birthday: z
-    .string()
-    .min(1, "Select your birthday")
-    .refine((value) => {
-      const date = new Date(value);
-      return !Number.isNaN(date.getTime()) && date < new Date();
-    }, "Enter a valid date of birth"),
-  storeName: z.string().trim().min(2, "Enter your store name"),
-  phone: z.string().regex(/^\d{10}$/, "Enter a valid 10-digit mobile number"),
-  address: z.string().trim().min(10, "Enter your full store address"),
-  gstNumber: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(
-      /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/,
-      "Enter a valid 15-character GST number",
-    ),
-  distributorName: z.string().trim().min(2, "Enter your distributor name"),
-});
-
-type SignupFields = z.infer<typeof signupSchema>;
+type SignupFields = {
+  name: string;
+  birthday: string;
+  storeName: string;
+  phone: string;
+  address: string;
+  gstNumber: string;
+};
 
 const fieldClass =
   "h-12 rounded-2xl border-input bg-background px-4 text-base font-medium shadow-none";
@@ -60,17 +46,19 @@ function Field({
   id,
   label,
   error,
+  required = true,
   children,
 }: {
   id: string;
   label: string;
   error?: string;
+  required?: boolean;
   children: ReactNode;
 }) {
   return (
     <div>
       <Label htmlFor={id} className="text-sm font-semibold">
-        {label} <span className="text-destructive">*</span>
+        {label} {required && <span className="text-destructive">*</span>}
       </Label>
       <div className="mt-2">{children}</div>
       {error && <p className="mt-1.5 text-sm text-destructive">{error}</p>}
@@ -79,6 +67,38 @@ function Field({
 }
 
 function SignUpPage() {
+  const { t } = useTranslation();
+  const signupSchema = useMemo(
+    () =>
+      z.object({
+        name: z.string().trim().min(2, t("validation.enterFullName")),
+        birthday: z
+          .string()
+          .min(1, t("validation.selectBirthday"))
+          .refine((value) => {
+            const date = new Date(value);
+            return !Number.isNaN(date.getTime()) && date < new Date();
+          }, t("validation.validDateOfBirth")),
+        storeName: z
+          .string()
+          .trim()
+          .optional()
+          .refine((v) => !v || v.length >= 2, t("validation.storeNameMin2")),
+        phone: z.string().regex(/^\d{10}$/, t("validation.validMobile10")),
+        address: z.string().trim().min(10, t("validation.fullStoreAddress")),
+        gstNumber: z
+          .string()
+          .trim()
+          .toUpperCase()
+          .optional()
+          .refine(
+            (v) => !v || /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(v),
+            t("validation.validGst15"),
+          ),
+      }),
+    [t],
+  );
+
   const [form, setForm] = useState<SignupFields>({
     name: "",
     birthday: "",
@@ -86,7 +106,6 @@ function SignUpPage() {
     phone: "",
     address: "",
     gstNumber: "",
-    distributorName: "",
   });
   const [errors, setErrors] = useState<Partial<Record<keyof SignupFields, string>>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -112,7 +131,11 @@ function SignUpPage() {
 
     setSubmitting(true);
     try {
-      await submitSignupApplication(result.data);
+      await submitSignupApplication({
+        ...result.data,
+        storeName: result.data.storeName?.trim() || undefined,
+        gstNumber: result.data.gstNumber?.trim() || undefined,
+      });
       setSubmitted(true);
     } catch (err) {
       const message =
@@ -120,7 +143,7 @@ function SignUpPage() {
           ? err.message
           : err instanceof Error
             ? err.message
-            : "Could not submit application. Please try again.";
+            : t("auth.couldNotSubmitApplication");
       toast.error(message);
     } finally {
       setSubmitting(false);
@@ -131,22 +154,27 @@ function SignUpPage() {
     return (
       <div className="relative min-h-screen overflow-hidden bg-background">
         <div className="relative mx-auto flex min-h-screen w-full max-w-[430px] flex-col px-6 pb-10 pt-6 md:max-w-[520px]">
-          <div className="mt-16 animate-rise text-center">
+          <div className="flex justify-end">
+            <LanguageSwitcher compact />
+          </div>
+          <div className="mt-10 animate-rise text-center">
             <div className="mx-auto grid h-20 w-20 place-items-center rounded-full brand-gradient">
               <Check className="h-10 w-10 text-primary-foreground" strokeWidth={3} />
             </div>
-            <h1 className="mt-6 font-display text-2xl font-bold">Application Submitted</h1>
+            <h1 className="mt-6 font-display text-2xl font-bold">{t("auth.applicationSubmitted")}</h1>
             <p className="mt-3 text-base text-muted-foreground">
-              Thanks, {form.name.split(" ")[0]}! We&apos;ve received your dealer sign-up for{" "}
-              <span className="font-semibold text-foreground">{form.storeName}</span>. You can sign in with
-              your phone number now — you&apos;ll see a confirmation screen while an administrator reviews
-              your request.
+              {t("auth.applicationSubmittedBody", {
+                name: form.name.split(" ")[0],
+                storePart: form.storeName?.trim()
+                  ? t("auth.applicationSubmittedStoreFor", { storeName: form.storeName })
+                  : "",
+              })}
             </p>
             <Link
               to="/"
               className="press mt-8 flex h-14 w-full items-center justify-center gap-2 rounded-2xl brand-gradient text-lg font-bold text-primary-foreground"
             >
-              Back to Login <ArrowRight className="h-5 w-5" />
+              {t("auth.backToLoginButton")} <ArrowRight className="h-5 w-5" />
             </Link>
           </div>
         </div>
@@ -166,40 +194,40 @@ function SignUpPage() {
       <div className="pointer-events-none absolute inset-x-0 top-0 h-[32vh] bg-gradient-to-b from-transparent to-background" />
 
       <div className="relative mx-auto w-full max-w-[430px] px-6 pb-10 pt-6 md:max-w-[520px]">
-        <Link
-          to="/"
-          className="press inline-flex items-center gap-1 text-sm font-semibold text-muted-foreground"
-        >
-          <ChevronLeft className="h-5 w-5" />
-          Back to login
-        </Link>
+        <div className="flex items-center justify-between gap-3">
+          <Link
+            to="/"
+            className="press inline-flex items-center gap-1 text-sm font-semibold text-muted-foreground"
+          >
+            <ChevronLeft className="h-5 w-5" />
+            {t("common.backToLogin")}
+          </Link>
+          <LanguageSwitcher compact />
+        </div>
 
         <div className="mt-6 animate-rise">
           <Logo size="sm" />
           <h1 className="mt-4 font-display text-3xl font-bold leading-tight">
-            Dealer <span className="text-brand-gradient">Sign Up</span>
+            {t("auth.dealerSignUp")}
           </h1>
-          <p className="mt-2 text-base text-muted-foreground">
-            Fill in your store details. All fields are required.
-          </p>
+          <p className="mt-2 text-base text-muted-foreground">{t("auth.signupInstructions")}</p>
         </div>
 
         <form
           onSubmit={handleSubmit}
           className="mt-6 animate-rise space-y-4 rounded-3xl border border-border bg-card p-5 shadow-lift"
         >
-          <Field id="name" label="Name" error={errors.name}>
+          <Field id="name" label={t("common.contactName")} error={errors.name}>
             <Input
               id="name"
               value={form.name}
               onChange={(e) => update("name", e.target.value)}
-              placeholder="Rajesh Sharma"
               className={fieldClass}
               autoComplete="name"
             />
           </Field>
 
-          <Field id="birthday" label="Birthday" error={errors.birthday}>
+          <Field id="birthday" label={t("common.birthday")} error={errors.birthday}>
             <Input
               id="birthday"
               type="date"
@@ -210,59 +238,45 @@ function SignUpPage() {
             />
           </Field>
 
-          <Field id="storeName" label="Store name" error={errors.storeName}>
+          <Field id="storeName" label={t("common.storeName")} error={errors.storeName} required={false}>
             <Input
               id="storeName"
               value={form.storeName}
               onChange={(e) => update("storeName", e.target.value)}
-              placeholder="Sharma Furnishings"
               className={fieldClass}
             />
           </Field>
 
-          <Field id="phone" label="Number" error={errors.phone}>
+          <Field id="phone" label={t("common.mobileNumber")} error={errors.phone}>
             <div className="flex items-center gap-2 rounded-2xl border border-input bg-background px-4">
-              <span className="text-base font-semibold text-muted-foreground">+91</span>
+              <span className="text-base font-semibold text-muted-foreground">{t("common.countryCode")}</span>
               <input
                 id="phone"
                 inputMode="numeric"
                 maxLength={10}
                 value={form.phone}
                 onChange={(e) => update("phone", e.target.value.replace(/\D/g, ""))}
-                placeholder="98765 43210"
-                className="h-12 w-full bg-transparent text-base font-semibold outline-none placeholder:font-normal placeholder:text-muted-foreground"
+                className="h-12 w-full bg-transparent text-base font-semibold outline-none"
               />
             </div>
           </Field>
 
-          <Field id="address" label="Address" error={errors.address}>
+          <Field id="address" label={t("common.address")} error={errors.address}>
             <Textarea
               id="address"
               value={form.address}
               onChange={(e) => update("address", e.target.value)}
-              placeholder="Shop address with city and pincode"
               className="min-h-24 rounded-2xl border-input bg-background px-4 py-3 text-base font-medium shadow-none"
             />
           </Field>
 
-          <Field id="gstNumber" label="GST number" error={errors.gstNumber}>
+          <Field id="gstNumber" label={t("common.gstNumber")} error={errors.gstNumber} required={false}>
             <Input
               id="gstNumber"
               value={form.gstNumber}
               onChange={(e) => update("gstNumber", e.target.value.toUpperCase())}
-              placeholder="27AABCU9603R1ZM"
               maxLength={15}
               className={cn(fieldClass, "uppercase tracking-wide")}
-            />
-          </Field>
-
-          <Field id="distributorName" label="Distributor name" error={errors.distributorName}>
-            <Input
-              id="distributorName"
-              value={form.distributorName}
-              onChange={(e) => update("distributorName", e.target.value)}
-              placeholder="Vikram Mehta"
-              className={fieldClass}
             />
           </Field>
 
@@ -271,12 +285,12 @@ function SignUpPage() {
             disabled={submitting}
             className="press flex h-14 w-full items-center justify-center gap-2 rounded-2xl brand-gradient text-lg font-bold text-primary-foreground disabled:opacity-45"
           >
-            {submitting ? "Submitting..." : "Submit Application"}
+            {submitting ? t("common.submitting") : t("auth.submitApplication")}
             {!submitting && <ArrowRight className="h-5 w-5" />}
           </button>
 
           <p className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-            <ShieldCheck className="h-4 w-4" /> Your details are sent for admin review.
+            <ShieldCheck className="h-4 w-4" /> {t("auth.detailsForReview")}
           </p>
         </form>
       </div>

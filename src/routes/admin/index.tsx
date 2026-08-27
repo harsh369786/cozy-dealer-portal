@@ -8,6 +8,7 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AdminSection } from "@/components/admin/admin-section";
 import { AdminDataTable } from "@/components/admin/admin-data-table";
@@ -15,7 +16,8 @@ import { StatCard } from "@/components/shared/stat-card";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { inr, inrCompact } from "@/lib/demo-data";
+import { useAdminPermissions } from "@/hooks/use-admin-permissions";
+import { useFormat } from "@/hooks/use-format";
 import { getAdminDashboard } from "@/services/admin/dashboard";
 
 export const Route = createFileRoute("/admin/")({
@@ -23,60 +25,77 @@ export const Route = createFileRoute("/admin/")({
 });
 
 function AdminDashboardPage() {
+  const { t } = useTranslation();
+  const { formatCurrency } = useFormat();
   const navigate = useNavigate();
+  const { can } = useAdminPermissions();
+  const canExplore = can("reports:read");
   const { data, loading, error, retry } = useAsyncData(() => getAdminDashboard(), []);
 
   if (loading && !data) return <PageSkeleton rows={4} />;
-  if ((error || !data) && !loading) return <ErrorState message={error ?? "Failed to load dashboard"} onRetry={retry} />;
+  if ((error || !data) && !loading) {
+    return (
+      <ErrorState message={error ?? t("errors.failedToLoadDashboard")} onRetry={retry} />
+    );
+  }
 
-  const { stats } = data;
+  const { stats } = data!;
 
   return (
     <div className="space-y-6">
       <AdminPageHeader
-        title="Dashboard"
-        description="Sales, orders, dealers and key operational metrics."
+        title={t("admin.dashboard.title")}
+        description={t("admin.dashboard.description")}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Sales (MTD)"
-          value={inrCompact(stats.monthlySales)}
+          label={
+            stats.currentMonthLabel
+              ? t("admin.dashboard.salesMonthLabel", { month: stats.currentMonthLabel })
+              : t("admin.dashboard.salesMtd")
+          }
+          value={formatCurrency(stats.monthlySales)}
+          sub={
+            stats.previousMonthLabel && stats.salesGrowth != null
+              ? `${stats.salesGrowth >= 0 ? "+" : ""}${stats.salesGrowth}% vs ${stats.previousMonthLabel}`
+              : undefined
+          }
           icon={TrendingUp}
-          onClick={() => navigate({ to: "/admin/explore", search: { metric: "sales" } })}
+          onClick={canExplore ? () => navigate({ to: "/admin/explore", search: { metric: "sales" } }) : undefined}
         />
         <StatCard
-          label="Orders"
+          label={t("admin.dashboard.orders")}
           value={stats.totalOrders}
           icon={ShoppingBag}
-          onClick={() => navigate({ to: "/admin/explore", search: { metric: "orders" } })}
+          onClick={canExplore ? () => navigate({ to: "/admin/explore", search: { metric: "orders" } }) : () => navigate({ to: "/admin/orders" })}
         />
         <StatCard
-          label="Dealers"
+          label={t("admin.dashboard.dealers")}
           value={stats.totalDealers}
           icon={Store}
-          onClick={() => navigate({ to: "/admin/explore", search: { metric: "sales" } })}
+          onClick={canExplore ? () => navigate({ to: "/admin/explore", search: { metric: "sales", level: "all_dealers" } }) : undefined}
         />
         <StatCard
-          label="Distributors"
+          label={t("admin.dashboard.distributors")}
           value={stats.totalDistributors}
           icon={Users}
-          onClick={() => navigate({ to: "/admin/explore", search: { metric: "sales" } })}
+          onClick={canExplore ? () => navigate({ to: "/admin/explore", search: { metric: "sales" } }) : undefined}
         />
         <StatCard
-          label="Pending approvals"
+          label={t("admin.dashboard.pendingApprovals")}
           value={stats.pendingApprovals}
           icon={Package}
           onClick={() => navigate({ to: "/admin/orders", search: { status: "order_placed" } })}
         />
         <StatCard
-          label="Open complaints"
+          label={t("admin.dashboard.openComplaints")}
           value={stats.openComplaints}
           icon={AlertTriangle}
           onClick={() => navigate({ to: "/admin/complaints" })}
         />
         <StatCard
-          label="Active campaigns"
+          label={t("admin.dashboard.activeCampaigns")}
           value={stats.activeCampaigns}
           icon={Megaphone}
           onClick={() => navigate({ to: "/admin/campaigns" })}
@@ -84,15 +103,18 @@ function AdminDashboardPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <AdminSection title="Monthly sales trend">
+        <AdminSection
+          title={t("admin.dashboard.monthlySalesTrend")}
+          description={t("admin.dashboard.monthlySalesTrendDesc")}
+        >
           <div className="space-y-3">
-            {data.monthlySales.map((row) => {
-              const max = Math.max(...data.monthlySales.map((m) => m.sales), 1);
+            {data!.monthlySales.map((row) => {
+              const max = Math.max(...data!.monthlySales.map((m) => m.sales), 1);
               return (
                 <div key={row.month}>
                   <div className="mb-1 flex justify-between text-sm">
                     <span className="font-semibold">{row.month}</span>
-                    <span className="font-bold">{inr(row.sales)}</span>
+                    <span className="font-bold">{formatCurrency(row.sales)}</span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-secondary">
                     <div
@@ -106,36 +128,39 @@ function AdminDashboardPage() {
           </div>
         </AdminSection>
 
-        <AdminSection title="Top products">
+        <AdminSection title={t("admin.dashboard.topProducts")}>
           <div className="space-y-2">
-            {data.topProducts.slice(0, 5).map((p) => (
+            {data!.topProducts.slice(0, 5).map((p) => (
               <div key={p.product} className="flex items-center justify-between rounded-2xl bg-secondary/40 px-3 py-2 text-sm">
                 <span className="font-semibold">{p.product}</span>
-                <span className="font-bold">{inr(p.sales)}</span>
+                <span className="font-bold">{formatCurrency(p.sales)}</span>
               </div>
             ))}
           </div>
         </AdminSection>
       </div>
 
-      <AdminSection title="Recent orders" description="Latest 5 orders across the network.">
+      <AdminSection
+        title={t("admin.dashboard.recentOrders")}
+        description={t("admin.dashboard.recentOrdersDesc")}
+      >
         <AdminDataTable
-          data={data.recentOrders}
+          data={data!.recentOrders}
           keyFn={(o) => o.id}
           onRowClick={(o) => navigate({ to: "/admin/orders/$orderId", params: { orderId: o.id } })}
           columns={[
-            { key: "id", header: "Order", cell: (o) => <span className="font-bold">#{o.id}</span> },
-            { key: "dealer", header: "Dealer", cell: (o) => o.dealerName },
-            { key: "status", header: "Status", cell: (o) => <StatusBadge kind="order" status={o.status} /> },
-            { key: "value", header: "Value", cell: (o) => inr(o.totalValue), hideOnMobile: true },
+            { key: "id", header: t("admin.dashboard.columnOrder"), cell: (o) => <span className="font-bold">#{o.id}</span> },
+            { key: "dealer", header: t("admin.dashboard.columnDealer"), cell: (o) => o.dealerName },
+            { key: "status", header: t("admin.dashboard.columnStatus"), cell: (o) => <StatusBadge kind="order" status={o.status} /> },
+            { key: "value", header: t("admin.dashboard.columnValue"), cell: (o) => formatCurrency(o.totalValue), hideOnMobile: true },
           ]}
         />
       </AdminSection>
 
-      {data.pendingSignups.length > 0 && (
-        <AdminSection title="Pending signups">
+      {data!.pendingSignups.length > 0 && (
+        <AdminSection title={t("admin.dashboard.pendingSignups")}>
           <div className="space-y-2">
-            {data.pendingSignups.map((s) => (
+            {data!.pendingSignups.map((s) => (
               <Link
                 key={s.id}
                 to="/admin/users"
@@ -146,23 +171,23 @@ function AdminDashboardPage() {
                   <p className="font-bold">{s.businessName}</p>
                   <p className="text-sm text-muted-foreground">{s.contactName} · {s.city}</p>
                 </div>
-                <span className="text-xs font-bold text-amber-700">Review</span>
+                <span className="text-xs font-bold text-amber-700">{t("common.viewDetails")}</span>
               </Link>
             ))}
           </div>
         </AdminSection>
       )}
 
-      {data.openComplaints.length > 0 && (
-        <AdminSection title="Open complaints">
+      {data!.openComplaints.length > 0 && (
+        <AdminSection title={t("admin.dashboard.openComplaints")}>
           <AdminDataTable
-            data={data.openComplaints.slice(0, 5)}
+            data={data!.openComplaints.slice(0, 5)}
             keyFn={(c) => c.id}
             onRowClick={(c) => navigate({ to: "/admin/complaints/$complaintId", params: { complaintId: c.id } })}
             columns={[
-              { key: "id", header: "ID", cell: (c) => c.id },
-              { key: "dealer", header: "Dealer", cell: (c) => c.dealerName },
-              { key: "status", header: "Status", cell: (c) => <StatusBadge kind="complaint" status={c.status} /> },
+              { key: "id", header: t("common.reference"), cell: (c) => c.id },
+              { key: "dealer", header: t("admin.dashboard.columnDealer"), cell: (c) => c.dealerName },
+              { key: "status", header: t("admin.dashboard.columnStatus"), cell: (c) => <StatusBadge kind="complaint" status={c.status} /> },
             ]}
           />
         </AdminSection>

@@ -42,34 +42,51 @@ export function RankingSection({
   title,
   rows,
   onRowClick,
+  onProfileClick,
+  profileLevel,
   anim,
   muted,
 }: {
   title: string;
   rows: RankingRow[];
   onRowClick?: (row: RankingRow) => void;
+  onProfileClick?: (row: RankingRow) => void;
+  profileLevel?: HierarchyLevel;
   anim: number;
   muted?: boolean;
 }) {
   const data = rows.map((r) => ({
     ...r,
-    label: r.name.length > 18 ? `${r.name.slice(0, 16)}…` : r.name,
+    label: r.name.length > 14 ? `${r.name.slice(0, 12)}…` : r.name,
   }));
 
   return (
     <ChartCard
       title={title}
-      description={onRowClick ? "Click a bar to drill down" : "Sales for selected month"}
+      description={onRowClick ? "Tap a bar to drill down" : "Sales for selected period"}
       config={barConfig}
     >
       <BarChart
         data={data}
         layout="vertical"
-        margin={{ left: 4, right: 8, top: 8, bottom: 0 }}
+        margin={{ left: 0, right: 4, top: 8, bottom: 0 }}
       >
         <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E8DFD0" />
-        <XAxis type="number" tickLine={false} axisLine={false} tickFormatter={(v) => inrCompact(v)} />
-        <YAxis type="category" dataKey="label" tickLine={false} axisLine={false} width={72} tick={{ fontSize: 11 }} />
+        <XAxis
+          type="number"
+          tickLine={false}
+          axisLine={false}
+          tickFormatter={(v) => inrCompact(v)}
+          tick={{ fontSize: 10 }}
+        />
+        <YAxis
+          type="category"
+          dataKey="label"
+          tickLine={false}
+          axisLine={false}
+          width={64}
+          tick={{ fontSize: 10 }}
+        />
         <ChartTooltip
           content={({ active, payload }) => {
             if (!active || !payload?.[0]) return null;
@@ -97,6 +114,22 @@ export function RankingSection({
           onClick={(data) => data?.payload && onRowClick?.(data.payload as RankingRow)}
         />
       </BarChart>
+      {onProfileClick && profileLevel === "dealer" && rows.length > 0 && (
+        <ul className="mt-3 space-y-1 border-t border-border pt-3 text-sm">
+          {rows.map((row) => (
+            <li key={row.id} className="flex items-center justify-between gap-2">
+              <span className="font-semibold">{row.name}</span>
+              <button
+                type="button"
+                className="font-bold text-primary hover:underline"
+                onClick={() => onProfileClick(row)}
+              >
+                View profile
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </ChartCard>
   );
 }

@@ -3,11 +3,10 @@ import { api } from "@/lib/api-client";
 export type SignupApplication = {
   name: string;
   birthday: string;
-  storeName: string;
+  storeName?: string;
   phone: string;
   address: string;
-  gstNumber: string;
-  distributorName: string;
+  gstNumber?: string;
   submittedAt: string;
 };
 

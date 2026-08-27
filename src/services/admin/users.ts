@@ -91,6 +91,7 @@ export async function createUser(input: {
   role: UserRole;
   dealerId?: string | null;
   distributorId?: string | null;
+  storeName?: string | null;
   sendWhatsAppInvite?: boolean;
 }): Promise<AdminUser> {
   return api.post("/api/v1/admin/users", input);
@@ -119,6 +120,17 @@ export async function inviteUser(input: {
 export async function updateUserStatus(id: string, status: AdminUser["status"]): Promise<void> {
   if (status === "pending_invite") return;
   await api.patch(`/api/v1/admin/users/${id}`, { status });
+}
+
+export async function updateUser(
+  id: string,
+  patch: {
+    role?: UserRole;
+    dealerId?: string | null;
+    distributorId?: string | null;
+  },
+): Promise<AdminUser> {
+  return api.patch(`/api/v1/admin/users/${id}`, patch);
 }
 
 export async function deleteUser(id: string): Promise<void> {

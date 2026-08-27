@@ -66,6 +66,17 @@ export function useSession() {
 
   useEffect(() => {
     void loadSession(false);
+
+    const onResume = () => void loadSession(false);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") onResume();
+    };
+    window.addEventListener("pageshow", onResume);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pageshow", onResume);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   const refresh = useCallback(async () => {

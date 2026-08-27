@@ -108,22 +108,44 @@ async function main() {
   }
 
   const seComplaints = await api("/api/v1/complaints", seSession);
-  const seComplaintList = (await seComplaints.json()) as Array<{ dealerId: string }>;
+  const seComplaintPayload = (await seComplaints.json()) as
+    | Array<{ dealerId: string }>
+    | { items: Array<{ dealerId: string }> };
+  const seComplaintList = Array.isArray(seComplaintPayload)
+    ? seComplaintPayload
+    : (seComplaintPayload.items ?? []);
   const seScope = await db
-    .prepare(`SELECT dealer_id FROM dealer_assignments WHERE assignee_user_id = 'user-sales-exec'`)
-    .all<{ dealer_id: string }>();
-  const seDealerIds = new Set(seScope.results.map((r) => r.dealer_id));
+    .prepare(`SELECT id FROM dealers WHERE sales_executive_user_id = 'user-sales-exec' AND deleted_at IS NULL`)
+    .all<{ id: string }>();
+  const seDealerIds = new Set(seScope.results.map((r) => r.id));
   assert(
     "SE complaints scoped to assignments",
     seComplaintList.every((c) => seDealerIds.has(c.dealerId)),
   );
 
   if (ownOrderId) {
-    const distDeliver = await api(`/api/v1/orders/${ownOrderId}/status`, distSession, {
+    const distOrders = await api("/api/v1/orders", distSession);
+    const distOrdersPayload = (await distOrders.json()) as
+      | Array<{ id: string; status: string }>
+      | { items: Array<{ id: string; status: string }> };
+    const distOrderList = Array.isArray(distOrdersPayload)
+      ? distOrdersPayload
+      : (distOrdersPayload.items ?? []);
+    const deliverableOrder = distOrderList.find((o) => o.status === "out_for_delivery");
+
+    if (deliverableOrder?.id) {
+      const distDeliver = await api(`/api/v1/orders/${deliverableOrder.id}/status`, distSession, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "delivered" }),
+      });
+      assert("distributor can set delivered", distDeliver.status === 200);
+    }
+
+    const distMaking = await api(`/api/v1/orders/${ownOrderId}/status`, distSession, {
       method: "PATCH",
-      body: JSON.stringify({ status: "delivered" }),
+      body: JSON.stringify({ status: "in_making" }),
     });
-    assert("distributor cannot set delivered", distDeliver.status === 403 || distDeliver.status >= 400);
+    assert("distributor cannot set in_making", distMaking.status === 403 || distMaking.status >= 400);
   }
 
   const staffPatchComplaint = await db
@@ -134,11 +156,14 @@ async function main() {
       method: "PATCH",
       body: JSON.stringify({ status: "in_progress" }),
     });
-    assert("admin_staff cannot patch complaints", patch.status === 403);
+    assert("admin_staff can patch complaints", patch.status === 200);
   }
 
   const staffReports = await api("/api/v1/reports/monthly-sales", staffSession);
   assert("admin_staff cannot access reports", staffReports.status === 403);
+
+  const staffVisitSummary = await api("/api/v1/reports/visit-summary", staffSession);
+  assert("admin_staff cannot access unscoped visit summary", staffVisitSummary.status === 403);
 
   const seReports = await api("/api/v1/reports/product-sales", seSession);
   assert("SE can access scoped product-sales", seReports.status === 200);

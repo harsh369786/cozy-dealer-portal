@@ -28,15 +28,29 @@ import { daysUntil } from "./filters";
 
 export function computeKpis(scope: AnalyticsScope): KpiMetric[] {
   const { filters, dealers, orders, complaints } = scope;
-  const month = filters.month ?? "Aug";
-  const prev = previousMonth(month);
+  const fromMonth = filters.fromMonth ?? filters.month ?? "Aug";
+  const toMonth = filters.toMonth ?? filters.month ?? fromMonth;
+  const month = toMonth;
+  const prev = previousMonth(fromMonth);
 
-  const sales = dealers.reduce((s, d) => s + dealerSalesForMonth(d, month).sales, 0);
+  const monthsInRange = adminStore.monthlySales
+    .map((m) => m.month)
+    .filter((m) => monthInRange(m, fromMonth, toMonth));
+
+  const sales = dealers.reduce(
+    (s, d) =>
+      s + monthsInRange.reduce((ms, m) => ms + dealerSalesForMonth(d, m).sales, 0),
+    0,
+  );
   const prevSales = prev
     ? dealers.reduce((s, d) => s + dealerSalesForMonth(d, prev).sales, 0)
     : dealers.reduce((s, d) => s + d.prevMonthSales, 0);
 
-  const ordersCount = dealers.reduce((s, d) => s + dealerSalesForMonth(d, month).orders, 0);
+  const ordersCount = dealers.reduce(
+    (s, d) =>
+      s + monthsInRange.reduce((ms, m) => ms + dealerSalesForMonth(d, m).orders, 0),
+    0,
+  );
   const prevOrders = prev
     ? dealers.reduce((s, d) => s + dealerSalesForMonth(d, prev).orders, 0)
     : Math.round(ordersCount * 0.92);
@@ -49,7 +63,7 @@ export function computeKpis(scope: AnalyticsScope): KpiMetric[] {
 
   const pendingApprovals = orders.filter((o) => {
     const m = parseOrderMonth(o.placedAt);
-    return m === month && o.status === "order_placed";
+    return m && monthInRange(m, fromMonth, toMonth) && o.status === "order_placed";
   }).length;
 
   const openComplaints = complaints.filter(
