@@ -235,8 +235,11 @@ function AdminOrderDetailPage() {
           {order.items.map((item, i) => (
             <div key={i} className="rounded-2xl bg-secondary/40 px-3 py-2 text-sm">
               <p className="font-semibold">
-                {item.model} — {item.size} × {item.thickness}
+                {item.model} — {item.sizeRequested ?? item.size} × {item.thickness}
               </p>
+              {item.sizeRequested && item.sizeStandard && item.sizeRequested !== item.sizeStandard && (
+                <p className="text-xs text-muted-foreground">Priced as standard {item.sizeStandard}</p>
+              )}
               <p className="text-muted-foreground">Qty: {item.quantity}</p>
               <p className="font-bold">{formatCurrency(item.campaignPrice ?? item.dealerPrice)}</p>
               {item.points ? (

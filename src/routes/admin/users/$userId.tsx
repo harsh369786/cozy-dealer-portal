@@ -21,6 +21,7 @@ import {
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
 import type { UserRole } from "@/lib/mock/distributor/types";
+import { listPricingTiers } from "@/services/admin/pricing-tiers";
 import { getUser, deleteUser, getUserCreateOptions, resendUserInvite, updateUser, updateUserStatus } from "@/services/admin/users";
 
 export const Route = createFileRoute("/admin/users/$userId")({
@@ -49,8 +50,10 @@ function UserDetailPage() {
   const [editRole, setEditRole] = useState<UserRole>("dealer");
   const [editDealerId, setEditDealerId] = useState("");
   const [editDistributorId, setEditDistributorId] = useState("");
+  const [editTierId, setEditTierId] = useState("");
 
   const optionsQuery = useAsyncData(() => getUserCreateOptions(), []);
+  const tiersQuery = useAsyncData(() => listPricingTiers(), []);
 
   const { data: user, loading, error, retry } = useAsyncData(() => getUser(userId), [userId]);
 
@@ -59,7 +62,8 @@ function UserDetailPage() {
     setEditRole(user.role);
     setEditDealerId(user.dealerId ?? "");
     setEditDistributorId(user.distributorId ?? "");
-  }, [user?.id, user?.role, user?.dealerId, user?.distributorId]);
+    setEditTierId(user.pricingTierId ?? "tier-t1");
+  }, [user?.id, user?.role, user?.dealerId, user?.distributorId, user?.pricingTierId]);
 
   const roleOptions: UserRole[] =
     actor?.role === "master_admin"
@@ -70,7 +74,9 @@ function UserDetailPage() {
     user &&
     (editRole !== user.role ||
       (editRole === "dealer" && editDealerId !== (user.dealerId ?? "")) ||
-      (editRole === "distributor" && editDistributorId !== (user.distributorId ?? "")));
+      (editRole === "distributor" && editDistributorId !== (user.distributorId ?? "")) ||
+      ((editRole === "dealer" || editRole === "distributor") &&
+        editTierId !== (user.pricingTierId ?? "tier-t1")));
 
   const handleSaveRole = async () => {
     if (!user) return;
@@ -88,6 +94,7 @@ function UserDetailPage() {
         role: editRole,
         dealerId: editRole === "dealer" ? editDealerId : null,
         distributorId: editRole === "distributor" ? editDistributorId : null,
+        pricingTierId: editRole === "dealer" || editRole === "distributor" ? editTierId : null,
       });
       toast.success("User role updated");
       setRoleConfirmOpen(false);
@@ -235,6 +242,26 @@ function UserDetailPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+              )}
+              {(editRole === "dealer" || editRole === "distributor") && (
+                <div>
+                  <Label>Pricing tier</Label>
+                  <Select value={editTierId} onValueChange={setEditTierId}>
+                    <SelectTrigger className="mt-1 rounded-2xl">
+                      <SelectValue placeholder="Select tier" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(tiersQuery.data?.items ?? []).map((tier) => (
+                        <SelectItem key={tier.id} value={tier.id}>
+                          {tier.code} — {tier.name} ({tier.distributorMarginPercent}% dist. margin)
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Applies to the linked store, so every login on that dealer or distributor uses the same prices.
+                  </p>
                 </div>
               )}
               {roleDirty && (

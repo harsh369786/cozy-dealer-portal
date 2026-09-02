@@ -187,7 +187,7 @@ export async function createOrder(
     }
   }
 
-  await notifyNewOrder(db, orderId, dealer.id, dealer.store_name, dealer.distributor_id);
+  await notifyNewOrder(db, orderId, dealer.id, dealer.store_name, dealer.distributor_id, user.id);
 
   const order = await getOrderById(db, orderId);
   if (order && dealer.phone) {
@@ -241,7 +241,7 @@ export async function rejectOrder(
 
   await addTimelineEvent(db, orderId, "rejected", ORDER_STATUS_LABELS.rejected, actor.id, reason);
 
-  await notifyOrderStatusChange(db, orderId, "rejected", { reason });
+  await notifyOrderStatusChange(db, orderId, "rejected", { reason, actorUserId: actor.id });
 
   const dealer = await db
     .prepare(`SELECT phone FROM dealers WHERE id = (SELECT dealer_id FROM orders WHERE id = ?)`)
@@ -293,7 +293,7 @@ export async function cancelApprovedOrder(
     reason,
   );
 
-  await notifyOrderStatusChange(db, orderId, "cancelled", { reason });
+  await notifyOrderStatusChange(db, orderId, "cancelled", { reason, actorUserId: actor.id });
 
   return getOrderById(db, orderId);
 }
@@ -325,21 +325,40 @@ export async function updateOrderStatus(
     .concat("status = ?")
     .join(", ");
 
-  const result = await db
-    .prepare(`UPDATE orders SET ${setClause} WHERE id = ? AND status = ?`)
-    .bind(...Object.values(updates), toStatus, orderId, fromStatus)
-    .run();
-  if ((result.meta.changes ?? 0) !== 1) {
+  // Atomic: the guarded status UPDATE and its timeline event commit together in one D1 batch.
+  // The timeline INSERT is conditional on the order actually transitioning to toStatus, so a
+  // failed optimistic lock leaves no orphan timeline row.
+  const [statusResult] = await db.batch([
+    db
+      .prepare(`UPDATE orders SET ${setClause} WHERE id = ? AND status = ?`)
+      .bind(...Object.values(updates), toStatus, orderId, fromStatus),
+    db
+      .prepare(
+        `INSERT INTO order_timeline_events (id, order_id, label, status_key, occurred_at, note, actor_user_id)
+         SELECT ?, ?, ?, ?, ?, ?, ?
+         WHERE (SELECT status FROM orders WHERE id = ?) = ?`,
+      )
+      .bind(
+        id("te"),
+        orderId,
+        ORDER_STATUS_LABELS[toStatus],
+        toStatus,
+        updatedAt,
+        null,
+        actor.id,
+        orderId,
+        toStatus,
+      ),
+  ]);
+  if ((statusResult.meta.changes ?? 0) !== 1) {
     throw new Error("Order status changed. Refresh and try again.");
   }
 
-  await addTimelineEvent(db, orderId, toStatus, ORDER_STATUS_LABELS[toStatus], actor.id);
-
   if (toStatus === "delivered") {
     const points = await handleOrderDelivered(db, orderId, env, order);
-    await notifyOrderStatusChange(db, orderId, "delivered", { points });
+    await notifyOrderStatusChange(db, orderId, "delivered", { points, actorUserId: actor.id });
   } else {
-    await notifyOrderStatusChange(db, orderId, toStatus);
+    await notifyOrderStatusChange(db, orderId, toStatus, { actorUserId: actor.id });
   }
 
   return getOrderById(db, orderId);

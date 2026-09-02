@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronRight, ShieldCheck } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { SearchBar, matchesSearch } from "@/components/shared/search-bar";
-import { ErrorState, PageSkeleton } from "@/components/shared/states";
+import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
 import { cn } from "@/lib/utils";
 import { requireRoles } from "@/lib/auth-guard";
 import { useAsyncData } from "@/hooks/use-async-data";
@@ -100,6 +100,19 @@ function Catalogue() {
     return (
       <AppShell title={pageTitle}>
         <ErrorState message={error} onRetry={catalogQuery.retry} />
+      </AppShell>
+    );
+  }
+
+  const hasAnyProduct =
+    mattressLayers.length > 0 || foldableItems.length > 0 || pillowItems.length > 0;
+  if (!hasAnyProduct) {
+    return (
+      <AppShell title={pageTitle}>
+        <EmptyState
+          title={t("common.noProductsAvailable")}
+          description={t("common.noProductsAvailableDescription")}
+        />
       </AppShell>
     );
   }

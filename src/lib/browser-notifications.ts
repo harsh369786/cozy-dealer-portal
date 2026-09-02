@@ -159,11 +159,11 @@ export async function subscribeToPush(): Promise<boolean> {
   }
 
   const json = subscription.toJSON();
-  if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return false;
+  if (!json.endpoint || !json.keys?.['p256dh'] || !json.keys?.['auth']) return false;
 
   await api.post("/api/v1/notifications/push-subscribe", {
     endpoint: json.endpoint,
-    keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
+    keys: { p256dh: json.keys['p256dh'], auth: json.keys['auth'] },
   });
 
   dismissPushPrompt();

@@ -75,6 +75,13 @@ export async function verifyOtp(phone: string, code: string): Promise<SessionUse
   return res.user;
 }
 
+export async function demoLogin(phone: string): Promise<SessionUser> {
+  const res = await api.post<{ user: SessionUser }>("/api/v1/auth/demo-login", { phone });
+  sessionCache = { user: res.user, at: Date.now() };
+  writeStoredUser(res.user);
+  return res.user;
+}
+
 export async function getCurrentUser(): Promise<SessionUser | null> {
   if (sessionCache && Date.now() - sessionCache.at < SESSION_CACHE_TTL_MS) {
     return sessionCache.user;

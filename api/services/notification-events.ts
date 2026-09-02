@@ -25,8 +25,13 @@ export function withNotificationI18n(
   };
 }
 
-async function notifyUserIds(db: D1Database, userIds: string[], input: NotifyInput) {
-  const unique = [...new Set(userIds.filter(Boolean))];
+async function notifyUserIds(
+  db: D1Database,
+  userIds: string[],
+  input: NotifyInput,
+  excludeUserId?: string,
+) {
+  const unique = [...new Set(userIds.filter(Boolean))].filter((uid) => uid !== excludeUserId);
   if (!unique.length) return;
   await createNotificationsBatch(
     db,
@@ -34,8 +39,13 @@ async function notifyUserIds(db: D1Database, userIds: string[], input: NotifyInp
   );
 }
 
-export async function notifyUser(db: D1Database, userId: string, input: NotifyInput) {
-  await notifyUserIds(db, [userId], input);
+export async function notifyUser(
+  db: D1Database,
+  userId: string,
+  input: NotifyInput,
+  excludeUserId?: string,
+) {
+  await notifyUserIds(db, [userId], input, excludeUserId);
 }
 
 export async function notifyMasterAdmins(db: D1Database, input: NotifyInput) {
@@ -65,6 +75,7 @@ export async function notifyOperationalAdmins(
   db: D1Database,
   permission: SharedPermission,
   input: NotifyInput,
+  excludeUserId?: string,
 ) {
   const staffHasPermission = permissionsForSharedRole("admin_staff").includes(permission);
   const { results } = await db
@@ -78,6 +89,7 @@ export async function notifyOperationalAdmins(
     db,
     results.map((u) => u.id),
     input,
+    excludeUserId,
   );
 }
 
@@ -85,7 +97,12 @@ export async function notifySignupReviewers(db: D1Database, input: NotifyInput) 
   await notifyOperationalAdmins(db, "signup:review", input);
 }
 
-export async function notifyDistributorsForOrg(db: D1Database, distributorId: string, input: NotifyInput) {
+export async function notifyDistributorsForOrg(
+  db: D1Database,
+  distributorId: string,
+  input: NotifyInput,
+  excludeUserId?: string,
+) {
   const { results } = await db
     .prepare(
       `SELECT id FROM users WHERE distributor_id = ? AND role = 'distributor' AND status = 'active' AND deleted_at IS NULL`,
@@ -96,6 +113,7 @@ export async function notifyDistributorsForOrg(db: D1Database, distributorId: st
     db,
     results.map((u) => u.id),
     input,
+    excludeUserId,
   );
 }
 
@@ -103,7 +121,12 @@ export async function notifySalesExecutive(db: D1Database, userId: string, input
   await notifyUser(db, userId, input);
 }
 
-export async function notifyDealerUsers(db: D1Database, dealerId: string, input: NotifyInput) {
+export async function notifyDealerUsers(
+  db: D1Database,
+  dealerId: string,
+  input: NotifyInput,
+  excludeUserId?: string,
+) {
   const { results } = await db
     .prepare(
       `SELECT id FROM users WHERE dealer_id = ? AND role = 'dealer' AND status = 'active' AND deleted_at IS NULL`,
@@ -114,6 +137,7 @@ export async function notifyDealerUsers(db: D1Database, dealerId: string, input:
     db,
     results.map((u) => u.id),
     input,
+    excludeUserId,
   );
 }
 
@@ -180,13 +204,14 @@ async function dispatchOrderStatusNotifications(
   db: D1Database,
   ctx: { dealer_id: string; distributor_id: string },
   payloads: OrderStatusPayload,
+  excludeUserId?: string,
 ) {
-  await notifyDealerUsers(db, ctx.dealer_id, payloads.dealer);
+  await notifyDealerUsers(db, ctx.dealer_id, payloads.dealer, excludeUserId);
   if (payloads.distributor) {
-    await notifyDistributorsForOrg(db, ctx.distributor_id, payloads.distributor);
+    await notifyDistributorsForOrg(db, ctx.distributor_id, payloads.distributor, excludeUserId);
   }
   if (payloads.admin) {
-    await notifyOperationalAdmins(db, "orders:read", payloads.admin);
+    await notifyOperationalAdmins(db, "orders:read", payloads.admin, excludeUserId);
   }
 }
 
@@ -194,10 +219,11 @@ export async function notifyOrderStatusChange(
   db: D1Database,
   orderId: string,
   toStatus: string,
-  extra?: { reason?: string; points?: number },
+  extra?: { reason?: string; points?: number; actorUserId?: string },
 ) {
   const ctx = await getOrderNotificationContext(db, orderId);
   if (!ctx) return;
+  const actorUserId = extra?.actorUserId;
 
   const dealerLink = `/orders/${orderId}`;
   const distLink = `/distributor/orders/${orderId}`;
@@ -228,7 +254,7 @@ export async function notifyOrderStatusChange(
           { orderId, storeName: store },
         ),
       },
-    });
+    }, actorUserId);
     return;
   }
 
@@ -274,7 +300,7 @@ export async function notifyOrderStatusChange(
           { orderId, storeName: store, ...reasonParams },
         ),
       },
-    });
+    }, actorUserId);
     return;
   }
 
@@ -300,7 +326,7 @@ export async function notifyOrderStatusChange(
           { orderId, storeName: store },
         ),
       },
-    });
+    }, actorUserId);
     return;
   }
 
@@ -330,7 +356,7 @@ export async function notifyOrderStatusChange(
           { orderId, storeName: store },
         ),
       },
-    });
+    }, actorUserId);
     return;
   }
 
@@ -377,7 +403,7 @@ export async function notifyOrderStatusChange(
           { orderId, storeName: store },
         ),
       },
-    });
+    }, actorUserId);
     return;
   }
 
@@ -423,7 +449,7 @@ export async function notifyOrderStatusChange(
           { orderId, storeName: store, ...reasonParams },
         ),
       },
-    });
+    }, actorUserId);
   }
 }
 
@@ -433,19 +459,27 @@ export async function notifyNewOrder(
   dealerId: string,
   dealerName: string,
   distributorId: string,
+  actorUserId?: string,
 ) {
   const dealerLink = `/orders/${orderId}`;
   const distLink = `/distributor/orders/${orderId}`;
   const adminLink = `/admin/orders/${orderId}`;
 
-  await notifyDealerUsers(db, dealerId, {
-    category: "orders",
-    type: "order_placed",
-    title: "Order placed",
-    body: `Your order ${orderId} has been placed successfully`,
-    link: dealerLink,
-    ...withNotificationI18n("notifications.orderPlaced.title", "notifications.orderPlaced.body", { orderId }),
-  });
+  // Notify OTHER dealer users of the same dealer org, but exclude the acting user
+  // so the dealer who just placed the order does not get a redundant self-echo.
+  await notifyDealerUsers(
+    db,
+    dealerId,
+    {
+      category: "orders",
+      type: "order_placed",
+      title: "Order placed",
+      body: `Your order ${orderId} has been placed successfully`,
+      link: dealerLink,
+      ...withNotificationI18n("notifications.orderPlaced.title", "notifications.orderPlaced.body", { orderId }),
+    },
+    actorUserId,
+  );
   await notifyDistributorsForOrg(db, distributorId, {
     category: "orders",
     type: "new_order",

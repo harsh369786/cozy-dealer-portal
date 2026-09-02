@@ -28,8 +28,8 @@ function mapNotification(n: ApiNotification): DistributorNotification {
     link: n.link ?? "",
     createdAt: n.createdAtLabel ?? n.createdAt,
     read: n.read,
-    isReminder: n.isReminder,
-    metadata: n.metadata,
+    ...(n.isReminder !== undefined ? { isReminder: n.isReminder } : {}),
+    ...(n.metadata !== undefined ? { metadata: n.metadata } : {}),
   };
 }
 
@@ -67,4 +67,7 @@ export async function getNotificationsByCategory(
   const all = await getNotifications();
   if (category === "all") return all;
   return all.filter((n) => n.category === category);
+}
+export async function sendTestNotification(): Promise<void> {
+  await api.post("/api/v1/notifications/push-test");
 }

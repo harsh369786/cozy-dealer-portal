@@ -195,7 +195,7 @@ function AdminAssignmentsPage() {
 
   useEffect(() => {
     if (activeTab !== "approvals" || !signupId || !signupsQuery.data) return;
-    const row = signupsQuery.data.items.find((s) => s.id === signupId);
+    const row = signupsQuery.data.items?.find((s) => s.id === signupId);
     if (row) openReview(row);
   }, [activeTab, signupId, signupsQuery.data]);
 
@@ -370,30 +370,28 @@ function AdminAssignmentsPage() {
       <AdminPermissionGate permission="signup:review">
         <div>
           <AdminPageHeader
-            title={t("admin.assignments.title")}
+            title={t("nav.admin.pendingSignups")}
             description={t("admin.assignments.descriptionSignups")}
           />
 
           <div className="mb-4 flex flex-wrap gap-2">
-            <AdminFilterTabs
-              value={activeTab}
-              onChange={(v) => navigateTab(v as AssignmentTab)}
-              tabs={[
-                ...(canReadAssignments
-                  ? [
-                      { value: "distributor" as const, label: t("admin.assignments.tabs.distributor") },
-                      { value: "sales_executive" as const, label: t("admin.assignments.tabs.salesExecutive") },
-                    ]
-                  : []),
-                { value: "approvals", label: t("admin.assignments.tabs.approvals") },
-              ]}
-            />
+            {canReadAssignments ? (
+              <p className="mb-4">
+                <button
+                  type="button"
+                  className="text-sm font-bold text-primary"
+                  onClick={() => navigateTab("distributor")}
+                >
+                  ← {t("nav.admin.assignments")}
+                </button>
+              </p>
+            ) : null}
           </div>
 
           <AdminFiltersBar search={searchInput} onSearchChange={(v) => { setSearchInput(v); setPage(1); }} />
 
           <AdminDataTable
-            data={signupResult.items}
+            data={signupResult.items ?? []}
             keyFn={(s) => s.id}
             onRowClick={(s) => openReview(s)}
             emptyTitle="No pending signups"
@@ -629,9 +627,6 @@ function AdminAssignmentsPage() {
             tabs={[
               { value: "distributor", label: t("admin.assignments.tabs.distributor") },
               { value: "sales_executive", label: t("admin.assignments.tabs.salesExecutive") },
-              ...(can("signup:review")
-                ? [{ value: "approvals" as const, label: t("admin.assignments.tabs.approvals") }]
-                : []),
             ]}
           />
         </div>

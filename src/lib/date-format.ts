@@ -48,6 +48,7 @@ export function formatYearMonthLabel(ym: string, locale?: string): string {
 
 /** Display date as DD/MM/YYYY in IST. */
 export function formatDisplayDate(iso: string, locale?: string): string {
+  if (!iso) return "";
   const d = parseIsoDate(iso);
   if (!d) {
     const isoMatch = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);

@@ -368,21 +368,21 @@ export async function getVisitSummary(
   const binds: unknown[] = [];
   let where = "";
   if (opts.fromDate) {
-    where += ` AND check_in_at >= ?`;
+    where += ` AND v.check_in_at >= ?`;
     binds.push(`${opts.fromDate}T00:00:00.000Z`);
   }
   if (opts.toDate) {
-    where += ` AND check_in_at <= ?`;
+    where += ` AND v.check_in_at <= ?`;
     binds.push(`${opts.toDate}T23:59:59.999Z`);
   }
   if (opts.salesExecutiveUserId) {
-    where += ` AND sales_executive_user_id = ?`;
+    where += ` AND v.sales_executive_user_id = ?`;
     binds.push(opts.salesExecutiveUserId);
   }
   if (opts.distributorId) {
     where += ` AND (
-      dealer_id IN (SELECT id FROM dealers WHERE distributor_id = ? AND deleted_at IS NULL)
-      OR sales_executive_user_id IN (
+      v.dealer_id IN (SELECT id FROM dealers WHERE distributor_id = ? AND deleted_at IS NULL)
+      OR v.sales_executive_user_id IN (
         SELECT DISTINCT sales_executive_user_id FROM dealers
         WHERE distributor_id = ? AND sales_executive_user_id IS NOT NULL AND deleted_at IS NULL
       )
@@ -394,9 +394,9 @@ export async function getVisitSummary(
     .prepare(
       `SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active
-       FROM dealer_visits WHERE 1=1${where}`,
+        SUM(CASE WHEN v.status = 'completed' THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN v.status = 'active' THEN 1 ELSE 0 END) as active
+       FROM dealer_visits v WHERE 1=1${where}`,
     )
     .bind(...binds)
     .first<{ total: number; completed: number; active: number }>();
@@ -416,10 +416,10 @@ export async function getVisitSummary(
   const trendBinds = [...binds];
   const { results: trend } = await db
     .prepare(
-      `SELECT strftime('%Y-%m', check_in_at) as ym,
+      `SELECT strftime('%Y-%m', v.check_in_at) as ym,
         COUNT(*) as total,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
-       FROM dealer_visits WHERE 1=1${where}
+        SUM(CASE WHEN v.status = 'completed' THEN 1 ELSE 0 END) as completed
+       FROM dealer_visits v WHERE 1=1${where}
        GROUP BY ym ORDER BY ym ASC LIMIT 6`,
     )
     .bind(...trendBinds)
@@ -427,8 +427,8 @@ export async function getVisitSummary(
 
   const uniqueStoresRow = await db
     .prepare(
-      `SELECT COUNT(DISTINCT COALESCE(dealer_id, store_name)) as c
-       FROM dealer_visits WHERE 1=1${where}`,
+      `SELECT COUNT(DISTINCT COALESCE(v.dealer_id, v.store_name)) as c
+       FROM dealer_visits v WHERE 1=1${where}`,
     )
     .bind(...binds)
     .first<{ c: number }>();
@@ -436,19 +436,19 @@ export async function getVisitSummary(
   const { results: byStoreRows } = await db
     .prepare(
       `SELECT
-        dealer_id,
-        store_name,
+        v.dealer_id,
+        v.store_name,
         COUNT(*) as visits,
-        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN v.status = 'completed' THEN 1 ELSE 0 END) as completed,
         ROUND(AVG(
-          CASE WHEN check_out_at IS NOT NULL
-            THEN (julianday(check_out_at) - julianday(check_in_at)) * 24 * 60
+          CASE WHEN v.check_out_at IS NOT NULL
+            THEN (julianday(v.check_out_at) - julianday(v.check_in_at)) * 24 * 60
             ELSE NULL END
         )) as avg_duration_minutes,
-        MAX(check_in_at) as last_visit_at
-       FROM dealer_visits WHERE 1=1${where}
-       GROUP BY COALESCE(dealer_id, store_name), store_name
-       ORDER BY visits DESC, store_name ASC
+        MAX(v.check_in_at) as last_visit_at
+       FROM dealer_visits v WHERE 1=1${where}
+       GROUP BY COALESCE(v.dealer_id, v.store_name), v.store_name
+       ORDER BY visits DESC, v.store_name ASC
        LIMIT 50`,
     )
     .bind(...binds)

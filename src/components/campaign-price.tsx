@@ -26,7 +26,9 @@ export function CampaignPriceBlock({
   const mrpTotal = mrp * qty;
   const dealerTotal = dealerPrice * qty;
   const campaignTotal = campaignPrice != null ? campaignPrice * qty : null;
-  const hasCampaign = campaignTotal != null;
+  // Only treat it as a campaign when it actually reduces the dealer price, so a 0%
+  // (or non-discounting) campaign never strikes through the price or shows "0% off".
+  const hasCampaign = campaignPrice != null && campaignPrice < dealerPrice;
 
   return (
     <div className={cn("space-y-2", className)}>

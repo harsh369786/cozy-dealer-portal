@@ -47,7 +47,8 @@ function mapComplaint(row: ComplaintRow): AdminComplaint {
 }
 
 export async function listComplaints(filters: ComplaintFilters = {}): Promise<PaginatedResult<AdminComplaint>> {
-  const rows = await api.get<ComplaintRow[]>("/api/v1/complaints");
+  const res = await api.get<ComplaintRow[] | { items?: ComplaintRow[] }>("/api/v1/complaints");
+  const rows = Array.isArray(res) ? res : (res.items ?? []);
   let items = rows.map(mapComplaint);
   if (filters.status && filters.status !== "all") {
     items = items.filter((c) => c.status === filters.status);

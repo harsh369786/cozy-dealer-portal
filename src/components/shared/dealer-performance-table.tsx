@@ -1,6 +1,6 @@
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { inr } from "@/lib/demo-data";
+import { inr } from "@/lib/currency-format";
 import type { DealerPerformanceRow } from "@/lib/mock/distributor/types";
 import { cn } from "@/lib/utils";
 

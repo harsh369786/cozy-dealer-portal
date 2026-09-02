@@ -1,0 +1,264 @@
+{
+  "pbtResults": {},
+  "executionHistory": {
+    "1.1 Fix Hono status-code typing (TS2769)": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258745885
+      },
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258761451
+      },
+      {
+        "executionId": "b0c564eb-9c70-4ab9-b3e4-cebc2ae8dd02",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788259823418
+      }
+    ],
+    "1.2 Fix index-signature access errors (TS4111)": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258746149
+      },
+      {
+        "executionId": "b0c564eb-9c70-4ab9-b3e4-cebc2ae8dd02",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788259829105
+      },
+      {
+        "executionId": "b0c564eb-9c70-4ab9-b3e4-cebc2ae8dd02",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788261987584
+      }
+    ],
+    "1.3 Fix missing `category`/`id` on pricing return type (TS2339)": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258746425
+      },
+      {
+        "executionId": "b0c564eb-9c70-4ab9-b3e4-cebc2ae8dd02",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788261992681
+      },
+      {
+        "executionId": "b0c564eb-9c70-4ab9-b3e4-cebc2ae8dd02",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788263201277
+      },
+      {
+        "executionId": "54b9ad0b-b5f0-4dfd-9a16-b78e0102d1ac",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788263265663
+      }
+    ],
+    "1.4 Fix exactOptionalPropertyTypes errors (TS2379/TS2345/TS2322)": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258746817
+      },
+      {
+        "executionId": "54b9ad0b-b5f0-4dfd-9a16-b78e0102d1ac",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788263270592
+      }
+    ],
+    "1.5 Verify clean typecheck and build": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258746963
+      },
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329283361
+      }
+    ],
+    "2. Audit VAPID configuration and secret safety": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258747106
+      },
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329297730
+      },
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329491142
+      }
+    ],
+    "3. Audit push subscription reliability and lifecycle": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258747255
+      },
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329299613
+      },
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329492641
+      }
+    ],
+    "4.1 Build the recipient matrix and verify against events": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258747375
+      },
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329300545
+      },
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329508641
+      }
+    ],
+    "4.2 Verify no actor self-echo at call sites": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258747491
+      },
+      {
+        "executionId": "22ae5b53-596b-470a-a1c5-b4dab6249dce",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788330125519
+      },
+      {
+        "executionId": "22ae5b53-596b-470a-a1c5-b4dab6249dce",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788331492037
+      }
+    ],
+    "5. Audit login/replay behavior": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258747638
+      },
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329301990
+      },
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329508043
+      }
+    ],
+    "6. Audit notification click routing": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258747811
+      },
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329303376
+      },
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329509406
+      }
+    ],
+    "7. Verify the test-notification path": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258747939
+      },
+      {
+        "executionId": "22ae5b53-596b-470a-a1c5-b4dab6249dce",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788331500086
+      },
+      {
+        "executionId": "22ae5b53-596b-470a-a1c5-b4dab6249dce",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788332016678
+      }
+    ],
+    "8. Verify service-worker caching and Cloudflare compatibility": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258748060
+      },
+      {
+        "executionId": "22ae5b53-596b-470a-a1c5-b4dab6249dce",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788331501184
+      },
+      {
+        "executionId": "22ae5b53-596b-470a-a1c5-b4dab6249dce",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788332017030
+      }
+    ],
+    "9. Document exact Cloudflare production configuration and deliver MANUAL checklist": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258748183
+      },
+      {
+        "executionId": "22ae5b53-596b-470a-a1c5-b4dab6249dce",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788332025903
+      },
+      {
+        "executionId": "22ae5b53-596b-470a-a1c5-b4dab6249dce",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788332188315
+      }
+    ],
+    "10. Run full automated audit and write the final report": [
+      {
+        "executionId": "5c34b84a-6598-4e75-9cbc-174cf3199461",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788258748303
+      },
+      {
+        "executionId": "22ae5b53-596b-470a-a1c5-b4dab6249dce",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788332200481
+      }
+    ],
+    "1. Fix TypeScript build errors in `api/app.ts` (no suppressions)": [
+      {
+        "executionId": "3c4b565b-beb9-4b96-a3ae-034171b11ef6",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788329283584
+      }
+    ],
+    "4. Audit notification recipients across all events": [
+      {
+        "executionId": "22ae5b53-596b-470a-a1c5-b4dab6249dce",
+        "chatSessionId": "sess_fa456486-cddf-4240-b649-1cb86c9d3da6",
+        "timestamp": 1788331492259
+      }
+    ]
+  }
+}

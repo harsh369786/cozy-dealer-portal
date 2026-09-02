@@ -3,7 +3,7 @@ import type { AdminAnalyticsReport, AnalyticsFilters } from "@/lib/admin/analyti
 import type { HierarchyLevel, RankingRow } from "@/lib/admin/analytics/types";
 import { ChartCard } from "@/components/shared/chart-card";
 import { ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { inr, inrCompact } from "@/lib/demo-data";
+import { inr, inrCompact } from "@/lib/currency-format";
 
 export const PIE_COLORS = ["#B45309", "#0369A1", "#15803D", "#7C3AED", "#BE123C", "#0F766E"];
 export const lineConfig = {

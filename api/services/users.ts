@@ -2,6 +2,7 @@ import { formatInLabel, id, normalizePhone, nowIso } from "../utils";
 import { writeAuditLog } from "./audit";
 import { notifyUser, withNotificationI18n } from "./notification-events";
 import { enqueueWhatsapp } from "./whatsapp";
+import { assignPricingTier, DEFAULT_PRICING_TIER_ID } from "./pricing-tiers";
 import {
   findDeletedUserIdByPhone,
   isPhoneTakenByActiveUser,
@@ -20,6 +21,7 @@ export type AdminUserRow = {
   distributorName: string | null;
   region: string | null;
   createdAt: string;
+  pricingTierId: string | null;
 };
 
 export type UserFilters = {
@@ -54,6 +56,7 @@ export type UpdateUserInput = {
   dealerId?: string | null;
   distributorId?: string | null;
   email?: string | null;
+  pricingTierId?: string | null;
 };
 
 const USER_ROLES = new Set([
@@ -107,14 +110,22 @@ function mapUserRow(r: Record<string, unknown>): AdminUserRow {
     distributorName: (r.distributor_name as string) ?? null,
     region: (r.region as string) ?? null,
     createdAt: formatInLabel((r.created_at as string) ?? nowIso()),
+    pricingTierId:
+      (r.role === "dealer"
+        ? ((r.dealer_pricing_tier_id as string) ?? null)
+        : r.role === "distributor"
+          ? ((r.dist_pricing_tier_id as string) ?? null)
+          : null) ?? (r.role === "dealer" || r.role === "distributor" ? DEFAULT_PRICING_TIER_ID : null),
   };
 }
 
 const USER_SELECT = `
   SELECT u.*,
          d.store_name as dealer_name,
+         d.pricing_tier_id as dealer_pricing_tier_id,
          dist.name as distributor_name,
-         dist.region as region
+         dist.region as region,
+         dist.pricing_tier_id as dist_pricing_tier_id
   FROM users u
   LEFT JOIN dealers d ON d.id = u.dealer_id
   LEFT JOIN distributors dist ON dist.id = u.distributor_id`;
@@ -590,10 +601,24 @@ export async function updateAdminUser(
     binds.push(patch.distributorId);
   }
 
-  if (sets.length === 1) throw new Error("No fields to update");
+  if (sets.length === 1 && patch.pricingTierId === undefined) throw new Error("No fields to update");
 
-  binds.push(userId);
-  await db.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ? AND deleted_at IS NULL`).bind(...binds).run();
+  if (sets.length > 1) {
+    binds.push(userId);
+    await db.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ? AND deleted_at IS NULL`).bind(...binds).run();
+  }
+
+  if (patch.pricingTierId) {
+    if (nextRole === "dealer") {
+      if (!nextDealerId) throw new Error("Dealer role requires a dealer store");
+      await assignPricingTier(db, { dealerId: nextDealerId }, patch.pricingTierId);
+    } else if (nextRole === "distributor") {
+      if (!nextDistributorId) throw new Error("Distributor role requires a distributor");
+      await assignPricingTier(db, { distributorId: nextDistributorId }, patch.pricingTierId);
+    } else {
+      throw new Error("Pricing tier can only be assigned to a dealer or distributor");
+    }
+  }
 
   if (patch.status === "suspended") {
     await db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(userId).run();

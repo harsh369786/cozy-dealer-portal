@@ -3,10 +3,10 @@ import { Bell, ChevronRight, Gift, Megaphone, Package, ShoppingCart } from "luci
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AppShell, Section } from "@/components/app-shell";
-import { ProgressBar } from "@/components/brand";
 import { CampaignPopup } from "@/components/campaign-popup";
 import { CampaignPriceBlock } from "@/components/campaign-price";
 import { DealerRewardsCard } from "@/components/shared/dealer-rewards-card";
+import { AdditionalRewardsSection } from "@/components/shared/additional-rewards-section";
 import { useDealerRewards } from "@/hooks/use-dealer-rewards";
 import { useFormat } from "@/hooks/use-format";
 import {
@@ -15,7 +15,7 @@ import {
   isCampaignActive,
   type PriceCampaign,
 } from "@/lib/campaign-service";
-import { campaigns, dealer, getProduct, priceCampaigns, products } from "@/lib/demo-data";
+import { dealer, getProduct, priceCampaigns, products } from "@/lib/demo-data";
 import { firstName } from "@/lib/demo-users";
 import type { SessionUser } from "@/lib/mock/distributor/types";
 import { resolveDealerNotificationLink } from "@/lib/notification-links";
@@ -135,7 +135,6 @@ function DemoRewardsSection() {
 export default function DemoHomePage({ user }: { user: SessionUser }) {
   const { t } = useTranslation();
   const { formatCurrency } = useFormat();
-  const volumeCampaign = campaigns[1] ?? campaigns[0];
   const priceCampaign = getActivePriceCampaign("latexo");
   const latexo = getProduct("latexo");
   const campaignPrice = priceCampaign
@@ -186,6 +185,9 @@ export default function DemoHomePage({ user }: { user: SessionUser }) {
       />
 
       <DemoRewardsSection />
+      <div className="mt-5">
+        <AdditionalRewardsSection />
+      </div>
 
       <Section title={t("common.quickActions")}>
         <div className="grid grid-cols-2 gap-3">
@@ -270,34 +272,6 @@ export default function DemoHomePage({ user }: { user: SessionUser }) {
             <span className="mt-4 flex items-center gap-1 text-sm font-bold text-primary">
               {t("common.viewCampaign")} <ChevronRight className="h-4 w-4" />
             </span>
-          </Link>
-        </Section>
-      ) : null}
-
-      {volumeCampaign ? (
-        <Section title={t("common.sellAndEarn")}>
-          <Link
-            to="/campaigns"
-            className="press block rounded-3xl border border-border bg-card p-5 shadow-soft"
-          >
-            <p className="font-display text-xl font-bold">{volumeCampaign.title}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{volumeCampaign.goal}</p>
-            <p className="mt-3 text-lg font-bold text-primary">+{volumeCampaign.reward}</p>
-            <ProgressBar
-              value={(volumeCampaign.done / volumeCampaign.target) * 100}
-              className="mt-3"
-            />
-            <div className="mt-2 flex items-center justify-between text-sm">
-              <span className="font-semibold">
-                {t("common.soldProgress", {
-                  done: volumeCampaign.done,
-                  target: volumeCampaign.target,
-                })}
-              </span>
-              <span className="flex items-center gap-1 font-bold text-primary">
-                {t("common.viewCampaign")} <ChevronRight className="h-4 w-4" />
-              </span>
-            </div>
           </Link>
         </Section>
       ) : null}

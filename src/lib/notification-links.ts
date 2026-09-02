@@ -1,4 +1,4 @@
-/** Resolve dealer notification links from API into valid in-app routes. */
+﻿/** Resolve dealer notification links from API into valid in-app routes. */
 export function resolveDealerNotificationLink(link: string): {
   to: string;
   params?: Record<string, string>;
@@ -11,7 +11,8 @@ export function resolveDealerNotificationLink(link: string): {
 
   if (link.startsWith("/products/")) {
     const rest = link.slice("/products/".length);
-    const [productId, query] = rest.split("?");
+    const [productIdRaw, query] = rest.split("?");
+    const productId = productIdRaw ?? "";
     const search: Record<string, string> = {};
     if (query) {
       for (const part of query.split("&")) {
@@ -19,7 +20,7 @@ export function resolveDealerNotificationLink(link: string): {
         if (k && v) search[k] = decodeURIComponent(v);
       }
     }
-    return { to: "/products/$productId", params: { productId }, search: Object.keys(search).length ? search : undefined };
+    return { to: "/products/$productId", params: { productId }, ...(Object.keys(search).length ? { search } : {}) };
   }
 
   if (link.startsWith("/campaigns/")) {

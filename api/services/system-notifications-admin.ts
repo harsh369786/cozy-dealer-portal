@@ -127,7 +127,7 @@ export async function listAnnouncements(
   >();
 
   for (const row of results) {
-    const meta = parseMetadata(row.metadata);
+    const meta = parseMetadata(row['metadata']);
     if (!meta) continue;
     const existing = byAnnouncement.get(meta.announcementId);
     if (existing) {
@@ -136,11 +136,11 @@ export async function listAnnouncements(
     }
     byAnnouncement.set(meta.announcementId, {
       id: meta.announcementId,
-      category: String(row.category ?? "system"),
-      title: String(row.title ?? ""),
-      body: String(row.body ?? ""),
+      category: String(row['category'] ?? "system"),
+      title: String(row['title'] ?? ""),
+      body: String(row['body'] ?? ""),
       metadata: meta,
-      createdAt: String(row.created_at ?? ""),
+      createdAt: String(row['created_at'] ?? ""),
       recipientCount: 1,
     });
   }

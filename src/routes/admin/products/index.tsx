@@ -59,6 +59,11 @@ function AdminProductsPage() {
                 <Button variant="outline" className="rounded-lg font-bold">Sq ft rates</Button>
               </Link>
             )}
+            {can("catalog:read") && (
+              <Link to="/admin/pricing/tiers">
+                <Button variant="outline" className="rounded-lg font-bold">Pricing tiers</Button>
+              </Link>
+            )}
             {can("catalog:write") && (
               <Link to="/admin/products/new">
                 <AdminPrimaryButton>{t("admin.products.addProduct")}</AdminPrimaryButton>

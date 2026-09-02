@@ -124,6 +124,10 @@ function applyPendingDevMigrations(db: Database.Database, root: string) {
       file: "0021_prod_readiness.sql",
       applied: () => hasIndex(db, "idx_points_ledger_order_reference"),
     },
+    {
+      file: "0028_pricing_tiers.sql",
+      applied: () => hasColumn(db, "dealers", "pricing_tier_id"),
+    },
   ];
 
   for (const migration of structural) {

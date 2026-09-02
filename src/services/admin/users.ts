@@ -49,8 +49,8 @@ type SignupApiRow = {
   address: string;
   distributorName: string;
   status: SignupApplication["status"];
-  createdAt: string;
-  submittedAtLabel: string;
+  createdAt?: string;
+  submittedAtLabel?: string;
 };
 
 function mapSignupRow(r: SignupApiRow): SignupApplication {
@@ -59,8 +59,8 @@ function mapSignupRow(r: SignupApiRow): SignupApplication {
     businessName: r.storeName,
     contactName: r.name,
     phone: r.phone,
-    city: r.address.split(",").pop()?.trim() ?? r.address,
-    submittedAt: r.createdAt,
+    city: (r.address ?? "").split(",").pop()?.trim() ?? r.address ?? "",
+    submittedAt: r.createdAt ?? r.submittedAtLabel ?? "",
     status: r.status,
     distributorName: r.distributorName,
     address: r.address,
@@ -81,7 +81,7 @@ export async function listSignupApplications(
 
   return {
     ...result,
-    items: result.items.map(mapSignupRow),
+    items: (result.items ?? []).map(mapSignupRow),
   };
 }
 
@@ -128,6 +128,7 @@ export async function updateUser(
     role?: UserRole;
     dealerId?: string | null;
     distributorId?: string | null;
+    pricingTierId?: string | null;
   },
 ): Promise<AdminUser> {
   return api.patch(`/api/v1/admin/users/${id}`, patch);

@@ -7,6 +7,7 @@ import {
   Bell,
   ClipboardList,
   Gift,
+  IndianRupee,
   LayoutDashboard,
   Link2,
   LogOut,
@@ -15,7 +16,6 @@ import {
   Package,
   ScrollText,
   Shield,
-  Settings,
   ShoppingBag,
   Users,
 } from "lucide-react";
@@ -64,6 +64,7 @@ const NAV_ITEMS: Array<{
   },
   { to: "/admin/assignments", labelKey: "nav.admin.assignments", icon: Link2, permission: "assignments:read" },
   { to: "/admin/products", labelKey: "nav.admin.products", icon: Package, permission: "catalog:read" },
+  { to: "/admin/pricing/tiers", labelKey: "nav.admin.pricing", icon: IndianRupee, permission: "catalog:read", matchPrefix: "/admin/pricing" },
   { to: "/admin/orders", labelKey: "nav.admin.orders", icon: ShoppingBag, permission: "orders:read" },
   { to: "/admin/campaigns", labelKey: "nav.admin.campaigns", icon: Megaphone, permission: "campaigns:read" },
   { to: "/admin/rewards", labelKey: "nav.admin.rewards", icon: Gift, permission: "rewards:read" },
@@ -72,7 +73,6 @@ const NAV_ITEMS: Array<{
   { to: "/admin/reports", labelKey: "nav.admin.reports", icon: BarChart3, permission: "reports:read" },
   { to: "/admin/notifications", labelKey: "nav.admin.notifications", icon: Bell, permission: "notifications:read" },
   { to: "/admin/audit-logs", labelKey: "nav.admin.auditLogs", icon: ScrollText, permission: "audit:read" },
-  { to: "/admin/settings", labelKey: "nav.admin.settings", icon: Settings, permission: "settings:read" },
 ];
 
 function isActive(path: string, to: string, matchPrefix?: string) {

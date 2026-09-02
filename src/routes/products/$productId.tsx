@@ -34,11 +34,9 @@ import { useDealerRewards } from "@/hooks/use-dealer-rewards";
 import { computeDealerRewardsSummary } from "@/lib/dealer-rewards-summary";
 import { PlacingOrderOverlay } from "@/components/shared/placing-order-overlay";
 import {
-  BREADTHS,
   formatRequestedVsStandard,
   formatSizeLabel,
   getMattressDimensionError,
-  LENGTHS,
   MAX_MATTRESS_BREADTH_IN,
   MAX_MATTRESS_LENGTH_IN,
   MIN_MATTRESS_BREADTH_IN,
@@ -46,8 +44,8 @@ import {
   mapToCeilStandardSize,
   parseDimensionInput,
   snapDimensionInput,
-  snapToCeilStandardInput,
 } from "@/lib/mattress-size";
+import { formatFreeItemsDisplay } from "@/lib/free-items";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
@@ -236,8 +234,14 @@ function Configurator() {
   }, [canQuote, product, qty, thickness, campaignId, campaign?.id, length, breadth, isMattress]);
 
   const unitDealerPrice = quote?.dealerPrice ?? product?.price ?? 0;
-  const unitCampaignPrice = quote?.campaignPrice ?? null;
-  const unitPrice = quote?.unitPrice ?? unitCampaignPrice ?? unitDealerPrice;
+  // Only honor a campaign price when it actually reduces the dealer price, so a 0%
+  // (or non-discounting) campaign never strikes through the price or shows "0% off".
+  const rawUnitCampaignPrice = quote?.campaignPrice ?? null;
+  const unitCampaignPrice =
+    rawUnitCampaignPrice != null && rawUnitCampaignPrice < unitDealerPrice
+      ? rawUnitCampaignPrice
+      : null;
+  const unitPrice = unitCampaignPrice ?? unitDealerPrice;
   const unitSavings = unitCampaignPrice != null ? unitDealerPrice - unitCampaignPrice : 0;
 
   const total = quote?.lineTotal ?? unitPrice * qty;
@@ -480,7 +484,10 @@ function Configurator() {
                   if ((v.match(/\./g) ?? []).length <= 1) setLengthInput(v);
                 }}
                 onBlur={() =>
-                  setLengthInput((v) => snapToCeilStandardInput(snapDimensionInput(v), LENGTHS))
+                  // Keep the dealer's custom size; only snap to the nearest quarter inch.
+                  // Do NOT ceil to a standard size here — that standardization is for
+                  // pricing only (via `mapped`) and must not overwrite the entered size.
+                  setLengthInput((v) => snapDimensionInput(v))
                 }
                 placeholder={t("common.lengthPlaceholder")}
                 className="mt-2 h-14 w-full rounded-2xl border border-input bg-card px-4 text-center text-lg font-bold outline-none focus:border-ring"
@@ -504,7 +511,8 @@ function Configurator() {
                   if ((v.match(/\./g) ?? []).length <= 1) setBreadthInput(v);
                 }}
                 onBlur={() =>
-                  setBreadthInput((v) => snapToCeilStandardInput(snapDimensionInput(v), BREADTHS))
+                  // Keep the dealer's custom size; only snap to the nearest quarter inch.
+                  setBreadthInput((v) => snapDimensionInput(v))
                 }
                 placeholder={t("common.widthPlaceholder")}
                 className="mt-2 h-14 w-full rounded-2xl border border-input bg-card px-4 text-center text-lg font-bold outline-none focus:border-ring"
@@ -634,7 +642,7 @@ function Configurator() {
         </div>
       </div>
 
-      {(quote?.freeItems || product.free) && (
+      {formatFreeItemsDisplay(quote?.freeItems || product.free) && (
         <div className="mt-5 rounded-3xl border-2 border-primary/40 bg-secondary p-4">
           <p className="font-display text-base font-bold">{t("common.freeWithMattress")}</p>
           <div className="mt-3 flex items-center gap-3">
@@ -642,7 +650,9 @@ function Configurator() {
               {t("common.free")}
             </span>
             <div>
-              <p className="text-base font-bold">{quote?.freeItems || product.free}</p>
+              <p className="text-base font-bold">
+                {formatFreeItemsDisplay(quote?.freeItems || product.free)}
+              </p>
             </div>
           </div>
         </div>
@@ -805,10 +815,10 @@ function Configurator() {
                   <Line label={t("common.youSave")} value={formatCurrency(savingsTotal)} strong />
                 </>
               )}
-              {(quote?.freeItems || product.free) && (
+              {formatFreeItemsDisplay(quote?.freeItems || product.free) && (
                 <Line
                   label={t("common.freeItems")}
-                  value={String(quote?.freeItems || product.free)}
+                  value={formatFreeItemsDisplay(quote?.freeItems || product.free)}
                 />
               )}
               <Line label={t("dealer.orders.rewardPointsLabel")} value={`+${points}`} strong />

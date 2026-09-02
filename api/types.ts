@@ -62,6 +62,8 @@ export type ApiEnv = {
   ENVIRONMENT?: string;
   ALLOWED_ORIGINS?: string;
   CRON_SECRET?: string;
+  MOCK_OTP?: string;
+  DEMO_LOGINS_ENABLED?: string;
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;

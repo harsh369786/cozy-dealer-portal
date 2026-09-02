@@ -60,7 +60,10 @@ function resolvePrivateJwk(env: PushEnv): JsonWebKey | null {
 }
 
 function getPrivateJwk(env: PushEnv): JsonWebKey | null {
-  if (cachedPrivateJwk !== undefined) return cachedPrivateJwk;
+  // Only cache a successfully resolved key. Caching a null (e.g. secrets not yet set on the
+  // first request, or mid-rotation) would keep push disabled for the whole isolate lifetime,
+  // so we re-resolve until a key is available.
+  if (cachedPrivateJwk) return cachedPrivateJwk;
   cachedPrivateJwk = resolvePrivateJwk(env);
   return cachedPrivateJwk;
 }
@@ -71,34 +74,24 @@ export async function savePushSubscription(
   input: PushSubscriptionInput,
 ) {
   const ts = nowIso();
-  const existing = await db
-    .prepare(`SELECT id, user_id FROM push_subscriptions WHERE endpoint = ?`)
-    .bind(input.endpoint)
-    .first<{ id: string; user_id: string }>();
-
-  if (existing) {
-    if (existing.user_id !== userId) {
-      await db.prepare(`DELETE FROM push_subscriptions WHERE id = ?`).bind(existing.id).run();
-    } else {
-      await db
-        .prepare(
-          `UPDATE push_subscriptions SET p256dh = ?, auth = ?, updated_at = ? WHERE id = ?`,
-        )
-        .bind(input.keys.p256dh, input.keys.auth, ts, existing.id)
-        .run();
-      return { id: existing.id };
-    }
-  }
-
   const subId = id("psub");
-  await db
+  // Atomic upsert keyed on the unique endpoint: re-subscribing updates the keys and
+  // (re)assigns the endpoint to the current user, so an endpoint is never duplicated
+  // and can never be shared across users. Avoids the read-then-write race.
+  const row = await db
     .prepare(
       `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(endpoint) DO UPDATE SET
+         user_id = excluded.user_id,
+         p256dh = excluded.p256dh,
+         auth = excluded.auth,
+         updated_at = excluded.updated_at
+       RETURNING id`,
     )
     .bind(subId, userId, input.endpoint, input.keys.p256dh, input.keys.auth, ts, ts)
-    .run();
-  return { id: subId };
+    .first<{ id: string }>();
+  return { id: row?.id ?? subId };
 }
 
 export async function deletePushSubscription(db: D1Database, userId: string, endpoint: string) {

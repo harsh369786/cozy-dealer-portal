@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronRight, Gift, MapPin } from "lucide-react";
 import type { DistributorDealer } from "@/lib/mock/distributor/types";
-import { inr } from "@/lib/demo-data";
+import { inr } from "@/lib/currency-format";
 import { cn } from "@/lib/utils";
 
 export function DealerCard({ dealer }: { dealer: DistributorDealer }) {

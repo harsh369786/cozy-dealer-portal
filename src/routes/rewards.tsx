@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { requireRoles } from "@/lib/auth-guard";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { ConfirmActionDialog } from "@/components/shared/dialogs";
+import { AdditionalRewardsSection } from "@/components/shared/additional-rewards-section";
 import { PageSkeleton } from "@/components/shared/states";
 import { normalizeRewardPoints } from "@/lib/rewards";
 import { useDealerRewards } from "@/hooks/use-dealer-rewards";
@@ -157,6 +158,10 @@ function Rewards() {
             <p className="text-center text-sm text-muted-foreground">{t("common.noRewardsCatalogue")}</p>
           )}
         </div>
+      </div>
+
+      <div className="mt-5">
+        <AdditionalRewardsSection />
       </div>
 
       <Section title={t("common.rewardsYouCanClaim")}>

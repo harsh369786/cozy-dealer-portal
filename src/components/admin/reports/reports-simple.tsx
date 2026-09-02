@@ -4,7 +4,7 @@ import type { AdminAnalyticsReport } from "@/lib/admin/analytics";
 import { ChartCard } from "@/components/shared/chart-card";
 import { ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-import { inr, inrCompact } from "@/lib/demo-data";
+import { inr, inrCompact } from "@/lib/currency-format";
 import { AdminSection } from "@/components/admin/admin-section";
 import type { AnalyticsFilters } from "@/lib/admin/analytics";
 import { barConfig, createRankingClickHandler, lineConfig, RankingSection } from "./reports-charts-shared";

@@ -24,7 +24,11 @@ export const Route = createFileRoute("/distributor/reports")({
   component: ReportsPage,
 });
 
-const lineConfig = { sales: { label: "Sales", color: "#B45309" } };
+const lineConfig = { sales: { label: "Sales", color: "hsl(var(--primary))" } };
+
+// Dealer sales-trend classification thresholds (percent change vs previous period).
+const STRONG_SALES_CHANGE_PCT = 5;
+const WEAK_SALES_CHANGE_PCT = -5;
 
 function ReportsPage() {
   const { t } = useTranslation();
@@ -73,14 +77,28 @@ function ReportsPage() {
         : allDealers.filter((d) => d.id === dealerFilter),
     [allDealers, dealerFilter],
   );
-  const strongCount = filteredDealers.filter((d) => d.salesChangePct >= 5).length;
-  const weakCount = filteredDealers.filter(
-    (d) => d.salesChangePct <= -5 || (d.currentSales === 0 && d.previousSales > 0),
-  ).length;
-  const periodTotalSales = filteredDealers.reduce((sum, d) => sum + d.currentSales, 0);
+  const { strongCount, weakCount, periodTotalSales } = useMemo(() => {
+    let strong = 0;
+    let weak = 0;
+    let total = 0;
+    for (const d of filteredDealers) {
+      if (d.salesChangePct >= STRONG_SALES_CHANGE_PCT) strong += 1;
+      if (
+        d.salesChangePct <= WEAK_SALES_CHANGE_PCT ||
+        (d.currentSales === 0 && d.previousSales > 0)
+      ) {
+        weak += 1;
+      }
+      total += d.currentSales;
+    }
+    return { strongCount: strong, weakCount: weak, periodTotalSales: total };
+  }, [filteredDealers]);
 
-  const loading = salesQuery.loading || dealerQuery.loading || (visitQuery.loading && (role === "sales_executive" || role === "distributor"));
-  const error = salesQuery.error || dealerQuery.error || visitQuery.error;
+  const loading =
+    salesQuery.loading ||
+    dealerQuery.loading ||
+    (visitQuery.loading && !visitQuery.data && (role === "sales_executive" || role === "distributor"));
+  const error = salesQuery.error || dealerQuery.error;
 
   if (loading) {
     return (

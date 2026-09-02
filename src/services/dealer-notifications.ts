@@ -37,8 +37,9 @@ export async function getDealerNotifications(): Promise<AppNotification[]> {
 }
 
 export async function getUnreadNotificationCount(): Promise<number> {
-  const list = await getDealerNotifications();
-  return list.filter((n) => !n.read).length;
+  // Use the dedicated count endpoint instead of fetching the full notifications list.
+  const res = await api.get<{ count: number }>("/api/v1/notifications/unread-count");
+  return res.count;
 }
 
 export async function markNotificationRead(id: string) {

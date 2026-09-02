@@ -6,13 +6,11 @@ import {
   Package,
   Gift,
   Megaphone,
-  ChevronRight,
   Bell,
 } from "lucide-react";
 import { AppShell, Section } from "@/components/app-shell";
 import { CampaignPopup } from "@/components/campaign-popup";
 import { CampaignPriceBlock } from "@/components/campaign-price";
-import { ProgressBar } from "@/components/brand";
 import type { PriceCampaign } from "@/lib/campaign-service";
 import {
   formatCampaignDate,
@@ -24,7 +22,7 @@ import { useFormat } from "@/hooks/use-format";
 import i18n from "@/lib/i18n";
 import { useSession } from "@/hooks/use-session";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { PageSkeleton } from "@/components/shared/states";
+import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { getDealerNotifications,
   markNotificationRead,
   type AppNotification,
@@ -33,6 +31,7 @@ import { resolveDealerNotificationLink } from "@/lib/notification-links";
 import { localizeNotification } from "@/lib/localize-notification";
 import { isCampaignUnseen } from "@/lib/notifications";
 import { DealerRewardsCard } from "@/components/shared/dealer-rewards-card";
+import { AdditionalRewardsSection } from "@/components/shared/additional-rewards-section";
 import { useDealerRewards } from "@/hooks/use-dealer-rewards";
 import { getDealerById } from "@/services/dealers";
 import { getCatalog, getProductDetail } from "@/services/catalog";
@@ -157,7 +156,7 @@ function HomePage() {
 
 function ProductionHomePage({ user }: { user: SessionUser }) {
   const { t } = useTranslation();
-  const { data, loading } = useAsyncData(
+  const { data, loading, error, retry } = useAsyncData(
     () => loadProductionHome(user),
     [user.id, user.dealerId],
   );
@@ -173,7 +172,10 @@ function ProductionHomePage({ user }: { user: SessionUser }) {
   if (!data) {
     return (
       <AppShell>
-        <p className="text-sm text-muted-foreground">{t("common.couldNotLoadDashboard")}</p>
+        <ErrorState
+          message={error ?? t("common.couldNotLoadDashboard")}
+          onRetry={retry}
+        />
       </AppShell>
     );
   }
@@ -294,7 +296,6 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
   const priceCampaign = activeCampaigns.find(
     (c) => c.productId && c.discountPercent && c.discountPercent > 0,
   );
-  const volumeCampaign = activeCampaigns.find((c) => c.target && c.target > 0);
 
   const [priceProduct, setPriceProduct] = useState<FeaturedProduct | null>(null);
   const [popupCampaign, setPopupCampaign] = useState<PriceCampaign | null>(null);
@@ -373,6 +374,9 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
       />
 
       <HomeRewardsSection />
+      <div className="mt-5">
+        <AdditionalRewardsSection />
+      </div>
 
       <Section title={t("common.quickActions")}>
         <div className="grid grid-cols-2 gap-3">
@@ -478,36 +482,6 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
             <p className="mt-3 text-xs text-muted-foreground">
               {t("common.validUntil")} {formatCampaignDate(priceCampaign.endDate)}
             </p>
-          </Link>
-        </Section>
-      )}
-
-      {volumeCampaign && volumeCampaign.target && (
-        <Section title={t("common.sellAndEarn")}>
-          <Link
-            to="/campaigns"
-            className="press block rounded-3xl border border-border bg-card p-5 shadow-soft"
-          >
-            <p className="font-display text-xl font-bold">{volumeCampaign.name}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{volumeCampaign.description}</p>
-            {volumeCampaign.badgeLabel && (
-              <p className="mt-3 text-lg font-bold text-primary">{volumeCampaign.badgeLabel}</p>
-            )}
-            <ProgressBar
-              value={((volumeCampaign.done ?? 0) / volumeCampaign.target) * 100}
-              className="mt-3"
-            />
-            <div className="mt-2 flex items-center justify-between text-sm">
-              <span className="font-semibold">
-                {t("common.soldProgress", {
-                  done: volumeCampaign.done ?? 0,
-                  target: volumeCampaign.target,
-                })}
-              </span>
-              <span className="flex items-center gap-1 font-bold text-primary">
-                {t("common.viewCampaign")} <ChevronRight className="h-4 w-4" />
-              </span>
-            </div>
           </Link>
         </Section>
       )}
