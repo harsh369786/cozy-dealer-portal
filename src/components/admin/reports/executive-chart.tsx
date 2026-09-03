@@ -83,7 +83,9 @@ export function ExecutiveTrendChart({
   title: string;
   monthly: MonthlyPoint[];
   peak: MonthlyPoint | null;
-  onPointClick: (row: MonthlyPoint) => void;
+  // Receives the clicked row AND the active metric, so the drill-down can scope the "Area"
+  // metric to lines that actually have area (consistent with the Area KPI card).
+  onPointClick: (row: MonthlyPoint, metric: ChartMetric) => void;
 }) {
   const [mode, setMode] = useState<ChartMode>("modern");
   const [metric, setMetric] = useState<ChartMetric>("revenue");
@@ -104,7 +106,7 @@ export function ExecutiveTrendChart({
 
   const openRow = (index: number) => {
     const row = data[index];
-    if (row) onPointClick(row);
+    if (row) onPointClick(row, metric);
   };
 
   return (
@@ -153,7 +155,7 @@ export function ExecutiveTrendChart({
       {peakForMetric && (
         <button
           type="button"
-          onClick={() => onPointClick(peakForMetric)}
+          onClick={() => onPointClick(peakForMetric, metric)}
           className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-xs font-bold text-accent-foreground"
         >
           <Flame className="h-3.5 w-3.5" />
@@ -169,7 +171,7 @@ export function ExecutiveTrendChart({
             <button
               key={row.ym}
               type="button"
-              onClick={() => onPointClick(row)}
+              onClick={() => onPointClick(row, metric)}
               className="rounded-xl border border-border bg-secondary/40 p-3 text-left hover:border-primary"
             >
               <p className="text-xs font-semibold text-muted-foreground">{row.label}</p>

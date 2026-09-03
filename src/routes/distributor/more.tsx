@@ -54,7 +54,16 @@ function MorePage() {
       ];
     }
 
-    return baseLinks;
+    // Distributors get a Dealer Visits entry (visits by their assigned sales executives).
+    return [
+      {
+        to: "/distributor/dealer-visits" as const,
+        label: t("distributor.dealerVisits.title"),
+        icon: MapPin,
+        desc: t("distributor.dealerVisits.moreDesc"),
+      },
+      ...baseLinks,
+    ];
   }, [role, t]);
 
   return (

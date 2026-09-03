@@ -87,6 +87,174 @@ function NewProductPage() {
   );
 }
 
+type TierMargin = NonNullable<AdminProduct["tierMargins"]>[number];
+
+/**
+ * Responsive per-price-list margin editor. One data source, three layouts:
+ *  - Desktop (lg+): a full-width table that fits without horizontal scroll.
+ *  - Tablet (md–lg): a 2-column grid of compact per-tier cards (not a shrunk desktop table).
+ *  - Mobile (<md): stacked single-column cards.
+ * Dealer/Distributor prices recalc live as margins change (same formulas as before).
+ */
+function PriceListEditor({
+  tiers,
+  mrp,
+  readOnly,
+  showMargin,
+  onChangeTiers,
+}: {
+  tiers: TierMargin[];
+  mrp: number;
+  readOnly?: boolean;
+  showMargin: (value: number) => string;
+  onChangeTiers: (next: TierMargin[]) => void;
+}) {
+  const compute = (tier: TierMargin) => {
+    const dealerPrice = calculateDealerPrice(mrp || 0, tier.dealerMarginPercent);
+    const distPrice = calculateDistributorPrice(dealerPrice, tier.distributorMarginPercent);
+    return { dealerPrice, distPrice };
+  };
+  const patchTier = (index: number, patch: Partial<TierMargin>) => {
+    const next = [...tiers];
+    next[index] = { ...tiers[index]!, ...patch };
+    onChangeTiers(next);
+  };
+
+  if (tiers.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No price lists yet. Create one under Pricing → Price lists.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      {/* Desktop (lg+): full-width table, no forced horizontal scroll. */}
+      <div className="hidden overflow-hidden rounded-xl border border-border lg:block">
+        <table className="w-full table-fixed text-sm">
+          <thead>
+            <tr className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="w-[22%] px-3 py-2.5">Price list</th>
+              <th className="w-[14%] px-3 py-2.5 text-right">MRP</th>
+              <th className="w-[16%] px-3 py-2.5">Dealer margin %</th>
+              <th className="w-[16%] px-3 py-2.5 text-right">Dealer price</th>
+              <th className="w-[16%] px-3 py-2.5">Dist. margin %</th>
+              <th className="w-[16%] px-3 py-2.5 text-right">Distributor price</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tiers.map((tier, index) => {
+              const { dealerPrice, distPrice } = compute(tier);
+              return (
+                <tr key={tier.tierId} className="border-t border-border/70 align-middle">
+                  <td className="px-3 py-2.5">
+                    <span className="font-semibold">{tier.code}</span>
+                    {tier.name ? (
+                      <span className="block text-xs font-normal text-muted-foreground">{tier.name}</span>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{mrp ? `₹${mrp}` : "—"}</td>
+                  <td className="px-3 py-2.5">
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      max={100}
+                      step="0.1"
+                      disabled={readOnly}
+                      value={showMargin(tier.dealerMarginPercent)}
+                      className="h-10 w-full rounded-xl text-right"
+                      onChange={(e) => patchTier(index, { dealerMarginPercent: Number(e.target.value) })}
+                    />
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-bold tabular-nums">₹{dealerPrice}</td>
+                  <td className="px-3 py-2.5">
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.1"
+                      disabled={readOnly}
+                      value={showMargin(tier.distributorMarginPercent)}
+                      className="h-10 w-full rounded-xl text-right"
+                      onChange={(e) => patchTier(index, { distributorMarginPercent: Number(e.target.value) })}
+                    />
+                  </td>
+                  <td className="px-3 py-2.5 text-right font-bold tabular-nums">
+                    {Number.isFinite(distPrice) ? `₹${distPrice}` : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Tablet (md–lg) + Mobile (<md): cards. 2 columns on tablet, 1 on mobile. */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:hidden">
+        {tiers.map((tier, index) => {
+          const { dealerPrice, distPrice } = compute(tier);
+          return (
+            <div key={tier.tierId} className="rounded-xl border border-border p-3 shadow-soft">
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold">{tier.code}</p>
+                  {tier.name ? (
+                    <p className="truncate text-xs text-muted-foreground">{tier.name}</p>
+                  ) : null}
+                </div>
+                <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                  MRP ₹{mrp || 0}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Dealer margin %</Label>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    max={100}
+                    step="0.1"
+                    disabled={readOnly}
+                    value={showMargin(tier.dealerMarginPercent)}
+                    className="mt-1 h-11 rounded-xl text-right"
+                    onChange={(e) => patchTier(index, { dealerMarginPercent: Number(e.target.value) })}
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Dist. margin %</Label>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.1"
+                    disabled={readOnly}
+                    value={showMargin(tier.distributorMarginPercent)}
+                    className="mt-1 h-11 rounded-xl text-right"
+                    onChange={(e) => patchTier(index, { distributorMarginPercent: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="rounded-lg bg-muted/40 px-2.5 py-2">
+                  <p className="text-xs text-muted-foreground">Dealer price</p>
+                  <p className="font-bold tabular-nums">₹{dealerPrice}</p>
+                </div>
+                <div className="rounded-lg bg-muted/40 px-2.5 py-2">
+                  <p className="text-xs text-muted-foreground">Distributor price</p>
+                  <p className="font-bold tabular-nums">
+                    {Number.isFinite(distPrice) ? `₹${distPrice}` : "—"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
 export function ProductEditor({
   product,
   onChange,
@@ -261,172 +429,36 @@ export function ProductEditor({
 
       <TabsContent value="pricing">
         <AdminSection title="Pricing & rewards">
-          <div className="grid max-w-lg gap-4 sm:grid-cols-2">
-            <div>
+          {/* Price lists span the full available width (desktop table / tablet + mobile cards). */}
+          <div className="space-y-6">
+            <div className="max-w-xs">
               <Label>MRP (₹)</Label>
               <Input
                 type="number"
+                inputMode="decimal"
                 value={product.mrp || ""}
                 disabled={readOnly}
                 onChange={(e) => onChange({ mrp: Number(e.target.value) })}
                 className="mt-1 rounded-2xl"
               />
             </div>
-            <div className="sm:col-span-2 space-y-2">
+
+            <div className="space-y-2">
               <Label>Price lists (margins per product)</Label>
               <p className="text-xs text-muted-foreground">
                 Dealer Price = MRP × (1 − Dealer Margin%). Distributor Price = Dealer Price ÷ (1 +
                 Distributor Margin%), rounded to the nearest rupee. MRP is fixed for all lists.
               </p>
-              {(product.tierMargins ?? []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No price lists yet. Create one under Pricing → Price lists.
-                </p>
-              ) : (
-                <>
-                  {/* Desktop/tablet: a real table. */}
-                  <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
-                    <table className="w-full min-w-[720px] text-sm">
-                      <thead>
-                        <tr className="text-left text-xs uppercase text-muted-foreground">
-                          <th className="px-2 py-2">Price list</th>
-                          <th className="px-2 py-2">MRP</th>
-                          <th className="px-2 py-2">Dealer margin %</th>
-                          <th className="px-2 py-2">Dealer price</th>
-                          <th className="px-2 py-2">Dist. margin %</th>
-                          <th className="px-2 py-2">Distributor price</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(product.tierMargins ?? []).map((tier, index) => {
-                          const dealerPrice = calculateDealerPrice(
-                            product.mrp || 0,
-                            tier.dealerMarginPercent,
-                          );
-                          const distPrice = calculateDistributorPrice(
-                            dealerPrice,
-                            tier.distributorMarginPercent,
-                          );
-                          const patchTier = (patch: Partial<typeof tier>) => {
-                            const next = [...(product.tierMargins ?? [])];
-                            next[index] = { ...tier, ...patch };
-                            onChange({ tierMargins: next });
-                          };
-                          return (
-                            <tr key={tier.tierId} className="border-t border-border/70">
-                              <td className="px-2 py-2 font-semibold">{tier.code}</td>
-                              <td className="px-2 py-2">{product.mrp || "—"}</td>
-                              <td className="px-2 py-2">
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  max={100}
-                                  step="0.1"
-                                  disabled={readOnly}
-                                  value={showMargin(tier.dealerMarginPercent)}
-                                  className="w-24 rounded-xl"
-                                  onChange={(e) =>
-                                    patchTier({ dealerMarginPercent: Number(e.target.value) })
-                                  }
-                                />
-                              </td>
-                              <td className="px-2 py-2 font-bold">{dealerPrice}</td>
-                              <td className="px-2 py-2">
-                                <Input
-                                  type="number"
-                                  min={0}
-                                  step="0.1"
-                                  disabled={readOnly}
-                                  value={showMargin(tier.distributorMarginPercent)}
-                                  className="w-24 rounded-xl"
-                                  onChange={(e) =>
-                                    patchTier({ distributorMarginPercent: Number(e.target.value) })
-                                  }
-                                />
-                              </td>
-                              <td className="px-2 py-2 font-bold">
-                                {Number.isFinite(distPrice) ? distPrice : "—"}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Mobile: one stacked card per price list instead of a cramped table. */}
-                  <div className="space-y-3 md:hidden">
-                    {(product.tierMargins ?? []).map((tier, index) => {
-                      const dealerPrice = calculateDealerPrice(
-                        product.mrp || 0,
-                        tier.dealerMarginPercent,
-                      );
-                      const distPrice = calculateDistributorPrice(
-                        dealerPrice,
-                        tier.distributorMarginPercent,
-                      );
-                      const patchTier = (patch: Partial<typeof tier>) => {
-                        const next = [...(product.tierMargins ?? [])];
-                        next[index] = { ...tier, ...patch };
-                        onChange({ tierMargins: next });
-                      };
-                      return (
-                        <div
-                          key={tier.tierId}
-                          className="rounded-xl border border-border p-3"
-                        >
-                          <div className="flex items-center justify-between text-sm font-semibold">
-                            <span>{tier.code}</span>
-                            <span className="text-muted-foreground">MRP ₹{product.mrp || 0}</span>
-                          </div>
-                          <div className="mt-3 grid grid-cols-2 gap-3">
-                            <div>
-                              <Label className="text-xs">Dealer margin %</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                max={100}
-                                step="0.1"
-                                disabled={readOnly}
-                                value={showMargin(tier.dealerMarginPercent)}
-                                className="mt-1 rounded-xl"
-                                onChange={(e) =>
-                                  patchTier({ dealerMarginPercent: Number(e.target.value) })
-                                }
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs">Dist. margin %</Label>
-                              <Input
-                                type="number"
-                                min={0}
-                                step="0.1"
-                                disabled={readOnly}
-                                value={showMargin(tier.distributorMarginPercent)}
-                                className="mt-1 rounded-xl"
-                                onChange={(e) =>
-                                  patchTier({ distributorMarginPercent: Number(e.target.value) })
-                                }
-                              />
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground">Dealer price</p>
-                              <p className="font-bold">₹{dealerPrice}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground">Distributor price</p>
-                              <p className="font-bold">
-                                {Number.isFinite(distPrice) ? `₹${distPrice}` : "—"}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
+              <PriceListEditor
+                tiers={product.tierMargins ?? []}
+                mrp={product.mrp}
+                readOnly={readOnly}
+                showMargin={showMargin}
+                onChangeTiers={(next) => onChange({ tierMargins: next })}
+              />
             </div>
+
+            <div className="grid max-w-lg gap-4 sm:grid-cols-2">
             <div>
               <Label>Reward % of MRP</Label>
               <Input
@@ -539,6 +571,7 @@ export function ProductEditor({
                   ))}
                 </div>
               )}
+            </div>
             </div>
           </div>
         </AdminSection>

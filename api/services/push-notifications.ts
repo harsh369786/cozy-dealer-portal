@@ -107,16 +107,31 @@ export function getVapidPublicKeyFromEnv(env?: PushEnv) {
 
 export async function sendPushForNotifications(env: PushEnv, notifications: CreatedNotification[]) {
   const privateJwk = getPrivateJwk(env);
-  if (!notifications.length || !privateJwk) return;
+  if (!notifications.length || !privateJwk) {
+    // Log WHY we bail so a misconfiguration is diagnosable instead of a silent no-op.
+    console.error(
+      `[push] skip send: notifications=${notifications.length} privateJwkResolved=${Boolean(privateJwk)} hasPublic=${Boolean(env.VAPID_PUBLIC_KEY)} hasPrivate=${Boolean(env.VAPID_PRIVATE_KEY)}`,
+    );
+    return;
+  }
+  console.log(`[push] sending: notifications=${notifications.length}`);
 
   const db = env.DB;
   const adminContact = env.VAPID_SUBJECT ?? "mailto:support@backrest.in";
+
+  // Import the signer ONCE per send (not per subscription per item). For broadcasts this
+  // avoids repeated dynamic-import + module-init overhead across many recipients.
+  const { buildPushHTTPRequest } = await import("@pushforge/builder");
+
   const byUser = new Map<string, CreatedNotification[]>();
   for (const n of notifications) {
     const list = byUser.get(n.recipientUserId) ?? [];
     list.push(n);
     byUser.set(n.recipientUserId, list);
   }
+
+  // Collect dead endpoints and prune them in one batch at the end.
+  const deadEndpoints = new Set<string>();
 
   for (const [userId, items] of byUser) {
     const { results } = await db
@@ -127,7 +142,6 @@ export async function sendPushForNotifications(env: PushEnv, notifications: Crea
     for (const sub of results) {
       for (const item of items) {
         try {
-          const { buildPushHTTPRequest } = await import("@pushforge/builder");
           const { endpoint, headers, body } = await buildPushHTTPRequest({
             privateJWK: privateJwk,
             subscription: {
@@ -140,6 +154,11 @@ export async function sendPushForNotifications(env: PushEnv, notifications: Crea
                 body: item.body,
                 url: item.link ?? "/",
                 notificationId: item.id,
+                // Explicit icon/badge so the client shows the official BackRest mark and a
+                // monochrome status-bar badge. The SW also has these as defaults; sending them
+                // here lets the icon change centrally without a service-worker redeploy.
+                icon: "/icons/icon-192.png",
+                badge: "/icons/badge-monochrome.svg",
               },
               adminContact,
             },
@@ -147,15 +166,39 @@ export async function sendPushForNotifications(env: PushEnv, notifications: Crea
 
           const response = await fetch(endpoint, { method: "POST", headers, body });
           if (response.status === 404 || response.status === 410) {
-            await db
-              .prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`)
-              .bind(sub.endpoint)
-              .run();
+            // Subscription is gone/expired — prune it.
+            deadEndpoints.add(sub.endpoint);
+          } else if (!response.ok) {
+            // 401/403 = bad VAPID signature or key mismatch; 413 = payload too large; etc.
+            // Log so a misconfiguration is diagnosable instead of silently dropping delivery.
+            console.error(
+              `[push] delivery failed: status=${response.status} host=${pushEndpointHost(sub.endpoint)} user=${userId}`,
+            );
           }
-        } catch {
-          // Ignore per-subscription delivery failures.
+        } catch (err) {
+          console.error(
+            `[push] send error host=${pushEndpointHost(sub.endpoint)} user=${userId}:`,
+            err instanceof Error ? err.message : err,
+          );
         }
       }
     }
+  }
+
+  if (deadEndpoints.size) {
+    await Promise.all(
+      [...deadEndpoints].map((endpoint) =>
+        db.prepare(`DELETE FROM push_subscriptions WHERE endpoint = ?`).bind(endpoint).run(),
+      ),
+    );
+  }
+}
+
+/** Host of a push endpoint for safe logging (never logs the full secret endpoint token). */
+function pushEndpointHost(endpoint: string): string {
+  try {
+    return new URL(endpoint).host;
+  } catch {
+    return "unknown";
   }
 }

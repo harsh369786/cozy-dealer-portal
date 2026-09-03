@@ -78,6 +78,7 @@ import {
   listAssignmentRows,
   updateDealerAssignment,
 } from "./services/assignments";
+import { listSalesExecutives, getSalesExecutiveDetail } from "./services/sales-executives";
 import {
   createAdminUser,
   getAdminUser,
@@ -139,7 +140,7 @@ import {
   listComplaintTimelineForApi,
 } from "./services/complaint-timeline";
 import { buildPriceQuote, calculateRewardPoints, getCampaignPrice } from "./services/pricing";
-import { applyMattressPricing } from "./services/mattress-pricing";
+import { applyMattressPricing, configureStandardSizeBuffer } from "./services/mattress-pricing";
 import { listAuditLogs } from "./services/audit";
 import { fileToImageDataUrl } from "./services/image-data-url";
 import {
@@ -207,7 +208,13 @@ function requireInternalSecret(c: { env: ApiEnv; req: { header: (name: string) =
 }
 
 app.use("/api/v1/*", async (c, next) => {
-  setPushEnv(c.env);
+  // Use the merged env: under Nitro on Cloudflare the Worker secrets (incl. VAPID_*) live on
+  // globalThis.__env__, not always on the raw c.env. The push send path reads getPushEnv(),
+  // so it must receive the merged env or VAPID keys resolve to null.
+  setPushEnv(effectiveEnv(c.env));
+  // Configure the standard-size pricing buffer from env (defaults to 1" if unset). Lets the
+  // buffer be changed later via a STANDARD_SIZE_BUFFER_IN var without a code change.
+  configureStandardSizeBuffer(effectiveEnv(c.env) as { STANDARD_SIZE_BUFFER_IN?: string | number | null });
   await getRequestDb(c);
   await next();
 });
@@ -1239,9 +1246,14 @@ app.get("/api/v1/visits", requireAuth, requireActiveAccount, requirePermission("
     );
   }
   if (user.role === "distributor" && user.distributorId) {
+    // Optional SE / dealer sub-filters are ANDed WITH the distributor scope in listVisits, so a
+    // distributor can only ever narrow within their own sales executives' visits — never see
+    // another distributor's SE by passing an arbitrary id.
     return c.json(
       await listVisits(db, {
         distributorId: user.distributorId,
+        salesExecutiveUserId: c.req.query("salesExecutiveUserId") || undefined,
+        dealerId: c.req.query("dealerId") || undefined,
         status: (c.req.query("status") as "active" | "completed" | "all") ?? "all",
         fromDate: c.req.query("fromDate"),
         toDate: c.req.query("toDate"),
@@ -1272,7 +1284,7 @@ app.get("/api/v1/visits/:id", requireAuth, requireActiveAccount, requirePermissi
 
 // Notifications
 app.get("/api/v1/notifications/vapid-public-key", async (c) => {
-  const key = getVapidPublicKeyFromEnv(c.env);
+  const key = getVapidPublicKeyFromEnv(effectiveEnv(c.env));
   return c.json({ publicKey: key });
 });
 
@@ -1326,7 +1338,7 @@ app.post("/api/v1/notifications/read-all", requireAuth, requireActiveAccount, re
 });
 
 app.post("/api/v1/notifications/push-test", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
-  const vapid = getVapidPublicKeyFromEnv(c.env);
+  const vapid = getVapidPublicKeyFromEnv(effectiveEnv(c.env));
   if (!vapid) {
     return c.json(
       { error: "Web Push is not configured. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY." },
@@ -1998,6 +2010,7 @@ function executiveFiltersFromQuery(c: { req: { query: (key: string) => string | 
     territory: c.req.query("territory") || undefined,
     status: c.req.query("status") || undefined,
     campaignId: c.req.query("campaignId") || undefined,
+    hasArea: c.req.query("hasArea") === "1" || undefined,
   };
 }
 
@@ -2320,6 +2333,20 @@ admin.get("/assignments", requirePermission("assignments:read"), async (c) => {
 admin.get("/assignments/summary", requirePermission("assignments:read"), async (c) => {
   const db = await getRequestDb(c);
   return c.json(await getAssignmentSummary(db));
+});
+
+// Sales Executives oversight (view-only). Unscoped: returns ALL sales executives + their
+// aggregated performance. Gated by dealers:read, held by master_admin and admin_staff.
+admin.get("/sales-executives", requirePermission("dealers:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json({ items: await listSalesExecutives(db) });
+});
+
+admin.get("/sales-executives/:id", requirePermission("dealers:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const detail = await getSalesExecutiveDetail(db, c.req.param("id"));
+  if (!detail) return c.json({ error: "Not found" }, 404);
+  return c.json(detail);
 });
 
 admin.get("/assignments/options", requirePermission("assignments:read"), async (c) => {

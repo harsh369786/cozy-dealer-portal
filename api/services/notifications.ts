@@ -1,5 +1,5 @@
 ﻿import { id, nowIso, formatInLabel } from "../utils";
-import { getPushEnv, waitUntil } from "../push-env";
+import { snapshotPushContext, runBackground } from "../push-env";
 import { sendPushForNotifications } from "./push-notifications";
 
 export type NotificationInsertInput = {
@@ -68,13 +68,13 @@ export async function createNotification(
     .run();
 
   const created: CreatedNotification = { id: notificationId, ...input };
-  const env = getPushEnv();
+  // Capture env + execution context together, then bind the background send to THAT context
+  // so a concurrent request can't swap it out and truncate delivery.
+  const { env, ctx } = snapshotPushContext();
   if (env) {
-    waitUntil(
-      sendPushForNotifications(env, [created]).catch((err) => {
-        console.error("Push delivery failed:", err);
-      }),
-    );
+    runBackground(ctx, sendPushForNotifications(env, [created]));
+  } else {
+    console.error("[push] createNotification: no push env captured (snapshotPushContext env=null)");
   }
   return created;
 }
@@ -115,13 +115,9 @@ export async function createNotificationsBatch(
     );
   }
 
-  const env = getPushEnv();
+  const { env, ctx } = snapshotPushContext();
   if (env && created.length) {
-    waitUntil(
-      sendPushForNotifications(env, created).catch((err) => {
-        console.error("Push delivery failed:", err);
-      }),
-    );
+    runBackground(ctx, sendPushForNotifications(env, created));
   }
 
   return created;

@@ -63,6 +63,8 @@ import { Route as AdminRewardsRewardIdRouteImport } from './routes/admin/rewards
 import { Route as AdminRewardsAdditionalRouteImport } from './routes/admin/rewards/additional'
 import { Route as AdminRewardsClaimsRouteImport } from './routes/admin/rewards/claims'
 import { Route as AdminRewardsNewRouteImport } from './routes/admin/rewards/new'
+import { Route as AdminSalesExecutivesIndexRouteImport } from './routes/admin/sales-executives/index'
+import { Route as AdminSalesExecutivesSeIdRouteImport } from './routes/admin/sales-executives/$seId'
 import { Route as AdminUsersIndexRouteImport } from './routes/admin/users/index'
 import { Route as AdminUsersUserIdRouteImport } from './routes/admin/users/$userId'
 import { Route as AdminUsersNewRouteImport } from './routes/admin/users/new'
@@ -72,6 +74,7 @@ import { Route as DistributorCampaignsIndexRouteImport } from './routes/distribu
 import { Route as DistributorCampaignsCampaignIdRouteImport } from './routes/distributor/campaigns/$campaignId'
 import { Route as DistributorComplaintsIndexRouteImport } from './routes/distributor/complaints/index'
 import { Route as DistributorComplaintsComplaintIdRouteImport } from './routes/distributor/complaints/$complaintId'
+import { Route as DistributorDealerVisitsIndexRouteImport } from './routes/distributor/dealer-visits/index'
 import { Route as DistributorDealersIndexRouteImport } from './routes/distributor/dealers/index'
 import { Route as DistributorDealersDealerIdRouteImport } from './routes/distributor/dealers/$dealerId'
 import { Route as DistributorOrdersIndexRouteImport } from './routes/distributor/orders/index'
@@ -352,6 +355,18 @@ const AdminRewardsNewRoute = AdminRewardsNewRouteImport.update({
   path: '/new',
   getParentRoute: () => AdminRewardsRoute,
 } as any)
+const AdminSalesExecutivesIndexRoute =
+  AdminSalesExecutivesIndexRouteImport.update({
+    id: '/sales-executives/',
+    path: '/sales-executives/',
+    getParentRoute: () => AdminRouteRoute,
+  } as any)
+const AdminSalesExecutivesSeIdRoute =
+  AdminSalesExecutivesSeIdRouteImport.update({
+    id: '/sales-executives/$seId',
+    path: '/sales-executives/$seId',
+    getParentRoute: () => AdminRouteRoute,
+  } as any)
 const AdminUsersIndexRoute = AdminUsersIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -399,6 +414,12 @@ const DistributorComplaintsComplaintIdRoute =
   DistributorComplaintsComplaintIdRouteImport.update({
     id: '/complaints/$complaintId',
     path: '/complaints/$complaintId',
+    getParentRoute: () => DistributorRouteRoute,
+  } as any)
+const DistributorDealerVisitsIndexRoute =
+  DistributorDealerVisitsIndexRouteImport.update({
+    id: '/dealer-visits/',
+    path: '/dealer-visits/',
     getParentRoute: () => DistributorRouteRoute,
   } as any)
 const DistributorDealersIndexRoute = DistributorDealersIndexRouteImport.update({
@@ -484,6 +505,7 @@ export interface FileRoutesByFullPath {
   '/admin/rewards/additional': typeof AdminRewardsAdditionalRoute
   '/admin/rewards/claims': typeof AdminRewardsClaimsRoute
   '/admin/rewards/new': typeof AdminRewardsNewRoute
+  '/admin/sales-executives/$seId': typeof AdminSalesExecutivesSeIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/visits/$visitId': typeof AdminVisitsVisitIdRoute
@@ -502,10 +524,12 @@ export interface FileRoutesByFullPath {
   '/admin/products/': typeof AdminProductsIndexRoute
   '/admin/reports/': typeof AdminReportsIndexRoute
   '/admin/rewards/': typeof AdminRewardsIndexRoute
+  '/admin/sales-executives/': typeof AdminSalesExecutivesIndexRoute
   '/admin/users/': typeof AdminUsersIndexRoute
   '/admin/visits/': typeof AdminVisitsIndexRoute
   '/distributor/campaigns/': typeof DistributorCampaignsIndexRoute
   '/distributor/complaints/': typeof DistributorComplaintsIndexRoute
+  '/distributor/dealer-visits/': typeof DistributorDealerVisitsIndexRoute
   '/distributor/dealers/': typeof DistributorDealersIndexRoute
   '/distributor/orders/': typeof DistributorOrdersIndexRoute
   '/distributor/visits/': typeof DistributorVisitsIndexRoute
@@ -546,6 +570,7 @@ export interface FileRoutesByTo {
   '/admin/rewards/additional': typeof AdminRewardsAdditionalRoute
   '/admin/rewards/claims': typeof AdminRewardsClaimsRoute
   '/admin/rewards/new': typeof AdminRewardsNewRoute
+  '/admin/sales-executives/$seId': typeof AdminSalesExecutivesSeIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/visits/$visitId': typeof AdminVisitsVisitIdRoute
@@ -564,10 +589,12 @@ export interface FileRoutesByTo {
   '/admin/products': typeof AdminProductsIndexRoute
   '/admin/reports': typeof AdminReportsIndexRoute
   '/admin/rewards': typeof AdminRewardsIndexRoute
+  '/admin/sales-executives': typeof AdminSalesExecutivesIndexRoute
   '/admin/users': typeof AdminUsersIndexRoute
   '/admin/visits': typeof AdminVisitsIndexRoute
   '/distributor/campaigns': typeof DistributorCampaignsIndexRoute
   '/distributor/complaints': typeof DistributorComplaintsIndexRoute
+  '/distributor/dealer-visits': typeof DistributorDealerVisitsIndexRoute
   '/distributor/dealers': typeof DistributorDealersIndexRoute
   '/distributor/orders': typeof DistributorOrdersIndexRoute
   '/distributor/visits': typeof DistributorVisitsIndexRoute
@@ -619,6 +646,7 @@ export interface FileRoutesById {
   '/admin/rewards/additional': typeof AdminRewardsAdditionalRoute
   '/admin/rewards/claims': typeof AdminRewardsClaimsRoute
   '/admin/rewards/new': typeof AdminRewardsNewRoute
+  '/admin/sales-executives/$seId': typeof AdminSalesExecutivesSeIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
   '/admin/users/new': typeof AdminUsersNewRoute
   '/admin/visits/$visitId': typeof AdminVisitsVisitIdRoute
@@ -637,10 +665,12 @@ export interface FileRoutesById {
   '/admin/products/': typeof AdminProductsIndexRoute
   '/admin/reports/': typeof AdminReportsIndexRoute
   '/admin/rewards/': typeof AdminRewardsIndexRoute
+  '/admin/sales-executives/': typeof AdminSalesExecutivesIndexRoute
   '/admin/users/': typeof AdminUsersIndexRoute
   '/admin/visits/': typeof AdminVisitsIndexRoute
   '/distributor/campaigns/': typeof DistributorCampaignsIndexRoute
   '/distributor/complaints/': typeof DistributorComplaintsIndexRoute
+  '/distributor/dealer-visits/': typeof DistributorDealerVisitsIndexRoute
   '/distributor/dealers/': typeof DistributorDealersIndexRoute
   '/distributor/orders/': typeof DistributorOrdersIndexRoute
   '/distributor/visits/': typeof DistributorVisitsIndexRoute
@@ -692,6 +722,7 @@ export interface FileRouteTypes {
     | '/admin/rewards/additional'
     | '/admin/rewards/claims'
     | '/admin/rewards/new'
+    | '/admin/sales-executives/$seId'
     | '/admin/users/$userId'
     | '/admin/users/new'
     | '/admin/visits/$visitId'
@@ -710,10 +741,12 @@ export interface FileRouteTypes {
     | '/admin/products/'
     | '/admin/reports/'
     | '/admin/rewards/'
+    | '/admin/sales-executives/'
     | '/admin/users/'
     | '/admin/visits/'
     | '/distributor/campaigns/'
     | '/distributor/complaints/'
+    | '/distributor/dealer-visits/'
     | '/distributor/dealers/'
     | '/distributor/orders/'
     | '/distributor/visits/'
@@ -754,6 +787,7 @@ export interface FileRouteTypes {
     | '/admin/rewards/additional'
     | '/admin/rewards/claims'
     | '/admin/rewards/new'
+    | '/admin/sales-executives/$seId'
     | '/admin/users/$userId'
     | '/admin/users/new'
     | '/admin/visits/$visitId'
@@ -772,10 +806,12 @@ export interface FileRouteTypes {
     | '/admin/products'
     | '/admin/reports'
     | '/admin/rewards'
+    | '/admin/sales-executives'
     | '/admin/users'
     | '/admin/visits'
     | '/distributor/campaigns'
     | '/distributor/complaints'
+    | '/distributor/dealer-visits'
     | '/distributor/dealers'
     | '/distributor/orders'
     | '/distributor/visits'
@@ -826,6 +862,7 @@ export interface FileRouteTypes {
     | '/admin/rewards/additional'
     | '/admin/rewards/claims'
     | '/admin/rewards/new'
+    | '/admin/sales-executives/$seId'
     | '/admin/users/$userId'
     | '/admin/users/new'
     | '/admin/visits/$visitId'
@@ -844,10 +881,12 @@ export interface FileRouteTypes {
     | '/admin/products/'
     | '/admin/reports/'
     | '/admin/rewards/'
+    | '/admin/sales-executives/'
     | '/admin/users/'
     | '/admin/visits/'
     | '/distributor/campaigns/'
     | '/distributor/complaints/'
+    | '/distributor/dealer-visits/'
     | '/distributor/dealers/'
     | '/distributor/orders/'
     | '/distributor/visits/'
@@ -1251,6 +1290,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminRewardsNewRouteImport
       parentRoute: typeof AdminRewardsRoute
     }
+    '/admin/sales-executives/': {
+      id: '/admin/sales-executives/'
+      path: '/sales-executives'
+      fullPath: '/admin/sales-executives/'
+      preLoaderRoute: typeof AdminSalesExecutivesIndexRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/sales-executives/$seId': {
+      id: '/admin/sales-executives/$seId'
+      path: '/sales-executives/$seId'
+      fullPath: '/admin/sales-executives/$seId'
+      preLoaderRoute: typeof AdminSalesExecutivesSeIdRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/users/': {
       id: '/admin/users/'
       path: '/'
@@ -1312,6 +1365,13 @@ declare module '@tanstack/react-router' {
       path: '/complaints/$complaintId'
       fullPath: '/distributor/complaints/$complaintId'
       preLoaderRoute: typeof DistributorComplaintsComplaintIdRouteImport
+      parentRoute: typeof DistributorRouteRoute
+    }
+    '/distributor/dealer-visits/': {
+      id: '/distributor/dealer-visits/'
+      path: '/dealer-visits'
+      fullPath: '/distributor/dealer-visits/'
+      preLoaderRoute: typeof DistributorDealerVisitsIndexRouteImport
       parentRoute: typeof DistributorRouteRoute
     }
     '/distributor/dealers/': {
@@ -1468,6 +1528,7 @@ interface AdminRouteRouteChildren {
   AdminOrdersOrderIdRoute: typeof AdminOrdersOrderIdRouteWithChildren
   AdminPricingSqftRatesRoute: typeof AdminPricingSqftRatesRoute
   AdminPricingTiersRoute: typeof AdminPricingTiersRoute
+  AdminSalesExecutivesSeIdRoute: typeof AdminSalesExecutivesSeIdRoute
   AdminVisitsVisitIdRoute: typeof AdminVisitsVisitIdRoute
   AdminAssignmentsIndexRoute: typeof AdminAssignmentsIndexRoute
   AdminAuditLogsIndexRoute: typeof AdminAuditLogsIndexRoute
@@ -1475,6 +1536,7 @@ interface AdminRouteRouteChildren {
   AdminNotificationsIndexRoute: typeof AdminNotificationsIndexRoute
   AdminOrdersIndexRoute: typeof AdminOrdersIndexRoute
   AdminReportsIndexRoute: typeof AdminReportsIndexRoute
+  AdminSalesExecutivesIndexRoute: typeof AdminSalesExecutivesIndexRoute
   AdminVisitsIndexRoute: typeof AdminVisitsIndexRoute
 }
 
@@ -1489,6 +1551,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminOrdersOrderIdRoute: AdminOrdersOrderIdRouteWithChildren,
   AdminPricingSqftRatesRoute: AdminPricingSqftRatesRoute,
   AdminPricingTiersRoute: AdminPricingTiersRoute,
+  AdminSalesExecutivesSeIdRoute: AdminSalesExecutivesSeIdRoute,
   AdminVisitsVisitIdRoute: AdminVisitsVisitIdRoute,
   AdminAssignmentsIndexRoute: AdminAssignmentsIndexRoute,
   AdminAuditLogsIndexRoute: AdminAuditLogsIndexRoute,
@@ -1496,6 +1559,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminNotificationsIndexRoute: AdminNotificationsIndexRoute,
   AdminOrdersIndexRoute: AdminOrdersIndexRoute,
   AdminReportsIndexRoute: AdminReportsIndexRoute,
+  AdminSalesExecutivesIndexRoute: AdminSalesExecutivesIndexRoute,
   AdminVisitsIndexRoute: AdminVisitsIndexRoute,
 }
 
@@ -1519,6 +1583,7 @@ interface DistributorRouteRouteChildren {
   DistributorVisitsHistoryRoute: typeof DistributorVisitsHistoryRoute
   DistributorCampaignsIndexRoute: typeof DistributorCampaignsIndexRoute
   DistributorComplaintsIndexRoute: typeof DistributorComplaintsIndexRoute
+  DistributorDealerVisitsIndexRoute: typeof DistributorDealerVisitsIndexRoute
   DistributorDealersIndexRoute: typeof DistributorDealersIndexRoute
   DistributorOrdersIndexRoute: typeof DistributorOrdersIndexRoute
   DistributorVisitsIndexRoute: typeof DistributorVisitsIndexRoute
@@ -1540,6 +1605,7 @@ const DistributorRouteRouteChildren: DistributorRouteRouteChildren = {
   DistributorVisitsHistoryRoute: DistributorVisitsHistoryRoute,
   DistributorCampaignsIndexRoute: DistributorCampaignsIndexRoute,
   DistributorComplaintsIndexRoute: DistributorComplaintsIndexRoute,
+  DistributorDealerVisitsIndexRoute: DistributorDealerVisitsIndexRoute,
   DistributorDealersIndexRoute: DistributorDealersIndexRoute,
   DistributorOrdersIndexRoute: DistributorOrdersIndexRoute,
   DistributorVisitsIndexRoute: DistributorVisitsIndexRoute,

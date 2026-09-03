@@ -1,5 +1,5 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { Pencil, Power } from "lucide-react";
 import { toast } from "sonner";
@@ -50,7 +50,12 @@ import {
   markNotificationRead,
   sendTestNotification,
 } from "@/services/notifications";
-import { getNotificationPermission } from "@/lib/browser-notifications";
+import {
+  getNotificationPermission,
+  isPushSupported,
+  subscribeToPush,
+  hasActivePushSubscription,
+} from "@/lib/browser-notifications";
 
 export const Route = createFileRoute("/admin/notifications/")({
   component: AdminNotificationsPage,
@@ -253,7 +258,44 @@ function AnnouncementsManager() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
-  const pushGranted = getNotificationPermission() === "granted";
+  const [enabling, setEnabling] = useState(false);
+  const pushSupported = isPushSupported();
+  // Track whether THIS device actually has a saved push subscription — not merely whether
+  // the browser permission is "granted". Granting permission alone does not subscribe the
+  // device or save it to the server, so the test send would have no endpoint to reach.
+  const [subscribed, setSubscribed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    hasActivePushSubscription().then((has) => {
+      if (active) setSubscribed(has);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleEnablePush = async () => {
+    setEnabling(true);
+    try {
+      const ok = await subscribeToPush();
+      if (ok) {
+        setSubscribed(true);
+        toast.success("Notifications enabled on this device");
+      } else {
+        const perm = getNotificationPermission();
+        toast.error(
+          perm === "denied"
+            ? "Notifications are blocked. Enable them in your browser/OS settings."
+            : "Could not enable notifications on this device.",
+        );
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to enable notifications");
+    } finally {
+      setEnabling(false);
+    }
+  };
 
   const handleSendTest = async () => {
     setSendingTest(true);
@@ -347,8 +389,13 @@ function AnnouncementsManager() {
 
   return (
     <div>
-      <div className="mb-4 flex justify-end gap-2">
-        {pushGranted ? (
+      <div className="mb-4 flex flex-wrap justify-end gap-2">
+        {pushSupported && !subscribed ? (
+          <Button variant="outline" onClick={handleEnablePush} disabled={enabling} className="rounded-2xl">
+            {enabling ? t("common.saving") : "Enable notifications"}
+          </Button>
+        ) : null}
+        {pushSupported && subscribed ? (
           <Button variant="outline" onClick={handleSendTest} disabled={sendingTest} className="rounded-2xl">
             {sendingTest ? t("common.saving") : "Send test notification"}
           </Button>

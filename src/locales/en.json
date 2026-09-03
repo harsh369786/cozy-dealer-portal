@@ -202,8 +202,8 @@
     "selectCornersForFarma": "Select corners for Farma",
     "lengthInches": "Length (inches)",
     "widthInches": "Width (inches)",
-    "lengthRange": "{{min}}–{{max}}\"",
-    "widthRange": "{{min}}–{{max}}\"",
+    "lengthRange": "Up to {{max}}\" · smaller sizes charged at standard price",
+    "widthRange": "Up to {{max}}\" · smaller sizes charged at standard price",
     "lengthPlaceholder": "72",
     "widthPlaceholder": "36",
     "otpPlaceholder": "000000",
@@ -362,6 +362,7 @@
       "rewards": "Rewards",
       "complaints": "Complaints",
       "dealerVisits": "Dealer Visits",
+      "salesExecutives": "Sales Executives",
       "reports": "Reports",
       "notifications": "Notifications",
       "auditLogs": "Audit Logs",
@@ -802,6 +803,20 @@
       "backToSearch": "Back to search",
       "selectStoreFirst": "Please select or add a store first."
     },
+    "dealerVisits": {
+      "title": "Dealer Visits",
+      "moreDesc": "Visits logged by your sales executives",
+      "totalVisits": "Total visits",
+      "thisMonth": "This month",
+      "thisWeek": "This week",
+      "activeSalesExecs": "Active sales execs",
+      "storesVisited": "Stores visited",
+      "visitsPerSalesExec": "Visits per sales executive",
+      "salesExecutive": "Sales executive",
+      "notes": "Visit notes",
+      "map": "Map",
+      "noVisitsDesc": "No visits match the selected filters."
+    },
     "reports": {
       "title": "Reports",
       "dealerPerformance": "Dealer performance",
@@ -1021,6 +1036,25 @@
         "distributors": "Distributors",
         "adminStaff": "Admin staff"
       }
+    },
+    "salesExecutives": {
+      "title": "Sales Executives",
+      "description": "Performance and coverage across all sales executives.",
+      "totalSalesExecs": "Sales executives",
+      "totalDealers": "Dealers handled",
+      "totalVisits": "Total visits",
+      "visitsThisMonth": "Visits this month",
+      "empty": "No sales executives found",
+      "dealers": "Dealers",
+      "visits": "Visits",
+      "thisMonth": "This month",
+      "orders": "Orders",
+      "pending": "Pending",
+      "delivered": "Delivered",
+      "sales": "Sales value",
+      "assignedDealers": "Assigned dealers",
+      "noDealers": "No dealers assigned yet.",
+      "recentVisits": "Recent visits"
     },
     "auditLogs": {
       "title": "Audit logs",

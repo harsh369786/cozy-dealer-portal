@@ -16,9 +16,7 @@ import { useFormat } from "@/hooks/use-format";
 import { useFormatApiError } from "@/lib/api-errors";
 import { getOrderById, updateOrderLineItems } from "@/services/orders";
 import {
-  BREADTHS,
   getMattressDimensionError,
-  LENGTHS,
   mapToCeilStandardSize,
   MAX_MATTRESS_BREADTH_IN,
   MAX_MATTRESS_LENGTH_IN,
@@ -26,7 +24,6 @@ import {
   MIN_MATTRESS_LENGTH_IN,
   parseDimensionInput,
   snapDimensionInput,
-  snapToCeilStandardInput,
 } from "@/lib/mattress-size";
 import type { DealerOrderListItem } from "@/services/orders";
 import { cn } from "@/lib/utils";
@@ -283,7 +280,7 @@ function DealerOrderDetail() {
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold">
-                    {t("common.lengthInches")} ({MIN_MATTRESS_LENGTH_IN}–{MAX_MATTRESS_LENGTH_IN})
+                    {t("common.lengthInches")} (up to {MAX_MATTRESS_LENGTH_IN}")
                   </label>
                   <input
                     inputMode="decimal"
@@ -292,9 +289,10 @@ function DealerOrderDetail() {
                     value={lengthInput}
                     onChange={(e) => setLengthInput(e.target.value.replace(/[^\d.]/g, ""))}
                     onBlur={() =>
-                      setLengthInput((v) =>
-                        snapToCeilStandardInput(snapDimensionInput(v), LENGTHS),
-                      )
+                      // Preserve the entered custom size; only snap to the nearest quarter
+                      // inch. Standardization is for pricing only and must not overwrite the
+                      // entered size (smaller-than-base sizes are priced at the base rate).
+                      setLengthInput((v) => snapDimensionInput(v))
                     }
                     placeholder={t("common.lengthPlaceholder")}
                     className="mt-1 h-12 w-full rounded-xl border border-input bg-card px-3 text-center font-bold"
@@ -302,7 +300,7 @@ function DealerOrderDetail() {
                 </div>
                 <div>
                   <label className="text-xs font-bold">
-                    {t("common.widthInches")} ({MIN_MATTRESS_BREADTH_IN}–{MAX_MATTRESS_BREADTH_IN})
+                    {t("common.widthInches")} (up to {MAX_MATTRESS_BREADTH_IN}")
                   </label>
                   <input
                     inputMode="decimal"
@@ -311,9 +309,8 @@ function DealerOrderDetail() {
                     value={breadthInput}
                     onChange={(e) => setBreadthInput(e.target.value.replace(/[^\d.]/g, ""))}
                     onBlur={() =>
-                      setBreadthInput((v) =>
-                        snapToCeilStandardInput(snapDimensionInput(v), BREADTHS),
-                      )
+                      // Preserve the entered custom size; only snap to the nearest quarter inch.
+                      setBreadthInput((v) => snapDimensionInput(v))
                     }
                     placeholder={t("common.widthPlaceholder")}
                     className="mt-1 h-12 w-full rounded-xl border border-input bg-card px-3 text-center font-bold"

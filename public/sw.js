@@ -1,4 +1,4 @@
-const CACHE = "backrest-static-v26";
+const CACHE = "backrest-static-v32";
 const PRECACHE = [
   "/",
   "/manifest.webmanifest",
@@ -6,6 +6,7 @@ const PRECACHE = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/icon-512-maskable.png",
+  "/icons/badge-monochrome.svg",
   "/favicon.png",
 ];
 
@@ -40,8 +41,12 @@ function parsePushData(event) {
 
 function showAppNotification(title, options) {
   return self.registration.showNotification(title, {
+    // Large icon: the full-color square BackRest app mark.
     icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
+    // Status-bar badge: MUST be a monochrome/transparent glyph — Android masks the badge to a
+    // silhouette via its alpha channel, so a full-color icon renders as a solid blob. This is
+    // a flat white spine glyph on transparent (see public/icons/badge-monochrome.svg).
+    badge: "/icons/badge-monochrome.svg",
     ...options,
   });
 }
@@ -53,12 +58,18 @@ self.addEventListener("push", (event) => {
   const url = data.url || "/";
   const notificationId = data.notificationId || null;
 
+  const extra = {};
+  // Honor a server-sent icon/badge if present; otherwise showAppNotification's defaults apply.
+  if (data.icon) extra.icon = data.icon;
+  if (data.badge) extra.badge = data.badge;
+
   event.waitUntil(
     showAppNotification(title, {
       body,
       data: { url, notificationId },
       tag: notificationId || url,
       renotify: Boolean(notificationId),
+      ...extra,
     }),
   );
 });
@@ -68,20 +79,28 @@ self.addEventListener("notificationclick", (event) => {
   const url = event.notification.data?.url || "/";
   const notificationId = event.notification.data?.notificationId || null;
 
+  const parsed = new URL(url, self.location.origin);
+  const hash = notificationId ? `#ntf=${encodeURIComponent(notificationId)}` : "";
+  const target = parsed.pathname + parsed.search + hash;
+
   event.waitUntil(
     self.clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((clientList) => {
         for (const client of clientList) {
           if ("focus" in client) {
+            // Tell the app to route in-place (SPA nav) if it has a handler...
             client.postMessage({ type: "NOTIFICATION_NAVIGATE", url, notificationId });
+            // ...but also navigate the client directly, so the deep link works even when no
+            // in-app handler is mounted. client.navigate needs an absolute URL and may be
+            // unavailable/blocked in some browsers, so fall back to focus.
+            if ("navigate" in client && typeof client.navigate === "function") {
+              return client.navigate(parsed.href).then((c) => (c || client).focus()).catch(() => client.focus());
+            }
             return client.focus();
           }
         }
         if (self.clients.openWindow) {
-          const parsed = new URL(url, self.location.origin);
-          const hash = notificationId ? `#ntf=${encodeURIComponent(notificationId)}` : "";
-          const target = parsed.pathname + parsed.search + hash;
           return self.clients.openWindow(target);
         }
       }),

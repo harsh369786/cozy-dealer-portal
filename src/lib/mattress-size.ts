@@ -1,7 +1,9 @@
 /** Standard mattress dimensions used for manufacturing reference (not input limits). */
 
-export const MIN_MATTRESS_LENGTH_IN = 72;
-export const MIN_MATTRESS_BREADTH_IN = 30;
+// Small sizes are allowed: anything smaller in area than the base 72"×36" is priced at the
+// base rate on the server. Only a positive value and the upper cap are enforced.
+export const MIN_MATTRESS_LENGTH_IN = 1;
+export const MIN_MATTRESS_BREADTH_IN = 1;
 export const MAX_MATTRESS_LENGTH_IN = 84;
 export const MAX_MATTRESS_BREADTH_IN = 84;
 
@@ -29,14 +31,10 @@ export function parseDimensionInput(raw: string): number {
 
 export function getMattressDimensionError(length: number, breadth: number): string | null {
   if (length <= 0 || breadth <= 0) return "Enter valid length and width";
-  if (length < MIN_MATTRESS_LENGTH_IN) {
-    return `Length must be at least ${MIN_MATTRESS_LENGTH_IN}"`;
-  }
+  // No lower-bound rejection: smaller-than-standard sizes are allowed and priced at the base
+  // 72"×36" rate. Only the upper cap is enforced.
   if (length > MAX_MATTRESS_LENGTH_IN) {
     return `Length must be at most ${MAX_MATTRESS_LENGTH_IN}"`;
-  }
-  if (breadth < MIN_MATTRESS_BREADTH_IN) {
-    return `Width must be at least ${MIN_MATTRESS_BREADTH_IN}"`;
   }
   if (breadth > MAX_MATTRESS_BREADTH_IN) {
     return `Width must be at most ${MAX_MATTRESS_BREADTH_IN}"`;
@@ -81,6 +79,25 @@ export function ceilToStandard(value: number, standards: number[]): number {
   return sorted[sorted.length - 1]!;
 }
 
+/**
+ * Standard-size buffer (inches) mirrored from the server default. A dimension within this
+ * buffer ABOVE a standard is priced at that lower standard. Kept in sync with the server's
+ * DEFAULT_STANDARD_SIZE_BUFFER_IN so the displayed "standard size" matches what the server
+ * charges. (The server can override via env; the client uses the 1" default for display.)
+ */
+export const STANDARD_SIZE_BUFFER_IN = 1;
+
+/** Like ceilToStandard but subtracts the buffer first, so e.g. 73" -> 72" (not 75"). */
+export function ceilToStandardWithBuffer(
+  value: number,
+  standards: number[],
+  buffer: number = STANDARD_SIZE_BUFFER_IN,
+): number {
+  if (!Number.isFinite(value) || value <= 0) return value;
+  const adjusted = buffer > 0 ? value - buffer : value;
+  return ceilToStandard(adjusted, standards);
+}
+
 /** Round input up to the next highest standard size (after quarter-inch snap). */
 export function snapToCeilStandardInput(raw: string, standards: number[]): string {
   const parsed = parseDimensionInput(raw);
@@ -92,8 +109,10 @@ export function mapToCeilStandardSize(length: number, breadth: number) {
   return {
     requestedLength: length,
     requestedBreadth: breadth,
-    standardLength: ceilToStandard(length, LENGTHS),
-    standardBreadth: ceilToStandard(breadth, BREADTHS),
+    // Apply the 1" buffer per dimension so the displayed standard matches what the server
+    // prices (e.g. 73" shows/prices as 72", not 75").
+    standardLength: ceilToStandardWithBuffer(length, LENGTHS),
+    standardBreadth: ceilToStandardWithBuffer(breadth, BREADTHS),
   };
 }
 

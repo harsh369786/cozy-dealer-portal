@@ -41,7 +41,7 @@ export function ExecutiveSnapshotPage({
         </button>
         <button
           type="button"
-          onClick={() => onDrill({ title: "Area sold — order lines", filters: base })}
+          onClick={() => onDrill({ title: "Area sold — order lines", filters: { ...base, hasArea: true } })}
           className="rounded-2xl bg-secondary p-5 text-left shadow-soft"
         >
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total Area Surface Sold</p>
@@ -58,8 +58,17 @@ export function ExecutiveSnapshotPage({
             title="Monthly Performance Progression"
             monthly={monthly}
             peak={peak}
-            onPointClick={(row) =>
-              onDrill({ title: `${row.label} — order lines`, filters: { ...base, from: row.ym, to: row.ym, month: row.ym } })
+            onPointClick={(row, metric) =>
+              onDrill({
+                title: `${row.label} — order lines`,
+                filters: {
+                  ...base,
+                  from: row.ym,
+                  to: row.ym,
+                  month: row.ym,
+                  ...(metric === "sqft" ? { hasArea: true } : {}),
+                },
+              })
             }
           />
         </div>

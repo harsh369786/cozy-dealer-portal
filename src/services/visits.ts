@@ -49,6 +49,8 @@ export async function listVisits(params: {
   fromDate?: string;
   toDate?: string;
   search?: string;
+  salesExecutiveUserId?: string;
+  dealerId?: string;
   page?: number;
   pageSize?: number;
 }) {
@@ -57,6 +59,8 @@ export async function listVisits(params: {
   if (params.fromDate) qs.set("fromDate", params.fromDate);
   if (params.toDate) qs.set("toDate", params.toDate);
   if (params.search) qs.set("search", params.search);
+  if (params.salesExecutiveUserId) qs.set("salesExecutiveUserId", params.salesExecutiveUserId);
+  if (params.dealerId) qs.set("dealerId", params.dealerId);
   if (params.page) qs.set("page", String(params.page));
   if (params.pageSize) qs.set("pageSize", String(params.pageSize));
   const q = qs.toString();

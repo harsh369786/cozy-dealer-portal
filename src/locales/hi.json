@@ -202,8 +202,8 @@
     "selectCornersForFarma": "Farma के लिए कोने चुनें",
     "lengthInches": "लंबाई (इंच)",
     "widthInches": "चौड़ाई (इंच)",
-    "lengthRange": "{{min}}–{{max}}\"",
-    "widthRange": "{{min}}–{{max}}\"",
+    "lengthRange": "{{max}}\" तक · छोटे साइज़ मानक कीमत पर",
+    "widthRange": "{{max}}\" तक · छोटे साइज़ मानक कीमत पर",
     "lengthPlaceholder": "72",
     "widthPlaceholder": "36",
     "otpPlaceholder": "000000",
@@ -362,6 +362,7 @@
       "rewards": "रिवॉर्ड",
       "complaints": "शिकायतें",
       "dealerVisits": "डीलर विज़िट",
+      "salesExecutives": "सेल्स एग्ज़ीक्यूटिव",
       "reports": "रिपोर्ट",
       "notifications": "सूचनाएँ",
       "auditLogs": "ऑडिट लॉग",
@@ -802,6 +803,20 @@
       "backToSearch": "खोज पर वापस",
       "selectStoreFirst": "पहले दुकान चुनें या जोड़ें।"
     },
+    "dealerVisits": {
+      "title": "डीलर विज़िट",
+      "moreDesc": "आपके सेल्स एग्ज़ीक्यूटिव द्वारा दर्ज विज़िट",
+      "totalVisits": "कुल विज़िट",
+      "thisMonth": "इस महीने",
+      "thisWeek": "इस सप्ताह",
+      "activeSalesExecs": "सक्रिय सेल्स एग्ज़ीक्यूटिव",
+      "storesVisited": "देखी गई दुकानें",
+      "visitsPerSalesExec": "प्रति सेल्स एग्ज़ीक्यूटिव विज़िट",
+      "salesExecutive": "सेल्स एग्ज़ीक्यूटिव",
+      "notes": "विज़िट नोट्स",
+      "map": "नक्शा",
+      "noVisitsDesc": "चयनित फ़िल्टर से कोई विज़िट मेल नहीं खाती।"
+    },
     "reports": {
       "title": "रिपोर्ट",
       "dealerPerformance": "डीलर प्रदर्शन",
@@ -1021,6 +1036,25 @@
         "distributors": "वितरक",
         "adminStaff": "व्यवस्थापक स्टाफ"
       }
+    },
+    "salesExecutives": {
+      "title": "सेल्स एग्ज़ीक्यूटिव",
+      "description": "सभी सेल्स एग्ज़ीक्यूटिव का प्रदर्शन और कवरेज।",
+      "totalSalesExecs": "सेल्स एग्ज़ीक्यूटिव",
+      "totalDealers": "संभाले गए डीलर",
+      "totalVisits": "कुल विज़िट",
+      "visitsThisMonth": "इस महीने विज़िट",
+      "empty": "कोई सेल्स एग्ज़ीक्यूटिव नहीं मिला",
+      "dealers": "डीलर",
+      "visits": "विज़िट",
+      "thisMonth": "इस महीने",
+      "orders": "ऑर्डर",
+      "pending": "लंबित",
+      "delivered": "डिलीवर",
+      "sales": "बिक्री मूल्य",
+      "assignedDealers": "असाइन किए गए डीलर",
+      "noDealers": "अभी तक कोई डीलर असाइन नहीं।",
+      "recentVisits": "हाल की विज़िट"
     },
     "auditLogs": {
       "title": "ऑडिट लॉग",

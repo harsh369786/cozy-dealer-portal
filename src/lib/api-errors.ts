@@ -28,7 +28,7 @@ function formatApiErrorWithT(
     }
     if (error.status === 403) return t("errors.forbidden");
     if (error.status === 404) return t("errors.notFound");
-    if (error.status === 401) return t("auth.invalidOtp");
+    if (error.status === 401) return t("auth.sessionExpired");
     return body || t(fallbackKey);
   }
   if (error instanceof Error && error.message) return error.message;

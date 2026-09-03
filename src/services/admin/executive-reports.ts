@@ -3,6 +3,7 @@ import { api } from "@/lib/api-client";
 export type ReportFilters = {
   from?: string | undefined;
   to?: string | undefined;
+  // Multi-select filters are comma-separated strings (single value = 1-element CSV).
   distributorId?: string | undefined;
   dealerId?: string | undefined;
   dealerIds?: string | undefined;
@@ -12,17 +13,28 @@ export type ReportFilters = {
   territory?: string | undefined;
   status?: string | undefined;
   campaignId?: string | undefined;
+  // Drill-down only: restrict to lines with computed area (sqft > 0). Serialized as hasArea=1.
+  hasArea?: boolean | undefined;
 };
 
 export type ReportFilterOptions = {
   months: string[];
   distributors: Array<{ id: string; name: string }>;
-  dealers: Array<{ id: string; name: string }>;
-  executives: Array<{ id: string; name: string }>;
+  // Dealers carry their distributor / sales-exec / derived territory so the filter bar can
+  // cascade the dependent dropdowns (territory → distributor → sales exec → dealer).
+  dealers: Array<{
+    id: string;
+    name: string;
+    distributorId?: string;
+    salesExecutiveId?: string;
+    territory?: string;
+  }>;
+  executives: Array<{ id: string; name: string; distributorId?: string }>;
   products: string[];
   categories: string[];
   statuses: string[];
   territories: string[];
+  campaigns: Array<{ id: string; name: string }>;
 };
 
 export type MonthlyPoint = {
@@ -152,7 +164,9 @@ export type DrilldownResult = {
 function qs(filters: ReportFilters & { month?: string; page?: number; pageSize?: number }) {
   const params = new URLSearchParams();
   for (const [k, v] of Object.entries(filters)) {
-    if (v != null && v !== "") params.set(k, String(v));
+    if (v == null || v === "" || v === false) continue;
+    // Booleans (e.g. hasArea) serialize as "1" to match the backend's flag parsing.
+    params.set(k, v === true ? "1" : String(v));
   }
   const q = params.toString();
   return q ? `?${q}` : "";

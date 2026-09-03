@@ -24,8 +24,17 @@ export function ExecutiveMonthlyPage({
         title="Monthly Revenue & Volume Trend"
         monthly={monthly}
         peak={peak}
-        onPointClick={(row) =>
-          onDrill({ title: `${row.label} — order lines`, filters: { ...base, from: row.ym, to: row.ym, month: row.ym } })
+        onPointClick={(row, metric) =>
+          onDrill({
+            title: `${row.label} — order lines`,
+            filters: {
+              ...base,
+              from: row.ym,
+              to: row.ym,
+              month: row.ym,
+              ...(metric === "sqft" ? { hasArea: true } : {}),
+            },
+          })
         }
       />
       <section className="rounded-xl border border-border bg-card p-4 shadow-soft sm:p-5">

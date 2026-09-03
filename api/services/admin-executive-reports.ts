@@ -42,23 +42,36 @@ const STATE_NAMES = [
 ];
 
 function sizeSqftExpr(col: string) {
-  const norm = `replace(replace(replace(COALESCE(${col}, ''), ' x ', '×'), ' X ', '×'), '×', '×')`;
+  // Normalize every dimension separator variant to a single "×" so we can split on one char.
+  // Handles: "×", " x ", " X ", bare "x"/"X", and "*". Order matters — collapse the spaced
+  // forms first, then the bare letters, so "72 x 36" and "72x36" both become "72×36".
+  const norm = `replace(replace(replace(replace(replace(COALESCE(${col}, ''),
+    ' x ', '×'), ' X ', '×'), 'x', '×'), 'X', '×'), '*', '×')`;
+  // CAST(... AS REAL) in SQLite skips leading whitespace and stops at the first non-numeric
+  // char, so we do NOT need to strip inch marks (") or trailing junk — casting each side of
+  // the "×" directly yields the number (e.g. CAST('72"' )=72, CAST(' 66"')=66). This makes the
+  // area compute correctly whether or not the stored size has inch marks or spaces.
   return `CASE
-    WHEN ${col} IS NOT NULL AND instr(${norm}, '×') > 0 AND instr(${col}, '"') > 0 THEN
+    WHEN instr(${norm}, '×') > 1 THEN
       (
-        CAST(replace(trim(substr(${col}, 1, instr(${col}, '"') - 1)), ',', '') AS REAL)
-        * CAST(replace(replace(trim(substr(${norm}, instr(${norm}, '×') + 1)), '"', ''), ',', '') AS REAL)
+        CAST(replace(substr(${norm}, 1, instr(${norm}, '×') - 1), ',', '') AS REAL)
+        * CAST(replace(substr(${norm}, instr(${norm}, '×') + 1), ',', '') AS REAL)
       ) / 144.0 * oi.quantity
     ELSE NULL
   END`;
 }
 
-/** Parse 72" × 36" (or similar) into sq.ft × quantity. */
-export const SQFT_SQL = `COALESCE(${sizeSqftExpr("oi.size_standard")}, ${sizeSqftExpr("oi.size_requested")}, 0)`;
+/** Parse 72" × 36" / "72 x 36" / "72x36" (or similar) into sq.ft × quantity. */
+export const SQFT_SQL = `COALESCE(
+  NULLIF(${sizeSqftExpr("oi.size_standard")}, 0),
+  NULLIF(${sizeSqftExpr("oi.size_requested")}, 0),
+  0
+)`;
 
 export type ExecutiveReportFilters = {
   from?: string | undefined;
   to?: string | undefined;
+  // Each id/name filter accepts a single value OR a comma-separated list (multi-select).
   distributorId?: string | undefined;
   dealerId?: string | undefined;
   dealerIds?: string | undefined;
@@ -68,6 +81,8 @@ export type ExecutiveReportFilters = {
   territory?: string | undefined;
   status?: string | undefined;
   campaignId?: string | undefined;
+  // Drill-down only: restrict to order lines that have a computed area (sqft > 0).
+  hasArea?: boolean | undefined;
 };
 
 export function defaultFromTo() {
@@ -99,50 +114,70 @@ export function territoryFromLocation(location?: string | null): string {
   return parts[parts.length - 1] || "Other";
 }
 
+/**
+ * Parse a filter value into a list. Every report filter accepts EITHER a single value or a
+ * comma-separated list (multi-select), so "a" -> ["a"] and "a,b,c" -> ["a","b","c"]. Capped to
+ * keep the IN(...) bind list bounded.
+ */
+function csvList(value?: string | null, cap = 300): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .slice(0, cap);
+}
+
+/** `AND <col> IN (?, ?, …)` for a list; single-element lists still work. */
+function inClause(column: string, values: string[], binds: unknown[]): string {
+  if (!values.length) return "";
+  binds.push(...values);
+  return ` AND ${column} IN (${values.map(() => "?").join(",")})`;
+}
+
 function buildItemWhere(filters: ExecutiveReportFilters, range: { startIso: string; endIso: string }, binds: unknown[]) {
   let sql = ` AND o.deleted_at IS NULL AND o.placed_at >= ? AND o.placed_at <= ?`;
   binds.push(range.startIso, range.endIso);
-  if (filters.status) {
-    sql += ` AND o.status = ?`;
-    binds.push(filters.status);
+
+  const statuses = csvList(filters.status);
+  if (statuses.length) {
+    sql += inClause("o.status", statuses, binds);
   } else {
     sql += ` AND o.status NOT IN ('rejected', 'cancelled')`;
   }
-  if (filters.distributorId) {
-    sql += ` AND o.distributor_id = ?`;
-    binds.push(filters.distributorId);
-  }
-  if (filters.dealerId) {
-    sql += ` AND o.dealer_id = ?`;
-    binds.push(filters.dealerId);
-  }
-  if (filters.salesExecutiveId) {
-    sql += ` AND d.sales_executive_user_id = ?`;
-    binds.push(filters.salesExecutiveId);
-  }
-  if (filters.product) {
-    sql += ` AND oi.product_name = ?`;
-    binds.push(filters.product);
-  }
-  if (filters.category) {
-    sql += ` AND p.category = ?`;
-    binds.push(filters.category);
-  }
-  if (filters.territory) {
-    const cities = Object.entries(CITY_STATE)
-      .filter(([, state]) => state.toLowerCase() === filters.territory!.toLowerCase())
-      .map(([city]) => city);
-    const parts = ["d.location LIKE ?"];
-    binds.push(`%${filters.territory}%`);
-    for (const city of cities) {
-      parts.push("LOWER(d.location) LIKE ?");
-      binds.push(`%${city}%`);
+
+  // Each of these accepts a single id or a comma-separated list (multi-select). All filters are
+  // ANDed together, so combining e.g. two distributors + two dealers narrows correctly.
+  sql += inClause("o.distributor_id", csvList(filters.distributorId), binds);
+  sql += inClause("o.dealer_id", csvList(filters.dealerId), binds);
+  sql += inClause("d.sales_executive_user_id", csvList(filters.salesExecutiveId), binds);
+  sql += inClause("oi.product_name", csvList(filters.product), binds);
+  sql += inClause("p.category", csvList(filters.category), binds);
+  sql += inClause("oi.campaign_id", csvList(filters.campaignId), binds);
+
+  // Territory is derived from dealers.location free-text, so it can't use IN — build an OR of
+  // LIKE matches across all selected territories (and their known cities).
+  const territories = csvList(filters.territory);
+  if (territories.length) {
+    const orParts: string[] = [];
+    for (const territory of territories) {
+      orParts.push("d.location LIKE ?");
+      binds.push(`%${territory}%`);
+      const cities = Object.entries(CITY_STATE)
+        .filter(([, state]) => state.toLowerCase() === territory.toLowerCase())
+        .map(([city]) => city);
+      for (const city of cities) {
+        orParts.push("LOWER(d.location) LIKE ?");
+        binds.push(`%${city}%`);
+      }
     }
-    sql += ` AND (${parts.join(" OR ")})`;
+    sql += ` AND (${orParts.join(" OR ")})`;
   }
-  if (filters.campaignId) {
-    sql += ` AND oi.campaign_id = ?`;
-    binds.push(filters.campaignId);
+
+  // Drill-down for the "Area sold" metric scopes to lines that actually have a computed area,
+  // so the Area card's underlying rows aren't diluted by size-less lines (Task 5 follow-up).
+  if (filters.hasArea) {
+    sql += ` AND (${SQFT_SQL}) > 0`;
   }
   if (filters.dealerIds) {
     const ids = filters.dealerIds.split(",").map((id) => id.trim()).filter(Boolean).slice(0, 200);
@@ -163,26 +198,59 @@ const ITEM_FROM = `FROM order_items oi
   LEFT JOIN price_campaigns pc ON pc.id = oi.campaign_id`;
 
 export async function loadReportFilterOptions(db: D1Database) {
-  const [{ results: distributors }, { results: dealers }, { results: executives }, { results: products }, { results: categories }, { results: statuses }] =
+  const [{ results: distributors }, { results: dealerRows }, { results: executiveRows }, { results: products }, { results: categories }, { results: statuses }, { results: campaigns }] =
     await Promise.all([
       db.prepare(`SELECT id, name FROM distributors WHERE deleted_at IS NULL ORDER BY name`).all<{ id: string; name: string }>(),
-      db.prepare(`SELECT id, store_name as name FROM dealers WHERE deleted_at IS NULL ORDER BY store_name`).all<{ id: string; name: string }>(),
+      // Dealers carry their distributor + sales-exec + location so the frontend can cascade
+      // the dependent filters (territory → distributor → sales exec → dealer) without a table.
       db
         .prepare(
-          `SELECT id, name FROM users WHERE role = 'sales_executive' AND deleted_at IS NULL AND status = 'active' ORDER BY name`,
+          `SELECT id, store_name AS name, distributor_id AS distributorId,
+                  sales_executive_user_id AS salesExecutiveId, location
+           FROM dealers WHERE deleted_at IS NULL ORDER BY store_name`,
         )
-        .all<{ id: string; name: string }>(),
+        .all<{ id: string; name: string; distributorId: string | null; salesExecutiveId: string | null; location: string | null }>(),
+      // A sales exec's distributor is users.distributor_id, falling back to the distributor of
+      // any dealer they manage (mirrors assignments.ts). This lets Distributor→Sales Exec cascade.
+      db
+        .prepare(
+          `SELECT u.id, u.name,
+                  COALESCE(
+                    u.distributor_id,
+                    (SELECT d.distributor_id FROM dealers d
+                     WHERE d.sales_executive_user_id = u.id AND d.deleted_at IS NULL
+                     ORDER BY d.created_at LIMIT 1)
+                  ) AS distributorId
+           FROM users u
+           WHERE u.role = 'sales_executive' AND u.deleted_at IS NULL AND u.status = 'active'
+           ORDER BY u.name`,
+        )
+        .all<{ id: string; name: string; distributorId: string | null }>(),
       db.prepare(`SELECT DISTINCT product_name as name FROM order_items ORDER BY product_name LIMIT 80`).all<{ name: string }>(),
       db.prepare(`SELECT DISTINCT category FROM products WHERE deleted_at IS NULL ORDER BY category`).all<{ category: string }>(),
       db
         .prepare(`SELECT DISTINCT status FROM orders WHERE deleted_at IS NULL ORDER BY status`)
         .all<{ status: string }>(),
+      db
+        .prepare(`SELECT id, name FROM price_campaigns WHERE deleted_at IS NULL ORDER BY name`)
+        .all<{ id: string; name: string }>(),
     ]);
 
-  const { results: locations } = await db
-    .prepare(`SELECT DISTINCT location FROM dealers WHERE deleted_at IS NULL AND location IS NOT NULL`)
-    .all<{ location: string }>();
-  const territories = [...new Set(locations.map((l) => territoryFromLocation(l.location)))].sort();
+  // Attach a derived territory to each dealer so the territory filter can cascade to dealers.
+  const dealers = dealerRows.map((d) => ({
+    id: d.id,
+    name: d.name,
+    distributorId: d.distributorId ?? undefined,
+    salesExecutiveId: d.salesExecutiveId ?? undefined,
+    territory: territoryFromLocation(d.location),
+  }));
+  const executives = executiveRows.map((e) => ({
+    id: e.id,
+    name: e.name,
+    distributorId: e.distributorId ?? undefined,
+  }));
+
+  const territories = [...new Set(dealers.map((d) => d.territory))].sort();
 
   const monthValues: string[] = [];
   const now = new Date();
@@ -196,6 +264,7 @@ export async function loadReportFilterOptions(db: D1Database) {
     distributors,
     dealers,
     executives,
+    campaigns,
     products: products.map((p) => p.name).filter(Boolean),
     categories: categories.map((c) => c.category).filter(Boolean),
     statuses: statuses.map((s) => s.status).filter(Boolean),

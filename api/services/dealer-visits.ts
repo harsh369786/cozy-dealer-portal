@@ -285,6 +285,7 @@ export async function getVisitById(
 
 export type ListVisitsOptions = {
   salesExecutiveUserId?: string;
+  dealerId?: string;
   distributorId?: string;
   status?: "active" | "completed" | "all";
   fromDate?: string;
@@ -303,6 +304,10 @@ export async function listVisits(db: D1Database, opts: ListVisitsOptions = {}) {
   if (opts.salesExecutiveUserId) {
     where += ` AND v.sales_executive_user_id = ?`;
     binds.push(opts.salesExecutiveUserId);
+  }
+  if (opts.dealerId) {
+    where += ` AND v.dealer_id = ?`;
+    binds.push(opts.dealerId);
   }
   if (opts.distributorId) {
     where += ` AND (
