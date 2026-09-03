@@ -25,6 +25,7 @@ import { saveProduct } from "@/services/admin/products";
 import { listPricingTiers } from "@/services/admin/pricing-tiers";
 import { calculateDealerPrice, calculateDistributorPrice } from "@/lib/distributor-price";
 import { formatFreeItemsDisplay } from "@/lib/free-items";
+import { calculateRewardPoints } from "../../../../shared/reward-points";
 
 export const Route = createFileRoute("/admin/products/new")({
   component: NewProductPage,
@@ -460,17 +461,23 @@ export function ProductEditor({
 
             <div className="grid max-w-lg gap-4 sm:grid-cols-2">
             <div>
-              <Label>Reward % of MRP</Label>
+              <Label>Reward % of Dealer Price</Label>
               <Input
                 type="number"
                 step="0.1"
                 value={product.rewardPercent || ""}
                 disabled={readOnly}
-                onChange={(e) => onChange({ rewardPercent: Number(e.target.value) })}
+                onChange={(e) => {
+                  const percent = Math.max(0, Number(e.target.value) || 0);
+                  onChange({
+                    rewardPercent: percent,
+                    points: calculateRewardPoints(product.dealerPrice, percent),
+                  });
+                }}
                 className="mt-1 rounded-2xl"
               />
               <p className="mt-1 text-xs text-muted-foreground">
-                Points = {Math.round(product.mrp * (product.rewardPercent / 100))} per unit at current MRP
+                Points = {calculateRewardPoints(product.dealerPrice, product.rewardPercent)} per unit at current dealer price
               </p>
             </div>
             <div>

@@ -5,7 +5,41 @@ inclusion: always
 # Session Context — cross-laptop handoff
 
 This file is auto-written on "sync" so Kiro on the other laptop can resume instantly.
-Last updated: 2026-09-03 (session 2b).
+Last updated: 2026-09-03 (session 3 — reward %, buffer review, env setup).
+
+## THIS SESSION (session 3) — committed, NOT yet deployed
+- **Reward % now computed on DEALER PRICE (not MRP) in the admin product editor.** The runtime rule
+  (`shared/reward-points.ts` → `buildPriceQuote` in api/services/pricing.ts) was ALREADY correct
+  (`calculateRewardPoints(dealerPrice, reward_percent, qty)` = round(dealer × percent / 10)). The BUG
+  was only in the ACTIVE editor `src/routes/admin/products/new.tsx` (`ProductEditor`, used by both
+  new + `$productId` edit pages): it labeled the field "Reward % of MRP" and previewed
+  `round(mrp × rewardPercent/100)`. Fixed: relabeled "Reward % of Dealer Price", preview now uses
+  `calculateRewardPoints(product.dealerPrice, rewardPercent)`, and the onChange recomputes `points`
+  from dealer price. NOTE: the unused duplicate `src/components/admin/product-editor.tsx` already had
+  the correct dealer-price logic — it's just not wired to routes (still safe to delete).
+- **Mattress buffer pricing REVIEWED — no code change.** User said "buffer pricing not proper". Traced
+  `ceilToStandardWithBuffer` (api/services/mattress-pricing.ts + client mirror src/lib/mattress-size.ts).
+  Verified via a scratch script that the current subtract-then-ceil logic ALREADY matches the user's
+  boundary table exactly (each standard charges itself and +1": 72→72/73, 75→75/76, 78→78/79, 84→84/85;
+  widths 30/36/42/48/60/66/72/75/78/84 same). Examples 2,3,4 and 73×73→72×72 all correct. The ONLY
+  mismatch is the user's Example 1 ("74"→72"), which CONTRADICTS their own table + algorithm
+  (74 > 72+1 → next standard 75). Concluded Example 1 is a spec typo; asked user for a concrete
+  wrong-price case before changing anything. User said "okay ill let you know" — STILL PENDING.
+- **Build verified GREEN on this laptop**: `bun install` (620 pkgs) then `bun run build` — client
+  ✓ 10.35s, SSR ✓ 1.73s, postbuild wrangler.json patch ran. No TS/build errors.
+- **bun.lock was STALE** (missing hono, i18next, react-i18next, @pushforge/builder, @fontsource/*,
+  @cloudflare/workers-types, etc. that are in package.json). `bun install` reconciled it (+315/-4).
+  Committed the fixed lockfile.
+
+## ENVIRONMENT (this laptop — Harsh's, differs from office)
+- **PowerShell execution policy BLOCKS `npm`/`npx`/`.ps1` shims** ("running scripts is disabled").
+  Fix: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`. OR call `.cmd` shims / use bun directly.
+- **`bun` is installed but NOT on PATH**: full path `C:\Users\Harsh\.bun\bin\bun.exe` (bun 1.4.0).
+  Add to PATH: `[Environment]::SetEnvironmentVariable("Path", $env:Path + ";$env:USERPROFILE\.bun\bin", "User")`.
+- **node** v24.14.1 is on PATH and works. To run tooling here without PATH fixes, call bun by full path,
+  e.g. `& "$env:USERPROFILE\.bun\bin\bun.exe" run build`.
+- node_modules did NOT exist on fresh pull — must `bun install` first on this laptop.
+- Deploy note in this file says `npm run build` — on this laptop use `bun run build` (or fix PATH first).
 
 ## Project
 BackRest — mattress dealer portal PWA. Stack: TanStack Start (React, SSR) + Hono API +
