@@ -128,6 +128,10 @@ function applyPendingDevMigrations(db: Database.Database, root: string) {
       file: "0028_pricing_tiers.sql",
       applied: () => hasColumn(db, "dealers", "pricing_tier_id"),
     },
+    {
+      file: "0030_pricing_margins.sql",
+      applied: () => hasColumn(db, "pricing_tier_product_prices", "dealer_margin_percent"),
+    },
   ];
 
   for (const migration of structural) {

@@ -488,10 +488,13 @@ app.get("/api/v1/catalog/products/:id", requireAuth, requireActiveAccount, requi
     .bind(productId)
     .first();
   const campaignId = c.req.query("campaignId");
+  const viewer = c.get("user");
   const quote = await buildPriceQuote(db, {
     productId,
     quantity: 1,
     campaignId: campaignId || undefined,
+    dealerId: viewer?.dealerId,
+    distributorId: viewer?.distributorId,
   });
 
   return c.json({
@@ -517,7 +520,12 @@ app.post("/api/v1/catalog/price-quote", requireAuth, requireActiveAccount, requi
     breadthIn?: number;
   }>();
   const db = await getRequestDb(c);
-  const quote = await buildPriceQuote(db, body);
+  const viewer = c.get("user");
+  const quote = await buildPriceQuote(db, {
+    ...body,
+    dealerId: viewer?.dealerId,
+    distributorId: viewer?.distributorId,
+  });
   return c.json(quote);
 });
 

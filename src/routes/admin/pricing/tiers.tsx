@@ -49,7 +49,7 @@ function TiersContent() {
         name: name || code,
         distributorMarginPercent: Number(margin),
       });
-      toast.success("Pricing tier created. Set dealer prices on each product.");
+      toast.success("Price list created. Set dealer & distributor margins per product in the product editor.");
       setCode("");
       setName("");
       setMargin("20");
@@ -69,7 +69,7 @@ function TiersContent() {
         name: nextName,
         distributorMarginPercent: nextMargin,
       });
-      toast.success(`${tier.code} updated. Distributor prices recalculate automatically.`);
+      toast.success(`${tier.code} updated.`);
       retry();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not save tier");
@@ -86,8 +86,8 @@ function TiersContent() {
   return (
     <div>
       <AdminPageHeader
-        title="Pricing tiers"
-        description="Set distributor margin % per tier. Dealer prices are set on each product. Distributor price is always Dealer Price ÷ (1 + margin/100), rounded to the nearest rupee."
+        title="Price lists (T1, T2, T3…)"
+        description="Create price lists and assign them to dealers. Dealer & distributor margins are set per product in the product editor. The distributor margin % here is only the default used for products that have no per-product value yet."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link to="/admin/pricing/sqft-rates">
@@ -124,12 +124,12 @@ function TiersContent() {
               <Input className="mt-1 rounded-xl" placeholder="Tier 2" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
             <div>
-              <Label>Distributor margin %</Label>
+              <Label>Default distributor margin %</Label>
               <Input className="mt-1 rounded-xl" type="number" value={margin} onChange={(e) => setMargin(e.target.value)} />
             </div>
           </div>
           <AdminPrimaryButton disabled={saving || !code.trim()} onClick={() => void handleCreate()}>
-            Add pricing tier
+            Add price list
           </AdminPrimaryButton>
         </AdminSection>
       )}
@@ -181,7 +181,7 @@ function TierRow({
           <Input className="mt-1 rounded-xl" value={name} disabled={!writable} onChange={(e) => setName(e.target.value)} />
         </div>
         <div>
-          <Label>Distributor margin %</Label>
+          <Label>Default distributor margin %</Label>
           <Input
             className="mt-1 rounded-xl"
             type="number"
@@ -192,7 +192,8 @@ function TierRow({
         </div>
       </div>
       <p className="mt-2 text-sm text-muted-foreground">
-        Example: dealer ₹120 at {margin || 0}% → distributor ₹{Math.round(120 / (1 + Number(margin || 0) / 100)) || 0}
+        Default only. Per-product margins set in the product editor take precedence. Example: dealer ₹120 at{" "}
+        {margin || 0}% → distributor ₹{Math.round(120 / (1 + Number(margin || 0) / 100)) || 0}
       </p>
       {writable && (
         <div className="mt-3 flex flex-wrap gap-2">

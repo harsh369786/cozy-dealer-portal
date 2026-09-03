@@ -56,6 +56,18 @@ export type AdminProduct = {
   image: string;
   status: "active" | "archived";
   layerGroup?: string;
+  /** Editor-only: per-thickness MRP/dealer overrides. */
+  thicknessPrices?: Array<{ thickness: string; mrp?: number; dealerPrice?: number }>;
+  /** Editor-only: structured free-item list. */
+  freeItemsList?: Array<{ label: string; quantity: number }>;
+  /** Per price-list (tier) margins for this product. */
+  tierMargins?: Array<{
+    tierId: string;
+    code: string;
+    name: string;
+    dealerMarginPercent: number;
+    distributorMarginPercent: number;
+  }>;
 };
 
 export type AdminOrderListItem = {

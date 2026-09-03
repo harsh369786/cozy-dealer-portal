@@ -104,8 +104,8 @@ function SqftRatesPage() {
   return (
     <AdminPermissionGate permission="catalog:read">
       <AdminPageHeader
-        title="Sq ft pricing rates"
-        description="Catalog base prices (72″ × 36″) are derived from guarantee + thickness rates."
+        title="Sq ft MRP rates"
+        description="Set product MRP per sq.ft by guarantee + thickness. Recalculate writes each product's base MRP (72″×36″). Dealer & distributor prices come from the per-product margins in each price list, not from here."
         actions={
           <Link to="/admin/products">
             <Button variant="outline" className="rounded-lg font-bold">← Products</Button>

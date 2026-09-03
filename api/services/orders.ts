@@ -105,6 +105,8 @@ export async function createOrder(
     campaignId: input.campaignId,
     lengthIn: input.lengthIn,
     breadthIn: input.breadthIn,
+    dealerId: user.dealerId,
+    distributorId: dealer.distributor_id,
   });
 
   const standardDims = pricingDimensions(input.lengthIn, input.breadthIn);
@@ -146,9 +148,10 @@ export async function createOrder(
         db
           .prepare(
             `INSERT INTO order_items (id, order_id, product_id, product_name, size_requested, size_standard, thickness,
-              quantity, perma, perma_corners, perma_notes, mrp, dealer_price, campaign_id, campaign_price, discount_percent,
+              quantity, perma, perma_corners, perma_notes, mrp, dealer_price, dealer_margin_percent,
+              distributor_price, distributor_margin_percent, campaign_id, campaign_price, discount_percent,
               free_items, points_earned, line_total, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .bind(
             itemId,
@@ -164,6 +167,9 @@ export async function createOrder(
             input.permaNotes ?? null,
             quote.mrp,
             quote.dealerPrice,
+            quote.dealerMarginPercent,
+            quote.distributorPrice,
+            quote.distributorMarginPercent,
             quote.campaignId,
             quote.campaignPrice,
             quote.discountPercent,
@@ -905,6 +911,7 @@ export async function updateOrderLineItems(
     campaignId: input.campaignId,
     lengthIn: input.lengthIn,
     breadthIn: input.breadthIn,
+    dealerId: order.dealer_id,
   });
 
   const standardDims = pricingDimensions(input.lengthIn, input.breadthIn);
@@ -922,7 +929,8 @@ export async function updateOrderLineItems(
   await db
     .prepare(
       `UPDATE order_items SET product_id = ?, product_name = ?, size_requested = ?, size_standard = ?, thickness = ?,
-        quantity = ?, mrp = ?, dealer_price = ?, campaign_id = ?, campaign_price = ?, discount_percent = ?,
+        quantity = ?, mrp = ?, dealer_price = ?, dealer_margin_percent = ?, distributor_price = ?,
+        distributor_margin_percent = ?, campaign_id = ?, campaign_price = ?, discount_percent = ?,
         points_earned = ?, line_total = ?, notes = COALESCE(?, notes)
        WHERE id = ?`,
     )
@@ -935,6 +943,9 @@ export async function updateOrderLineItems(
       input.quantity,
       quote.mrp,
       quote.dealerPrice,
+      quote.dealerMarginPercent,
+      quote.distributorPrice,
+      quote.distributorMarginPercent,
       quote.campaignId,
       quote.campaignPrice,
       quote.discountPercent,

@@ -1,7 +1,8 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
+import { Plus, Trash2 } from "lucide-react";
 import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-page-header";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
 import { AdminSection } from "@/components/admin/admin-section";
@@ -21,6 +22,9 @@ import {
 import type { AdminProduct } from "@/lib/mock/admin/types";
 import { PRODUCT_CATALOGUE_LAYERS, PRODUCT_CATEGORIES, PRODUCT_GUARANTEES } from "@/lib/demo-data";
 import { saveProduct } from "@/services/admin/products";
+import { listPricingTiers } from "@/services/admin/pricing-tiers";
+import { calculateDealerPrice, calculateDistributorPrice } from "@/lib/distributor-price";
+import { formatFreeItemsDisplay } from "@/lib/free-items";
 
 export const Route = createFileRoute("/admin/products/new")({
   component: NewProductPage,
@@ -98,6 +102,53 @@ export function ProductEditor({
   saving?: boolean;
   readOnly?: boolean;
 }) {
+  const { t } = useTranslation();
+  const freeItemsList = product.freeItemsList ?? [];
+
+  // Margins backfilled from legacy absolute prices can be long repeating decimals
+  // (e.g. 34.61538…). Show at most 2 decimals so the fields stay clean.
+  const showMargin = (value: number) => {
+    if (!value) return "";
+    return Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
+  };
+
+  // Seed the per-price-list margin rows from the configured price lists once, when the
+  // editor opens without them (new product, or an existing product that predates margins).
+  useEffect(() => {
+    if (readOnly || (product.tierMargins && product.tierMargins.length > 0)) return;
+    let cancelled = false;
+    listPricingTiers()
+      .then((res) => {
+        if (cancelled || !res.items.length) return;
+        onChange({
+          tierMargins: res.items.map((tier) => ({
+            tierId: tier.id,
+            code: tier.code,
+            name: tier.name,
+            dealerMarginPercent: 0,
+            distributorMarginPercent: tier.distributorMarginPercent,
+          })),
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [product.id, readOnly]);
+
+  // Keep the legacy freeItems string in sync with the structured list, so existing
+  // consumers (catalog/order display) keep working.
+  const syncFreeItems = (list: Array<{ label: string; quantity: number }>) => {
+    const cleaned = list
+      .map((row) => ({ label: row.label, quantity: Math.max(1, row.quantity || 1) }))
+      .filter((row) => row.label.trim() || row.quantity);
+    onChange({
+      freeItemsList: list,
+      freeItems: cleaned.length ? JSON.stringify(cleaned) : undefined,
+    });
+  };
+
   return (
     <Tabs defaultValue="basics" className="space-y-4 pb-4">
       <div className="-mx-1 overflow-x-auto px-1 scrollbar-none">
@@ -221,15 +272,160 @@ export function ProductEditor({
                 className="mt-1 rounded-2xl"
               />
             </div>
-            <div>
-              <Label>Dealer price (₹)</Label>
-              <Input
-                type="number"
-                value={product.dealerPrice || ""}
-                disabled={readOnly}
-                onChange={(e) => onChange({ dealerPrice: Number(e.target.value) })}
-                className="mt-1 rounded-2xl"
-              />
+            <div className="sm:col-span-2 space-y-2">
+              <Label>Price lists (margins per product)</Label>
+              <p className="text-xs text-muted-foreground">
+                Dealer Price = MRP × (1 − Dealer Margin%). Distributor Price = Dealer Price ÷ (1 +
+                Distributor Margin%), rounded to the nearest rupee. MRP is fixed for all lists.
+              </p>
+              {(product.tierMargins ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No price lists yet. Create one under Pricing → Price lists.
+                </p>
+              ) : (
+                <>
+                  {/* Desktop/tablet: a real table. */}
+                  <div className="hidden overflow-x-auto rounded-xl border border-border md:block">
+                    <table className="w-full min-w-[720px] text-sm">
+                      <thead>
+                        <tr className="text-left text-xs uppercase text-muted-foreground">
+                          <th className="px-2 py-2">Price list</th>
+                          <th className="px-2 py-2">MRP</th>
+                          <th className="px-2 py-2">Dealer margin %</th>
+                          <th className="px-2 py-2">Dealer price</th>
+                          <th className="px-2 py-2">Dist. margin %</th>
+                          <th className="px-2 py-2">Distributor price</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(product.tierMargins ?? []).map((tier, index) => {
+                          const dealerPrice = calculateDealerPrice(
+                            product.mrp || 0,
+                            tier.dealerMarginPercent,
+                          );
+                          const distPrice = calculateDistributorPrice(
+                            dealerPrice,
+                            tier.distributorMarginPercent,
+                          );
+                          const patchTier = (patch: Partial<typeof tier>) => {
+                            const next = [...(product.tierMargins ?? [])];
+                            next[index] = { ...tier, ...patch };
+                            onChange({ tierMargins: next });
+                          };
+                          return (
+                            <tr key={tier.tierId} className="border-t border-border/70">
+                              <td className="px-2 py-2 font-semibold">{tier.code}</td>
+                              <td className="px-2 py-2">{product.mrp || "—"}</td>
+                              <td className="px-2 py-2">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  step="0.1"
+                                  disabled={readOnly}
+                                  value={showMargin(tier.dealerMarginPercent)}
+                                  className="w-24 rounded-xl"
+                                  onChange={(e) =>
+                                    patchTier({ dealerMarginPercent: Number(e.target.value) })
+                                  }
+                                />
+                              </td>
+                              <td className="px-2 py-2 font-bold">{dealerPrice}</td>
+                              <td className="px-2 py-2">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="0.1"
+                                  disabled={readOnly}
+                                  value={showMargin(tier.distributorMarginPercent)}
+                                  className="w-24 rounded-xl"
+                                  onChange={(e) =>
+                                    patchTier({ distributorMarginPercent: Number(e.target.value) })
+                                  }
+                                />
+                              </td>
+                              <td className="px-2 py-2 font-bold">
+                                {Number.isFinite(distPrice) ? distPrice : "—"}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile: one stacked card per price list instead of a cramped table. */}
+                  <div className="space-y-3 md:hidden">
+                    {(product.tierMargins ?? []).map((tier, index) => {
+                      const dealerPrice = calculateDealerPrice(
+                        product.mrp || 0,
+                        tier.dealerMarginPercent,
+                      );
+                      const distPrice = calculateDistributorPrice(
+                        dealerPrice,
+                        tier.distributorMarginPercent,
+                      );
+                      const patchTier = (patch: Partial<typeof tier>) => {
+                        const next = [...(product.tierMargins ?? [])];
+                        next[index] = { ...tier, ...patch };
+                        onChange({ tierMargins: next });
+                      };
+                      return (
+                        <div
+                          key={tier.tierId}
+                          className="rounded-xl border border-border p-3"
+                        >
+                          <div className="flex items-center justify-between text-sm font-semibold">
+                            <span>{tier.code}</span>
+                            <span className="text-muted-foreground">MRP ₹{product.mrp || 0}</span>
+                          </div>
+                          <div className="mt-3 grid grid-cols-2 gap-3">
+                            <div>
+                              <Label className="text-xs">Dealer margin %</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                max={100}
+                                step="0.1"
+                                disabled={readOnly}
+                                value={showMargin(tier.dealerMarginPercent)}
+                                className="mt-1 rounded-xl"
+                                onChange={(e) =>
+                                  patchTier({ dealerMarginPercent: Number(e.target.value) })
+                                }
+                              />
+                            </div>
+                            <div>
+                              <Label className="text-xs">Dist. margin %</Label>
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.1"
+                                disabled={readOnly}
+                                value={showMargin(tier.distributorMarginPercent)}
+                                className="mt-1 rounded-xl"
+                                onChange={(e) =>
+                                  patchTier({ distributorMarginPercent: Number(e.target.value) })
+                                }
+                              />
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Dealer price</p>
+                              <p className="font-bold">₹{dealerPrice}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Distributor price</p>
+                              <p className="font-bold">
+                                {Number.isFinite(distPrice) ? `₹${distPrice}` : "—"}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
             <div>
               <Label>Reward % of MRP</Label>
@@ -272,23 +468,77 @@ export function ProductEditor({
               />
               <Label>Reward rule active</Label>
             </div>
-            <div>
-              <Label>Legacy points (display)</Label>
-              <Input
-                type="number"
-                value={product.points || ""}
-                disabled
-                className="mt-1 rounded-2xl"
-              />
-            </div>
-            <div>
-              <Label>Free items label</Label>
-              <Input
-                value={product.freeItems ?? ""}
-                disabled={readOnly}
-                onChange={(e) => onChange({ freeItems: e.target.value })}
-                className="mt-1 rounded-2xl"
-              />
+            <div className="sm:col-span-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label>Free items</Label>
+                {!readOnly ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-xl"
+                    onClick={() => syncFreeItems([...freeItemsList, { label: "", quantity: 1 }])}
+                  >
+                    <Plus className="mr-1 h-4 w-4" />
+                    Add item
+                  </Button>
+                ) : null}
+              </div>
+              {freeItemsList.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No free items added yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {freeItemsList.map((item, index) => (
+                    <div key={`free-item-${index}`} className="flex items-center gap-2">
+                      <div className="w-20 shrink-0">
+                        <Input
+                          type="text"
+                          inputMode="numeric"
+                          disabled={readOnly}
+                          value={item.quantity > 0 ? String(item.quantity) : ""}
+                          placeholder="Qty"
+                          aria-label="Quantity"
+                          className="rounded-xl"
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/\D/g, "");
+                            const next = [...freeItemsList];
+                            next[index] = {
+                              ...item,
+                              quantity: digits === "" ? 0 : Math.max(1, Number(digits)),
+                            };
+                            syncFreeItems(next);
+                          }}
+                        />
+                      </div>
+                      <Input
+                        disabled={readOnly}
+                        value={item.label}
+                        placeholder="e.g. Fiber Pillows"
+                        className="flex-1 rounded-xl"
+                        onChange={(e) => {
+                          const next = [...freeItemsList];
+                          next[index] = { ...item, label: e.target.value };
+                          syncFreeItems(next);
+                        }}
+                      />
+                      {!readOnly ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="rounded-xl"
+                          aria-label="Remove"
+                          onClick={() =>
+                            syncFreeItems(freeItemsList.filter((_, rowIndex) => rowIndex !== index))
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </AdminSection>

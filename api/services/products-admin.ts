@@ -1,5 +1,6 @@
 import { id, nowIso } from "../utils";
 import { writeAuditLog } from "./audit";
+import { listProductTierPrices, saveProductTierMargins } from "./pricing-tiers";
 
 export type AdminProductRow = {
   id: string;
@@ -19,6 +20,14 @@ export type AdminProductRow = {
   image: string;
   status: "active" | "archived";
   sortOrder: number;
+  /** Per price-list (tier) margins for this product. */
+  tierMargins: Array<{
+    tierId: string;
+    code: string;
+    name: string;
+    dealerMarginPercent: number;
+    distributorMarginPercent: number;
+  }>;
 };
 
 export type ProductFilters = {
@@ -46,6 +55,12 @@ export type ProductInput = {
   blurb?: string;
   image?: string;
   sortOrder?: number;
+  /** Per price-list (tier) margins to persist for this product. */
+  tierMargins?: Array<{
+    tierId: string;
+    dealerMarginPercent: number;
+    distributorMarginPercent: number;
+  }>;
 };
 
 async function loadProduct(db: D1Database, productId: string): Promise<AdminProductRow | null> {
@@ -56,13 +71,20 @@ async function loadProduct(db: D1Database, productId: string): Promise<AdminProd
   if (!product) return null;
 
   const details = await batchLoadProductDetails(db, [productId]);
-  return mapProductRow(product, details.thicknessMap.get(productId) ?? [], details.priceMap.get(productId));
+  const tierMargins = await listProductTierPrices(db, productId);
+  return mapProductRow(
+    product,
+    details.thicknessMap.get(productId) ?? [],
+    details.priceMap.get(productId),
+    tierMargins,
+  );
 }
 
 function mapProductRow(
   product: Record<string, unknown>,
   thicknesses: string[],
   price: Record<string, unknown> | undefined,
+  tierMargins: AdminProductRow["tierMargins"] = [],
 ): AdminProductRow {
   const active = Boolean(product.active);
   return {
@@ -83,6 +105,7 @@ function mapProductRow(
     image: (product.image_url as string) ?? "",
     status: active ? "active" : "archived",
     sortOrder: (product.sort_order as number) ?? 0,
+    tierMargins,
   };
 }
 
@@ -273,6 +296,9 @@ export async function createAdminProduct(db: D1Database, input: ProductInput, ac
 
   await upsertThicknesses(db, productId, input.thicknesses ?? []);
   await upsertPrice(db, productId, input);
+  if (input.tierMargins?.length) {
+    await saveProductTierMargins(db, productId, input.tierMargins);
+  }
 
   const created = await loadProduct(db, productId);
   await writeAuditLog(db, {
@@ -315,6 +341,9 @@ export async function updateAdminProduct(
 
   if (input.thicknesses) await upsertThicknesses(db, productId, input.thicknesses);
   await upsertPrice(db, productId, input);
+  if (input.tierMargins?.length) {
+    await saveProductTierMargins(db, productId, input.tierMargins);
+  }
 
   const after = await loadProduct(db, productId);
   await writeAuditLog(db, {

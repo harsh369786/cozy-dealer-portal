@@ -19,7 +19,7 @@ import {
 import type { AdminProduct } from "@/lib/mock/admin/types";
 import { PRODUCT_CATALOGUE_LAYERS, PRODUCT_CATEGORIES, PRODUCT_GUARANTEES } from "@/lib/demo-data";
 import { listPricingTiers } from "@/services/admin/pricing-tiers";
-import { calculateDistributorPrice } from "@/lib/distributor-price";
+import { calculateDealerPrice, calculateDistributorPrice } from "@/lib/distributor-price";
 import { calculateRewardPoints } from "../../../shared/reward-points";
 
 export function emptyProduct(): AdminProduct {
@@ -81,19 +81,18 @@ export function ProductEditor({
   const freeItemsList = product.freeItemsList ?? [];
 
   useEffect(() => {
-    if (readOnly || (product.tierPrices && product.tierPrices.length > 0)) return;
+    if (readOnly || (product.tierMargins && product.tierMargins.length > 0)) return;
     let cancelled = false;
     listPricingTiers()
       .then((res) => {
         if (cancelled || !res.items.length) return;
         onChange({
-          tierPrices: res.items.map((tier) => ({
+          tierMargins: res.items.map((tier) => ({
             tierId: tier.id,
             code: tier.code,
             name: tier.name,
-            dealerPrice: product.dealerPrice || 0,
+            dealerMarginPercent: 0,
             distributorMarginPercent: tier.distributorMarginPercent,
-            distributorPrice: 0,
           })),
         });
       })
@@ -377,43 +376,50 @@ export function ProductEditor({
                 onChange={(e) => onChange({ mrp: Number(e.target.value) })}
                 className="mt-1 rounded-2xl"
               />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Fixed product MRP (base 72″×36″). This is the same for every price list; the
+                lists only change margins. ≈ ₹{Math.round((product.mrp || 0) / 18)}/sq.ft.
+              </p>
             </div>
             <div className="sm:col-span-2 space-y-3">
-              <Label>Pricing tiers</Label>
+              <Label>Price lists (margins per product)</Label>
               <p className="text-xs text-muted-foreground">
-                Enter dealer price per tier. Distributor margin is set on the tier. Distributor price is calculated as
-                Dealer Price ÷ (1 + margin/100) and rounded to the nearest rupee.
+                Set Dealer Margin % and Distributor Margin % for each price list. Dealer Price = MRP ×
+                (1 − Dealer Margin%). Distributor Price = Dealer Price ÷ (1 + Distributor Margin%),
+                rounded to the nearest rupee.
               </p>
-              {(product.tierPrices ?? []).length === 0 ? (
-                <div>
-                  <Label>Dealer price (₹) — T1</Label>
-                  <Input
-                    type="number"
-                    value={product.dealerPrice || ""}
-                    disabled={readOnly}
-                    onChange={(e) => onChange({ dealerPrice: Number(e.target.value) })}
-                    className="mt-1 rounded-2xl"
-                  />
-                </div>
+              {(product.tierMargins ?? []).length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No price lists found. Create one under Pricing → Price lists.
+                </p>
               ) : (
                 <div className="-mx-1 overflow-x-auto">
-                  <table className="w-full min-w-[640px] text-sm">
+                  <table className="w-full min-w-[720px] text-sm">
                     <thead>
                       <tr className="text-left text-xs uppercase text-muted-foreground">
-                        <th className="px-1 py-2">Tier</th>
+                        <th className="px-1 py-2">Price list</th>
                         <th className="px-1 py-2">MRP</th>
+                        <th className="px-1 py-2">Dealer margin %</th>
                         <th className="px-1 py-2">Dealer price</th>
                         <th className="px-1 py-2">Dist. margin %</th>
                         <th className="px-1 py-2">Distributor price</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(product.tierPrices ?? []).map((tier, index) => {
-                        const dealerPrice = tier.dealerPrice || 0;
+                      {(product.tierMargins ?? []).map((tier, index) => {
+                        const dealerPrice = calculateDealerPrice(
+                          product.mrp || 0,
+                          tier.dealerMarginPercent,
+                        );
                         const distPrice = calculateDistributorPrice(
                           dealerPrice,
                           tier.distributorMarginPercent,
                         );
+                        const patchTier = (patch: Partial<typeof tier>) => {
+                          const next = [...(product.tierMargins ?? [])];
+                          next[index] = { ...tier, ...patch };
+                          onChange({ tierMargins: next });
+                        };
                         return (
                           <tr key={tier.tierId} className="border-t border-border/70">
                             <td className="px-1 py-2 font-semibold">{tier.code}</td>
@@ -421,23 +427,34 @@ export function ProductEditor({
                             <td className="px-1 py-2">
                               <Input
                                 type="number"
+                                min={0}
+                                max={100}
+                                step="0.1"
                                 disabled={readOnly}
-                                value={tier.dealerPrice || ""}
-                                className="rounded-xl"
-                                onChange={(e) => {
-                                  const next = [...(product.tierPrices ?? [])];
-                                  const value = Number(e.target.value);
-                                  next[index] = { ...tier, dealerPrice: value };
-                                  const t1 = next.find((row) => row.tierId === "tier-t1");
-                                  onChange({
-                                    tierPrices: next,
-                                    dealerPrice: t1?.dealerPrice ?? product.dealerPrice,
-                                  });
-                                }}
+                                value={tier.dealerMarginPercent || ""}
+                                className="w-24 rounded-xl"
+                                onChange={(e) =>
+                                  patchTier({ dealerMarginPercent: Number(e.target.value) })
+                                }
                               />
                             </td>
-                            <td className="px-1 py-2">{tier.distributorMarginPercent}%</td>
-                            <td className="px-1 py-2 font-bold">{Number.isFinite(distPrice) ? distPrice : "—"}</td>
+                            <td className="px-1 py-2 font-bold">{dealerPrice}</td>
+                            <td className="px-1 py-2">
+                              <Input
+                                type="number"
+                                min={0}
+                                step="0.1"
+                                disabled={readOnly}
+                                value={tier.distributorMarginPercent || ""}
+                                className="w-24 rounded-xl"
+                                onChange={(e) =>
+                                  patchTier({ distributorMarginPercent: Number(e.target.value) })
+                                }
+                              />
+                            </td>
+                            <td className="px-1 py-2 font-bold">
+                              {Number.isFinite(distPrice) ? distPrice : "—"}
+                            </td>
                           </tr>
                         );
                       })}

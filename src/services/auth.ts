@@ -94,32 +94,54 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
 
   if (sessionInflight) return sessionInflight;
 
-  sessionInflight = api
-    .get<{ user: SessionUser }>("/api/v1/auth/me")
-    .then((res) => {
-      sessionCache = { user: res.user, at: Date.now() };
-      writeStoredUser(res.user);
-      return res.user;
-    })
-    .catch((err: unknown) => {
-      const status = err instanceof ApiError ? err.status : 0;
-      if (status === 401 || status === 403) {
-        sessionCache = { user: null, at: Date.now() };
-        writeStoredUser(null);
-        return null;
-      }
-      if (stored) {
-        sessionCache = { user: stored, at: Date.now() };
-        return stored;
-      }
-      sessionCache = { user: null, at: Date.now() };
-      return null;
+  sessionInflight = fetchCurrentUser(stored)
+    .then((user) => {
+      sessionCache = { user, at: Date.now() };
+      writeStoredUser(user);
+      return user;
     })
     .finally(() => {
       sessionInflight = null;
     });
 
   return sessionInflight;
+}
+
+/**
+ * Resolve the current user via /auth/me, tolerant of TRANSIENT auth failures.
+ *
+ * A single 401/403 is NOT treated as a definitive logout: on some PWA cold launches /
+ * deep-link navigations the session cookie is briefly not sent, which returns 401 even
+ * though the server session is still valid. We retry once before deciding the user is
+ * logged out. Non-auth errors (network/500/timeout) keep the last-known stored user.
+ */
+async function fetchCurrentUser(stored: SessionUser | null): Promise<SessionUser | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await api.get<{ user: SessionUser }>("/api/v1/auth/me");
+      return res.user;
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 0;
+      const isAuthError = status === 401 || status === 403;
+
+      if (isAuthError && attempt === 0) {
+        // Transient: give the cookie a moment and try once more before clearing.
+        await delay(400);
+        continue;
+      }
+      if (isAuthError) {
+        // Confirmed logged out after a retry.
+        return null;
+      }
+      // Network / server error: don't destroy a working session over a blip.
+      return stored ?? null;
+    }
+  }
+  return stored ?? null;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function logout(): Promise<void> {

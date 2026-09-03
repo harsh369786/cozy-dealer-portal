@@ -11,6 +11,12 @@ export type RewardEligibility = "dealer" | "distributor" | "both";
 
 import { getActivePriceCampaignRow } from "./campaigns-public";
 import { applyMattressPricing, assertMattressDimensions, pricingDimensions } from "./mattress-pricing";
+import {
+  calculateDealerPrice,
+  calculateDistributorPrice,
+  marginsFromContext,
+  resolvePricingContext,
+} from "./pricing-tiers";
 
 export async function getActivePriceCampaign(
   db: D1Database,
@@ -41,6 +47,10 @@ export async function buildPriceQuote(
     campaignId?: string;
     lengthIn?: number;
     breadthIn?: number;
+    // Pricing context: used to resolve the price list (tier) and its per-product margins.
+    dealerId?: string | null;
+    distributorId?: string | null;
+    pricingTierId?: string | null;
   },
 ) {
   const product = await db
@@ -71,18 +81,38 @@ export async function buildPriceQuote(
 
   assertMattressDimensions(input.lengthIn, input.breadthIn);
 
+  // Scale the base MRP (72"x36") to the requested size/thickness. dealer_price is passed
+  // only so the helper returns a scaled figure; the authoritative dealer price is derived
+  // from MRP x (1 - dealerMargin%) below.
   const sized = applyMattressPricing(priceRow.mrp, priceRow.dealer_price, {
     lengthIn: input.lengthIn,
     breadthIn: input.breadthIn,
     thickness: input.thickness,
   });
   const standardDims = pricingDimensions(input.lengthIn, input.breadthIn);
+  const mrp = sized.mrp;
+
+  // Resolve the dealer's price list (tier) and its per-product margins.
+  const ctx = await resolvePricingContext(db, {
+    dealerId: input.dealerId,
+    distributorId: input.distributorId,
+    pricingTierId: input.pricingTierId,
+  });
+  const { dealerMarginPercent, distributorMarginPercent } = marginsFromContext(ctx, input.productId);
+
+  // Dealer Price = MRP x (1 - dealerMargin%/100), applied to the size-scaled MRP.
+  // When no tier/margins are configured, dealer margin falls back to 0 and we use the
+  // legacy stored dealer price so existing catalogs keep their prices.
+  const marginDealerPrice = calculateDealerPrice(mrp, dealerMarginPercent);
+  const dealerPrice =
+    ctx && ctx.dealerMarginByProduct.has(input.productId) ? marginDealerPrice : sized.dealerPrice;
+
+  // Distributor Price = Dealer Price / (1 + distributorMargin%/100), rounded half-up.
+  const distributorPrice = calculateDistributorPrice(dealerPrice, distributorMarginPercent);
 
   const matchedCampaign = await getActivePriceCampaign(db, input.productId, {
     campaignId: input.campaignId,
   });
-  const dealerPrice = sized.dealerPrice;
-  const mrp = sized.mrp;
   const rawCampaignPrice = matchedCampaign
     ? getCampaignPrice(dealerPrice, matchedCampaign.discount_percent)
     : null;
@@ -103,6 +133,9 @@ export async function buildPriceQuote(
     productName: product.name,
     mrp,
     dealerPrice,
+    dealerMarginPercent,
+    distributorPrice,
+    distributorMarginPercent,
     sizeFactor: sized.factor,
     campaignId: campaign?.id ?? null,
     campaignPrice,

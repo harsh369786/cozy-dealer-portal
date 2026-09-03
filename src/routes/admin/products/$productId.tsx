@@ -13,6 +13,27 @@ import { useAdminPermissions } from "@/hooks/use-admin-permissions";
 import { archiveProduct, getProduct, restoreProduct, saveProduct } from "@/services/admin/products";
 import { ProductEditor } from "./new";
 
+/** Parse the stored free-items value (JSON array or legacy plain text) into editor rows. */
+function parseFreeItemsList(value?: string | null): Array<{ label: string; quantity: number }> {
+  const raw = String(value ?? "").trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((row) => {
+          if (typeof row === "string") return { label: row.trim(), quantity: 1 };
+          const r = row as { label?: string; quantity?: number };
+          return { label: String(r.label ?? "").trim(), quantity: Math.max(1, Number(r.quantity) || 1) };
+        })
+        .filter((row) => row.label);
+    }
+  } catch {
+    // legacy plain-text label
+  }
+  return [{ label: raw, quantity: 1 }];
+}
+
 export const Route = createFileRoute("/admin/products/$productId")({
   component: EditProductPage,
 });
@@ -27,7 +48,7 @@ function EditProductPage() {
 
   const { loading, error, retry } = useAsyncData(async () => {
     const p = await getProduct(productId);
-    setLocal(p);
+    setLocal(p ? { ...p, freeItemsList: parseFreeItemsList(p.freeItems) } : p);
     return p;
   }, [productId]);
 

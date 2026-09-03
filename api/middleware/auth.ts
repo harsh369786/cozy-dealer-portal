@@ -126,11 +126,15 @@ export function isSecureCookieEnv(environment?: string) {
   return environment !== "development" && environment !== "local";
 }
 
+// SameSite=Lax (not Strict): the cookie must be sent on top-level navigations such as
+// installed-PWA cold launches, notification deep links, and links opened from outside the
+// app. Strict withholds the cookie on those, producing a spurious 401 → logout even though
+// the server session is still valid. Lax keeps CSRF protection for cross-site subrequests.
 export function setSessionCookie(sessionId: string, secure = true) {
   const maxAge = 30 * 24 * 60 * 60;
-  return `${SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${cookieFlags(secure)}`;
+  return `${SESSION_COOKIE}=${sessionId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${cookieFlags(secure)}`;
 }
 
 export function clearSessionCookie(secure = true) {
-  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${cookieFlags(secure)}`;
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${cookieFlags(secure)}`;
 }

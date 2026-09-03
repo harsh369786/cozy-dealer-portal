@@ -10,6 +10,10 @@ function deferOnSsr(): SessionUser | null {
 
 export async function requireUser() {
   if (import.meta.env.SSR) return deferOnSsr() as SessionUser;
+  // getCurrentUser() only resolves null on a CONFIRMED logout (a retried 401/403) or when
+  // there is genuinely no session; transient auth blips and network/server errors keep the
+  // last-known user (see fetchCurrentUser in services/auth.ts). So redirecting on null here
+  // no longer fires on a momentary cookie-not-sent during PWA reopen / deep links.
   const user = await getCurrentUser();
   if (!user) throw redirect({ to: "/" });
   if (user.status === "pending_approval") throw redirect({ to: "/pending-approval" });
