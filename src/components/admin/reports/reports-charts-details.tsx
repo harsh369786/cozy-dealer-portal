@@ -5,7 +5,7 @@ import { ChartCard } from "@/components/shared/chart-card";
 import { StatCard } from "@/components/shared/stat-card";
 import { ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-import { inrCompact } from "@/lib/demo-data";
+import { inrCompact } from "@/lib/currency-format";
 import {
   PIE_COLORS,
   aggregateProductTrends,

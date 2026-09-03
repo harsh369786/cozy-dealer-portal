@@ -24,6 +24,7 @@ dist-ssr
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+.cursor/
 .idea
 .DS_Store
 *.suo
@@ -31,3 +32,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Scratch / temp
+deploy*.txt
+audit_report*.md
+patch_*.py

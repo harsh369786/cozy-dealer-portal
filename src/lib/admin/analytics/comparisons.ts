@@ -1,4 +1,4 @@
-import { inr, inrCompact } from "@/lib/demo-data";
+import { inr, inrCompact } from "@/lib/currency-format";
 import type { DeltaMetric } from "./types";
 import { deltaDirection, pctChange, previousMonth } from "./filters";
 

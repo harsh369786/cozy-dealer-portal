@@ -20,6 +20,7 @@ export type AdminUser = {
   distributorId?: string;
   distributorName?: string;
   region?: string;
+  pricingTierId?: string;
   createdAt: string;
   invitedAt?: string;
   inviteSentVia?: "whatsapp";

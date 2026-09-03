@@ -1,5 +1,5 @@
 import { adminStore } from "@/lib/mock/admin/store";
-import { inrCompact } from "@/lib/demo-data";
+import { inrCompact } from "@/lib/currency-format";
 import { dealerMomDelta, dealerSalesForMonth } from "./comparisons";
 import { daysUntil, parseComplaintMonth, pctChange, previousMonth } from "./filters";
 import type { AnalyticsScope } from "./scope";

@@ -52,12 +52,21 @@ export async function scanPendingOrderReminders(db: D1Database) {
     .bind(`-${hours} hours`)
     .all<{ id: string; dealer_id: string; distributor_id: string; placed_at: string }>();
 
+  // Pre-fetch already-reminded order ids in one query instead of one SELECT per order (N+1).
+  const alreadyReminded = new Set<string>();
+  if (results.length) {
+    const placeholders = results.map(() => "?").join(",");
+    const { results: reminded } = await db
+      .prepare(
+        `SELECT order_id FROM order_reminders WHERE reminder_type = 'pending_2h' AND order_id IN (${placeholders})`,
+      )
+      .bind(...results.map((o) => o.id))
+      .all<{ order_id: string }>();
+    for (const r of reminded) alreadyReminded.add(r.order_id);
+  }
+
   for (const order of results) {
-    const existing = await db
-      .prepare(`SELECT id FROM order_reminders WHERE order_id = ? AND reminder_type = 'pending_2h'`)
-      .bind(order.id)
-      .first();
-    if (existing) continue;
+    if (alreadyReminded.has(order.id)) continue;
 
     const distUsers = await db
       .prepare(

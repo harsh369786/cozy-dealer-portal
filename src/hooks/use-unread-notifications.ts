@@ -49,7 +49,10 @@ export function useUnreadNotificationCount(refreshIntervalMs = CACHE_TTL_MS) {
     const onRefresh = () => void load(true);
     window.addEventListener(NOTIFICATION_COUNT_REFRESH_EVENT, onRefresh);
 
-    const intervalId = window.setInterval(() => void load(true), refreshIntervalMs);
+    // Interval is a safety-net refresh that respects the TTL cache + in-flight dedupe
+    // (force=false), so it won't stack redundant requests on top of the bridge poll or
+    // the event-driven forced refreshes triggered by real notification actions.
+    const intervalId = window.setInterval(() => void load(false), refreshIntervalMs);
     return () => {
       cancelled = true;
       window.removeEventListener(NOTIFICATION_COUNT_REFRESH_EVENT, onRefresh);

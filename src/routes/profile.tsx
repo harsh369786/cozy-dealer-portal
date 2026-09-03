@@ -11,7 +11,7 @@ import { useFormat } from "@/hooks/use-format";
 import { getDealerById, getDealerPerformance } from "@/services/dealers";
 import { logout } from "@/services/auth";
 import { getRewardBalance } from "@/services/rewards";
-import { PageSkeleton } from "@/components/shared/states";
+import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { PushNotificationToggle } from "@/components/shared/push-notification-toggle";
 
 export const Route = createFileRoute("/profile")({
@@ -25,25 +25,51 @@ function DealerProfilePage() {
   const { user } = useSession();
   const navigate = useNavigate();
 
-  const { data: dealer, loading: dealerLoading } = useAsyncData(
+  const {
+    data: dealer,
+    loading: dealerLoading,
+    error: dealerError,
+    retry: retryDealer,
+  } = useAsyncData(
     () => (user?.dealerId ? getDealerById(user.dealerId) : Promise.resolve(null)),
     [user?.dealerId],
   );
 
-  const { data: balance, loading: balanceLoading } = useAsyncData(() => getRewardBalance(), []);
+  const {
+    data: balance,
+    loading: balanceLoading,
+    error: balanceError,
+    retry: retryBalance,
+  } = useAsyncData(() => getRewardBalance(), []);
 
-  const { data: performance, loading: performanceLoading } = useAsyncData(
+  const {
+    data: performance,
+    loading: performanceLoading,
+    error: performanceError,
+    retry: retryPerformance,
+  } = useAsyncData(
     () => (user?.dealerId ? getDealerPerformance(user.dealerId) : Promise.resolve([])),
     [user?.dealerId],
   );
 
   const loading = dealerLoading || balanceLoading || performanceLoading;
+  const error = dealerError ?? balanceError ?? performanceError;
+
+  const retryAll = () => {
+    retryDealer();
+    retryBalance();
+    retryPerformance();
+  };
 
   return (
     <AppShell title={t("dealer.profile.title")} back="/campaigns">
       {loading && <PageSkeleton rows={2} />}
 
-      {!loading && (
+      {!loading && error && (
+        <ErrorState message={error} onRetry={retryAll} />
+      )}
+
+      {!loading && !error && (
         <div className="animate-rise space-y-4">
           <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
             <p className="font-display text-xl font-bold">{user?.name ?? t("common.dealer")}</p>

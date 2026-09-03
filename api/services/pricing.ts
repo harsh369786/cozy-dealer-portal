@@ -1,10 +1,11 @@
 export function getCampaignPrice(dealerPrice: number, discountPercent: number) {
-  return Math.round(dealerPrice * (1 - discountPercent / 100));
+  return Math.max(0, Math.round(dealerPrice * (1 - discountPercent / 100)));
 }
 
-export function calculateRewardPoints(mrp: number, rewardPercent: number, quantity: number): number {
-  return Math.round((mrp * rewardPercent) / 100) * Math.max(1, quantity);
-}
+// Reward points use the canonical dealer-price x10 rule (1 rupee = 10 points).
+// Imported for use within this module and re-exported for existing importers (e.g. app.ts).
+import { calculateRewardPoints } from "../../shared/reward-points";
+export { calculateRewardPoints };
 
 export type RewardEligibility = "dealer" | "distributor" | "both";
 
@@ -77,19 +78,25 @@ export async function buildPriceQuote(
   });
   const standardDims = pricingDimensions(input.lengthIn, input.breadthIn);
 
-  const campaign = await getActivePriceCampaign(db, input.productId, {
+  const matchedCampaign = await getActivePriceCampaign(db, input.productId, {
     campaignId: input.campaignId,
   });
   const dealerPrice = sized.dealerPrice;
   const mrp = sized.mrp;
-  const campaignPrice = campaign
-    ? getCampaignPrice(dealerPrice, campaign.discount_percent)
+  const rawCampaignPrice = matchedCampaign
+    ? getCampaignPrice(dealerPrice, matchedCampaign.discount_percent)
     : null;
+  // Only treat it as a campaign when it actually reduces the dealer price. A 0%
+  // (or otherwise non-discounting) campaign must not strike through the dealer
+  // price or advertise a "0% off" offer.
+  const hasRealDiscount = rawCampaignPrice != null && rawCampaignPrice < dealerPrice;
+  const campaign = hasRealDiscount ? matchedCampaign : null;
+  const campaignPrice = hasRealDiscount ? rawCampaignPrice : null;
   const unitPrice = campaignPrice ?? dealerPrice;
   const qty = Math.max(1, input.quantity);
 
   const rewardPercent = priceRow.reward_percent ?? 0;
-  const pointsEarned = calculateRewardPoints(mrp, rewardPercent, qty);
+  const pointsEarned = calculateRewardPoints(dealerPrice, rewardPercent, qty);
 
   return {
     productId: input.productId,

@@ -6,6 +6,27 @@ export async function getRewardCatalog() {
   );
 }
 
+export type AdditionalRewardItem = {
+  id: string;
+  name: string;
+  emoji: string;
+  points: number;
+  imageUrl?: string;
+  eligible: boolean;
+  remaining: number;
+  pct: number;
+};
+
+export type AdditionalRewardsPayload = {
+  lifetimeEarned: number;
+  claimed: { id: string; name: string; emoji: string } | null;
+  items: AdditionalRewardItem[];
+};
+
+export async function getAdditionalRewards() {
+  return api.get<AdditionalRewardsPayload>("/api/v1/rewards/additional");
+}
+
 export async function getRewardBalance() {
   return api.get<{ balance: number; nextRewardAt: number }>("/api/v1/rewards/balance");
 }

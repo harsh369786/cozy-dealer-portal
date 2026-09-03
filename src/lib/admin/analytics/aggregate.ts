@@ -1,5 +1,5 @@
 import { adminStore } from "@/lib/mock/admin/store";
-import { inrCompact } from "@/lib/demo-data";
+import { inrCompact } from "@/lib/currency-format";
 import type { DistributorDealer } from "@/lib/mock/distributor/types";
 import {
   dealerMomDelta,

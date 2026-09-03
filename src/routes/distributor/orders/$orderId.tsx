@@ -197,8 +197,13 @@ function OrderDetailPage() {
             {order.items.map((item, i) => (
               <div key={i} className="rounded-2xl border border-border bg-card p-3 text-sm">
                 <p className="font-semibold">
-                  {item.model} — {item.size} × {item.thickness}
+                  {item.model} — {item.sizeRequested ?? item.size} × {item.thickness}
                 </p>
+                {item.sizeRequested && item.sizeStandard && item.sizeRequested !== item.sizeStandard && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("dealer.orderDetail.pricedAsStandard", { size: item.sizeStandard })}
+                  </p>
+                )}
                 <p className="text-muted-foreground">
                   {t("common.quantity")}: {item.quantity}
                 </p>

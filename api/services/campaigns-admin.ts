@@ -7,6 +7,7 @@ import {
   isCampaignLive,
   normalizeCampaignDate,
   readCampaignDate,
+  todayIso,
 } from "./campaign-utils";
 
 export type AdminCampaignRow = {
@@ -124,7 +125,7 @@ async function loadCampaign(db: D1Database, campaignId: string): Promise<AdminCa
 export async function listAdminCampaigns(db: D1Database, filters: CampaignFilters = {}) {
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const baseSql = `WITH campaign_rows AS (
     SELECT pc.*, p.name AS product_name, d.name AS distributor_name,
       CASE
@@ -210,6 +211,48 @@ function resolveCampaignImageUrl(input: CampaignInput, before?: AdminCampaignRow
   return before?.imageUrl ? normalizeStoredImageUrl(before.imageUrl) : null;
 }
 
+/** Validate discount range + date order, and reject overlapping active campaigns for the same product scope. */
+async function validateCampaignInput(
+  db: D1Database,
+  args: {
+    campaignId: string;
+    productId: string | null;
+    discountPercent: number;
+    startDate: string;
+    endDate: string;
+    status: string;
+  },
+) {
+  const discount = Number(args.discountPercent);
+  if (!Number.isFinite(discount) || discount < 0 || discount > 100) {
+    throw new Error("Discount must be between 0 and 100");
+  }
+  if (args.startDate > args.endDate) {
+    throw new Error("Campaign start date must be on or before the end date");
+  }
+
+  // Only enforce overlap when the campaign is (or will be) live, not for expired ones.
+  if (args.status === "expired") return;
+
+  // Same product scope = same product_id value, and all-products (NULL) overlaps all-products.
+  const conflict = await db
+    .prepare(
+      `SELECT id FROM price_campaigns
+       WHERE deleted_at IS NULL
+         AND id != ?
+         AND ((product_id = ?) OR (product_id IS NULL AND ? IS NULL))
+         AND IFNULL(status, 'active') != 'expired'
+         AND date(substr(start_at, 1, 10)) <= date(?)
+         AND date(substr(end_at, 1, 10)) >= date(?)
+       LIMIT 1`,
+    )
+    .bind(args.campaignId, args.productId, args.productId, args.endDate, args.startDate)
+    .first<{ id: string }>();
+  if (conflict) {
+    throw new Error("An overlapping campaign already exists for this product during these dates.");
+  }
+}
+
 export async function createCampaign(db: D1Database, input: CampaignInput, actorUserId: string) {
   if (!input.name?.trim()) throw new Error("Campaign name is required");
 
@@ -218,6 +261,14 @@ export async function createCampaign(db: D1Database, input: CampaignInput, actor
   const status = input.status ?? "active";
   const startDate = normalizeCampaignDate(input.startDate);
   const endDate = normalizeCampaignDate(input.endDate);
+  await validateCampaignInput(db, {
+    campaignId,
+    productId,
+    discountPercent: input.discountPercent ?? 0,
+    startDate,
+    endDate,
+    status,
+  });
   await db
     .prepare(
       `INSERT INTO price_campaigns (id, name, product_id, discount_percent, start_at, end_at, description, terms, badge_label, status, whatsapp_target_dealers, whatsapp_target_distributors, image_r2_key, image_url)
@@ -271,6 +322,14 @@ export async function updateCampaign(
   const productId = await resolveProductId(db, input, before.productId);
   const startDate = normalizeCampaignDate(input.startDate);
   const endDate = normalizeCampaignDate(input.endDate);
+  await validateCampaignInput(db, {
+    campaignId,
+    productId,
+    discountPercent: input.discountPercent ?? before.discountPercent ?? 0,
+    startDate,
+    endDate,
+    status: input.status ?? before.storedStatus,
+  });
 
   await db
     .prepare(

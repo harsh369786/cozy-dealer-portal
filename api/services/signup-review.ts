@@ -37,6 +37,7 @@ function mapSignupRow(r: Record<string, unknown>) {
     distributorName: r.distributor_name as string,
     status: r.status as string,
     reviewNote: (r.review_note as string) ?? null,
+    createdAt: (r.created_at as string) ?? nowIso(),
     submittedAtLabel: formatInLabel((r.created_at as string) ?? nowIso()),
   };
 }

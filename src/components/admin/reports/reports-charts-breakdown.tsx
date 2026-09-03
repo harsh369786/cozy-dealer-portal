@@ -4,7 +4,7 @@ import type { AdminAnalyticsReport, AnalyticsFilters } from "@/lib/admin/analyti
 import { ChartCard } from "@/components/shared/chart-card";
 import { ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
-import { inr, inrCompact } from "@/lib/demo-data";
+import { inr, inrCompact } from "@/lib/currency-format";
 import {
   LEVEL_TITLES,
   PIE_COLORS,

@@ -32,6 +32,35 @@ export async function nextOrderId(db: D1Database, reference = new Date()): Promi
   return `${prefix}${String(seq).padStart(2, "0")}`;
 }
 
+/** Complaint number prefix for a calendar day in IST: `CP-DDMMYY` */
+export function complaintNumberDatePrefix(reference = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: IST_TIMEZONE,
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  }).formatToParts(reference);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return `CP-${get("day")}${get("month")}${get("year")}`;
+}
+
+/** Next human-facing complaint number for today (IST): `CP-DDMMYYNN` (NN is the daily sequence). */
+export async function nextComplaintNumber(db: D1Database, reference = new Date()): Promise<string> {
+  const prefix = complaintNumberDatePrefix(reference);
+  const row = await db
+    .prepare(
+      `INSERT INTO complaint_sequences (date_prefix, last_value)
+       VALUES (?, 1)
+       ON CONFLICT(date_prefix) DO UPDATE SET last_value = last_value + 1
+       RETURNING last_value`,
+    )
+    .bind(prefix)
+    .first<{ last_value: number }>();
+  if (!row) throw new Error("Could not allocate complaint number");
+  return `${prefix}${String(row.last_value).padStart(2, "0")}`;
+}
+
 export async function sha256(value: string): Promise<string> {
   const data = new TextEncoder().encode(value);
   const hash = await crypto.subtle.digest("SHA-256", data);
@@ -106,6 +135,16 @@ export function istYearMonth(d = new Date()): string {
   }).format(d);
 }
 
+/** Today's calendar date in IST as YYYY-MM-DD (for campaign active/expiry windows). */
+export function istTodayIso(d = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: IST_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
 /** Format SQLite `YYYY-MM` (from strftime) as "Aug 2026". */
 export function formatYearMonthLabel(ym: string | null | undefined): string {
   if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return "—";
@@ -140,3 +179,30 @@ export const SESSION_DAYS = 30;
 export const OTP_TTL_MINUTES = 10;
 export const OTP_MAX_ATTEMPTS = 5;
 export const MOCK_OTP_CODE = "123456";
+
+function isEnvFlagEnabled(value?: string | null) {
+  const v = String(value ?? "").trim().toLowerCase();
+  return v === "1" || v === "true" || v === "yes";
+}
+
+/** One-tap demo logins + mock OTP when enabled in Worker vars or local Vite. */
+export function isDemoModeEnabled(env?: { MOCK_OTP?: string; DEMO_LOGINS_ENABLED?: string; ENVIRONMENT?: string } | null): boolean {
+  // Explicit flags are authoritative (set via Worker vars or local Vite).
+  if (isEnvFlagEnabled(env?.MOCK_OTP) || isEnvFlagEnabled(env?.DEMO_LOGINS_ENABLED)) return true;
+  if (typeof process !== "undefined" && process.env) {
+    if (isEnvFlagEnabled(process.env.MOCK_OTP) || isEnvFlagEnabled(process.env.DEMO_LOGINS_ENABLED)) return true;
+  }
+  // If the Worker env explicitly declares an environment, trust ONLY that (never the ambient
+  // process, which nodejs_compat can make truthy in production). Otherwise fall back to a
+  // Node (local/dev tooling) heuristic.
+  const declaredEnvironment = env?.ENVIRONMENT;
+  if (declaredEnvironment !== undefined) {
+    return false;
+  }
+  const environment = typeof process !== "undefined" ? process.env?.ENVIRONMENT : undefined;
+  return (
+    typeof process !== "undefined" &&
+    process.release?.name === "node" &&
+    environment !== "production"
+  );
+}

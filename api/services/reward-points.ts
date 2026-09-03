@@ -1,4 +1,5 @@
 import { id, nowIso } from "../utils";
+import { hasRewardKindColumn, standardCatalogSqlFilter } from "../db/reward-schema";
 
 /** Sanity cap for dealer reward balances and catalog tiers (prevents corrupt ledger display). */
 export const MAX_DEALER_REWARD_POINTS = 10_000_000;
@@ -29,10 +30,12 @@ export async function getDealerPointsBalance(db: D1Database, dealerId: string): 
 
 export async function getNextRewardThreshold(db: D1Database, balance: number): Promise<number> {
   const current = coerceRewardPoints(balance, 0);
+  const hasKind = await hasRewardKindColumn(db);
+  const kindFilter = standardCatalogSqlFilter(hasKind);
   const nextAbove = await db
     .prepare(
       `SELECT points_required FROM reward_catalog
-       WHERE active = 1 AND deleted_at IS NULL AND points_required > ?
+       WHERE active = 1 AND deleted_at IS NULL ${kindFilter} AND points_required > ?
        ORDER BY points_required ASC LIMIT 1`,
     )
     .bind(current)
@@ -40,7 +43,7 @@ export async function getNextRewardThreshold(db: D1Database, balance: number): P
   const highest = await db
     .prepare(
       `SELECT points_required FROM reward_catalog
-       WHERE active = 1 AND deleted_at IS NULL
+       WHERE active = 1 AND deleted_at IS NULL ${kindFilter}
        ORDER BY points_required DESC LIMIT 1`,
     )
     .first<{ points_required: number | string }>();
@@ -61,6 +64,20 @@ export async function appendPointsLedgerEntry(
   const delta = coerceLedgerDelta(input.delta);
   if (delta === 0) return;
 
+  const referenceType = input.referenceType ?? null;
+  const referenceId = input.referenceId ?? null;
+
+  // Idempotency: when a reference is provided, do not double-credit the same event.
+  if (referenceType && referenceId) {
+    const existing = await db
+      .prepare(
+        `SELECT id FROM points_ledger WHERE dealer_id = ? AND reference_type = ? AND reference_id = ? LIMIT 1`,
+      )
+      .bind(input.dealerId, referenceType, referenceId)
+      .first<{ id: string }>();
+    if (existing) return;
+  }
+
   const current = await getDealerPointsBalance(db, input.dealerId);
   const balanceAfter = Math.max(0, current + delta);
 
@@ -75,8 +92,8 @@ export async function appendPointsLedgerEntry(
       delta,
       balanceAfter,
       input.label,
-      input.referenceType ?? null,
-      input.referenceId ?? null,
+      referenceType,
+      referenceId,
       input.occurredAt ?? nowIso(),
     )
     .run();

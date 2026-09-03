@@ -9,6 +9,7 @@ import { OrderTimeline } from "@/components/shared/order-timeline";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { requireRoles } from "@/lib/auth-guard";
+import { formatFreeItemsDisplay } from "@/lib/free-items";
 import type { OrderStatus } from "@/lib/mock/distributor/types";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useFormat } from "@/hooks/use-format";
@@ -86,7 +87,8 @@ function DealerOrderDetail() {
   const helpOrder: DealerOrderListItem = {
     id: order.id,
     product: order.items[0]?.model ?? t("dealer.orderDetail.title"),
-    size: order.items[0]?.size ?? "",
+    // Show the custom (requested) size in summaries; pricing still uses the standard size.
+    size: order.items[0]?.sizeRequested ?? order.items[0]?.size ?? "",
     thickness: order.items[0]?.thickness ?? "",
     quantity: order.totalItems,
     dealer: order.storeName ?? order.dealerName,
@@ -94,7 +96,9 @@ function DealerOrderDetail() {
     placed: order.placedAt,
     amount: order.totalValue,
     step: 0,
-    detail: order.items.map((i) => `${i.quantity} × ${i.size} × ${i.thickness}`).join(", "),
+    detail: order.items
+      .map((i) => `${i.quantity} × ${i.sizeRequested ?? i.size} × ${i.thickness}`)
+      .join(", "),
   };
 
   const status = order.status as OrderStatus;
@@ -163,7 +167,14 @@ function DealerOrderDetail() {
           const lineMrp = item.mrp * item.quantity;
           const lineDealer = item.dealerPrice * item.quantity;
           const linePay = unitPrice * item.quantity;
-          const sizeLine = [item.size, item.thickness !== "—" ? item.thickness : null]
+          // Show the size the dealer actually requested (custom), not the standard size the
+          // price is computed on. Standard is shown as secondary context when it differs.
+          const requestedSize = item.sizeRequested ?? item.size;
+          const standardSize = item.sizeStandard;
+          const hasCustomSize = Boolean(
+            requestedSize && standardSize && requestedSize !== standardSize,
+          );
+          const sizeLine = [requestedSize, item.thickness !== "—" ? item.thickness : null]
             .filter(Boolean)
             .join(" × ");
 
@@ -212,7 +223,14 @@ function DealerOrderDetail() {
                 </div>
 
                 {sizeLine && (
-                  <p className="mt-3 text-sm font-semibold text-foreground">{sizeLine}</p>
+                  <div className="mt-3">
+                    <p className="text-sm font-semibold text-foreground">{sizeLine}</p>
+                    {hasCustomSize && (
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {t("dealer.orderDetail.pricedAsStandard", { size: standardSize })}
+                      </p>
+                    )}
+                  </div>
                 )}
 
                 <p className="mt-3 flex items-center gap-1.5 text-sm font-bold text-primary">
@@ -221,9 +239,9 @@ function DealerOrderDetail() {
                 </p>
               </div>
 
-              {item.freeItems && (
+              {formatFreeItemsDisplay(item.freeItems) && (
                 <p className="mt-3 text-sm text-muted-foreground">
-                  {t("common.freeLabel", { items: item.freeItems })}
+                  {t("common.freeLabel", { items: formatFreeItemsDisplay(item.freeItems) })}
                 </p>
               )}
             </div>

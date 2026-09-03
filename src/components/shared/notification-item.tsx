@@ -136,6 +136,7 @@ export function NotificationItem({
       <Link
         to="/distributor/dealers/$dealerId"
         params={{ dealerId }}
+        search={{ tab: undefined }}
         onClick={() => onRead?.(notification.id)}
         className={className}
       >
@@ -197,11 +198,11 @@ export function NotificationItem({
 
   if (notification.link.startsWith("/admin/users")) {
     const query = notification.link.includes("?") ? notification.link.split("?")[1] : "";
-    const tab = new URLSearchParams(query).get("tab") ?? undefined;
+    const tab = new URLSearchParams(query).get("tab") ?? "all";
     return (
       <Link
         to="/admin/users"
-        search={tab ? { tab } : undefined}
+        search={{ tab }}
         onClick={() => onRead?.(notification.id)}
         className={className}
       >

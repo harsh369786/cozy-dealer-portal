@@ -1,4 +1,4 @@
-import { id, nowIso, formatInLabel } from "../utils";
+﻿import { id, nowIso, formatInLabel } from "../utils";
 import { getPushEnv, waitUntil } from "../push-env";
 import { sendPushForNotifications } from "./push-notifications";
 
@@ -26,19 +26,19 @@ function parseMetadata(raw: unknown): Record<string, unknown> | undefined {
 }
 
 function mapNotificationRow(n: Record<string, unknown>) {
-  const createdAtIso = String(n.created_at ?? "");
+  const createdAtIso = String(n['created_at'] ?? "");
   return {
-    id: n.id,
-    category: n.category,
-    type: n.type,
-    title: n.title,
-    body: n.body,
-    link: n.link,
+    id: n['id'],
+    category: n['category'],
+    type: n['type'],
+    title: n['title'],
+    body: n['body'],
+    link: n['link'],
     createdAt: createdAtIso,
     createdAtLabel: formatInLabel(createdAtIso),
-    read: Boolean(n.read),
-    isReminder: Boolean(n.is_reminder),
-    metadata: parseMetadata(n.metadata),
+    read: Boolean(n['read']),
+    isReminder: Boolean(n['is_reminder']),
+    metadata: parseMetadata(n['metadata']),
   };
 }
 

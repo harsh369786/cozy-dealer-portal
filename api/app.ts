@@ -18,12 +18,17 @@ import {
   formatInLabel,
   formatYearMonthLabel,
   id,
+  isDemoModeEnabled,
+  istTodayIso,
+  nextComplaintNumber,
   normalizePhone,
   nowIso,
   SESSION_DAYS,
   sha256,
 } from "./utils";
 import { requestOtp, verifyOtp } from "./services/otp";
+import { resolveDemoLoginUser } from "./services/demo-auth";
+import { createSessionForUserRow } from "./services/sessions";
 import {
   archiveRewardCatalogItem,
   getRewardCatalogItem,
@@ -57,7 +62,7 @@ import {
   notifyComplaintUpdated,
   notifyRewardClaim,
 } from "./services/notification-events";
-import { getUnreadNotificationCount, listNotifications } from "./services/notifications";
+import { createNotification, getUnreadNotificationCount, listNotifications } from "./services/notifications";
 import {
   deletePushSubscription,
   getVapidPublicKeyFromEnv,
@@ -99,6 +104,18 @@ import {
 } from "./services/campaigns-admin";
 import { buildAdminAnalyticsFromDb, exploreAdminHierarchy } from "./services/admin-analytics";
 import {
+  buildAccountsReport,
+  buildExecutiveSnapshot,
+  buildMonthlyReport,
+  buildProductsReport,
+  drilldownOrders,
+} from "./services/admin-executive-reports";
+import {
+  deletePricingTier,
+  listPricingTiers,
+  savePricingTier,
+} from "./services/pricing-tiers";
+import {
   checkInVisit,
   checkOutVisit,
   getActiveVisit,
@@ -108,11 +125,13 @@ import {
 } from "./services/dealer-visits";
 import { mapDealerRow, mapDealerRows } from "./services/dealers";
 import { redeemRewardClaim } from "./services/reward-redemption";
+import { listAdditionalRewardsForDealer, redeemAdditionalReward } from "./services/additional-rewards";
 import {
   coerceRewardPoints,
   getDealerPointsBalance,
   getNextRewardThreshold,
 } from "./services/reward-points";
+import { hasRewardKindColumn, standardCatalogSqlFilter } from "./db/reward-schema";
 import { createSignupApplication } from "./services/signup";
 import { listSignupApplications, reviewSignupApplication } from "./services/signup-review";
 import {
@@ -132,8 +151,19 @@ import {
 const app = new Hono<{ Bindings: ApiEnv; Variables: AppVariables }>();
 const VALID_COMPLAINT_STATUSES = new Set(["pending", "in_progress", "resolved", "rejected"]);
 
+/**
+ * Under Nitro on Cloudflare, the Worker `vars`/bindings live on `globalThis.__env__`,
+ * not always on the `env` handed to the Hono context. Merge both so env-driven flags
+ * (ENVIRONMENT, MOCK_OTP, DEMO_LOGINS_ENABLED, CRON_SECRET, VAPID_*) resolve correctly.
+ */
+function effectiveEnv(env: ApiEnv): ApiEnv {
+  const globalEnv = (globalThis as { __env__?: ApiEnv }).__env__;
+  if (!globalEnv) return env;
+  return { ...globalEnv, ...env } as ApiEnv;
+}
+
 function secureCookies(env: ApiEnv) {
-  return isSecureCookieEnv(env.ENVIRONMENT);
+  return isSecureCookieEnv(effectiveEnv(env).ENVIRONMENT);
 }
 
 function isAllowedRequestOrigin(origin: string, requestUrl: string, configuredOrigins?: string) {
@@ -168,7 +198,7 @@ async function enforceOtpVerifyRateLimits(env: ApiEnv, ip: string, normalizedPho
 }
 
 function requireInternalSecret(c: { env: ApiEnv; req: { header: (name: string) => string | undefined } }) {
-  const secret = c.env.CRON_SECRET;
+  const secret = effectiveEnv(c.env).CRON_SECRET;
   if (!secret) return { ok: false as const, status: 503 as const, error: "Internal endpoints not configured" };
   if (c.req.header("x-cron-secret") !== secret) {
     return { ok: false as const, status: 401 as const, error: "Unauthorized" };
@@ -221,7 +251,7 @@ app.post("/api/v1/auth/otp/request", async (c) => {
   const ip = c.req.header("cf-connecting-ip") ?? "unknown";
   await enforceOtpRateLimits(c.env, ip, normalizedPhone);
   const db = await getRequestDb(c);
-  const result = await requestOtp(db, normalizedPhone, c.env.ENVIRONMENT);
+  const result = await requestOtp(db, normalizedPhone, effectiveEnv(c.env).ENVIRONMENT);
   return c.json(result);
 });
 
@@ -240,17 +270,17 @@ app.post("/api/v1/auth/otp/verify", async (c) => {
     .prepare(
       `INSERT INTO sessions (id, user_id, token_hash, expires_at, ip, user_agent) VALUES (?, ?, ?, ?, ?, ?)`,
     )
-    .bind(sessionId, userRow.id, tokenHash, expires, c.req.header("cf-connecting-ip") ?? null, c.req.header("user-agent") ?? null)
+    .bind(sessionId, userRow['id'], tokenHash, expires, c.req.header("cf-connecting-ip") ?? null, c.req.header("user-agent") ?? null)
     .run();
 
   const user = buildSessionUser({
-    id: userRow.id as string,
-    name: userRow.name as string,
-    phone: userRow.phone as string,
-    role: userRow.role as AppVariables["user"]["role"],
-    status: userRow.status as AppVariables["user"]["status"],
-    dealer_id: userRow.dealer_id as string | null,
-    distributor_id: userRow.distributor_id as string | null,
+    id: userRow['id'] as string,
+    name: userRow['name'] as string,
+    phone: userRow['phone'] as string,
+    role: userRow['role'] as AppVariables["user"]["role"],
+    status: userRow['status'] as AppVariables["user"]["status"],
+    dealer_id: userRow['dealer_id'] as string | null,
+    distributor_id: userRow['distributor_id'] as string | null,
   });
 
   return c.json({ user }, 200, {
@@ -267,6 +297,29 @@ app.post("/api/v1/auth/logout", requireAuth, async (c) => {
 });
 
 app.get("/api/v1/auth/me", requireAuth, (c) => c.json({ user: c.get("user") }));
+
+app.post("/api/v1/auth/demo-login", async (c) => {
+  if (!isDemoModeEnabled(effectiveEnv(c.env))) {
+    throw new AppError("Demo login is not enabled", 403);
+  }
+  const body = await c.req.json<{ phone: string }>();
+  const db = await getRequestDb(c);
+  try {
+    const userRow = await resolveDemoLoginUser(db, body.phone);
+    const { user, sessionId } = await createSessionForUserRow(db, userRow, {
+      ip: c.req.header("cf-connecting-ip") ?? null,
+      userAgent: c.req.header("user-agent") ?? null,
+    });
+    return c.json({ user }, 200, {
+      "Set-Cookie": setSessionCookie(sessionId, secureCookies(c.env)),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Demo login failed";
+    if (message === "DEMO_LOGIN_NOT_ALLOWED") throw new AppError("Demo login is not allowed for this number", 403);
+    if (message === "PHONE_NOT_REGISTERED") throw new AppError("Phone not registered", 404);
+    throw err;
+  }
+});
 
 // Catalog
 function mapCatalogProductWithPricing(row: Record<string, unknown>) {
@@ -288,27 +341,34 @@ function mapCatalogProductWithPricing(row: Record<string, unknown>) {
     ...product
   } = row;
   if (price_mrp == null || price_dealer == null) {
-    throw new Error(`Price not found for product ${String(product.id)}`);
+    throw new Error(`Price not found for product ${String(product['id'])}`);
   }
 
   const sized = applyMattressPricing(Number(price_mrp), Number(price_dealer), {
     thickness: default_thickness as string | undefined,
   });
-  const discountPercent = campaign_id ? Number(campaign_discount_percent ?? 0) : null;
-  const campaignPrice =
-    campaign_id && discountPercent != null
-      ? getCampaignPrice(sized.dealerPrice, discountPercent)
+  const rawDiscountPercent = campaign_id ? Number(campaign_discount_percent ?? 0) : null;
+  const rawCampaignPrice =
+    campaign_id && rawDiscountPercent != null
+      ? getCampaignPrice(sized.dealerPrice, rawDiscountPercent)
       : null;
+  // A campaign only counts when it actually reduces the dealer price. Ignore 0% (or
+  // non-discounting) campaigns so no phantom badge / strike-through / "0% off" is shown.
+  const hasRealDiscount = rawCampaignPrice != null && rawCampaignPrice < sized.dealerPrice;
+  const discountPercent = hasRealDiscount ? rawDiscountPercent : null;
+  const campaignPrice = hasRealDiscount ? rawCampaignPrice : null;
   const rewardPercent = Number(price_reward_percent ?? 0);
-  const calculatedPoints = calculateRewardPoints(sized.mrp, rewardPercent, 1);
+  const calculatedPoints = calculateRewardPoints(sized.dealerPrice, rewardPercent, 1);
 
   return {
     ...product,
+    id: String(product['id'] ?? ""),
+    category: String(product['category'] ?? ""),
     mrp: sized.mrp,
     price: sized.dealerPrice,
     points: price_points == null ? calculatedPoints : Number(price_points),
     free: (price_free_items as string | null) ?? null,
-    campaign: campaign_id
+    campaign: hasRealDiscount
       ? {
           id: campaign_id,
           name: campaign_name,
@@ -329,7 +389,7 @@ app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission(
   const db = await getRequestDb(c);
   const layers = await db.prepare(`SELECT * FROM product_layers ORDER BY sort_order`).all();
   const layerItems = await db.prepare(`SELECT * FROM product_layer_items ORDER BY sort_order`).all();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istTodayIso();
   const products = await db
     .prepare(
       `WITH ranked_prices AS (
@@ -342,14 +402,22 @@ app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission(
            ROW_NUMBER() OVER (PARTITION BY pt.product_id ORDER BY pt.sort_order ASC, pt.id ASC) AS rn
          FROM product_thicknesses pt
        ),
-       ranked_campaigns AS (
-         SELECT pc.*,
-           ROW_NUMBER() OVER (PARTITION BY pc.product_id ORDER BY pc.start_at DESC, pc.id DESC) AS rn
+       active_campaigns AS (
+         SELECT pc.*
          FROM price_campaigns pc
          WHERE pc.deleted_at IS NULL
            AND pc.status = 'active'
            AND date(pc.start_at) <= date(?)
            AND date(pc.end_at) >= date(?)
+       ),
+       ranked_campaigns AS (
+         SELECT p.id AS join_product_id, ac.*,
+           ROW_NUMBER() OVER (
+             PARTITION BY p.id
+             ORDER BY (ac.product_id IS NULL) ASC, ac.start_at DESC, ac.id DESC
+           ) AS rn
+         FROM products p
+         JOIN active_campaigns ac ON (ac.product_id = p.id OR ac.product_id IS NULL)
        )
        SELECT
          p.*,
@@ -370,7 +438,7 @@ app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission(
        FROM products p
        LEFT JOIN ranked_prices pp ON pp.product_id = p.id AND pp.rn = 1
        LEFT JOIN ranked_thicknesses pt ON pt.product_id = p.id AND pt.rn = 1
-       LEFT JOIN ranked_campaigns pc ON pc.product_id = p.id AND pc.rn = 1
+       LEFT JOIN ranked_campaigns pc ON pc.join_product_id = p.id AND pc.rn = 1
        WHERE p.deleted_at IS NULL AND p.active = 1
        ORDER BY p.sort_order`,
     )
@@ -380,22 +448,22 @@ app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission(
   const pricedProducts = products.results.map(mapCatalogProductWithPricing);
 
   const mattressLayers = layers.results.map((layer) => {
-    const items = layerItems.results.filter((i) => i.layer_id === layer.id);
-    const subgroups = [...new Set(items.map((i) => i.subgroup_label).filter(Boolean))];
+    const items = layerItems.results.filter((i) => i['layer_id'] === layer['id']);
+    const subgroups = [...new Set(items.map((i) => i['subgroup_label']).filter(Boolean))];
     if (subgroups.length) {
       return {
-        id: layer.id,
-        title: layer.title,
+        id: layer['id'],
+        title: layer['title'],
         subgroups: subgroups.map((label) => ({
           label,
-          productIds: items.filter((i) => i.subgroup_label === label).map((i) => i.product_id),
+          productIds: items.filter((i) => i['subgroup_label'] === label).map((i) => i['product_id']),
         })),
       };
     }
     return {
-      id: layer.id,
-      title: layer.title,
-      productIds: items.map((i) => i.product_id),
+      id: layer['id'],
+      title: layer['title'],
+      productIds: items.map((i) => i['product_id']),
     };
   });
 
@@ -428,11 +496,11 @@ app.get("/api/v1/catalog/products/:id", requireAuth, requireActiveAccount, requi
 
   return c.json({
     ...product,
-    thicknesses: thicknesses.results.map((t) => t.thickness),
+    thicknesses: thicknesses.results.map((t) => t['thickness']),
     mrp: quote.mrp,
     price: quote.dealerPrice,
-    points: price?.points,
-    free: price?.free_items_label,
+    points: price?.['points'],
+    free: price?.['free_items_label'],
     campaign: quote.campaign,
     campaignPrice: quote.campaignPrice,
     unitPrice: quote.unitPrice,
@@ -696,14 +764,14 @@ app.get("/api/v1/dealers/:id/reward-claims", requireAuth, requireActiveAccount, 
     .all();
   return c.json(
     results.map((r) => ({
-      id: r.id,
-      dealerId: r.dealer_id,
-      name: r.name,
-      emoji: r.emoji,
-      points: r.points_spent,
-      claimedAt: formatInLabel(String(r.claimed_at ?? "")),
-      status: r.status,
-      deliveredAt: r.delivered_at ? formatInLabel(String(r.delivered_at)) : null,
+      id: r['id'],
+      dealerId: r['dealer_id'],
+      name: r['name'],
+      emoji: r['emoji'],
+      points: r['points_spent'],
+      claimedAt: formatInLabel(String(r['claimed_at'] ?? "")),
+      status: r['status'],
+      deliveredAt: r['delivered_at'] ? formatInLabel(String(r['delivered_at'])) : null,
     })),
   );
 });
@@ -788,18 +856,28 @@ app.get("/api/v1/distributor/campaigns", requireAuth, requireActiveAccount, requ
 // Rewards
 app.get("/api/v1/rewards/catalog", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
   const db = await getRequestDb(c);
+  const hasKind = await hasRewardKindColumn(db);
   const { results } = await db
-    .prepare(`SELECT * FROM reward_catalog WHERE deleted_at IS NULL AND active = 1`)
+    .prepare(
+      `SELECT * FROM reward_catalog WHERE deleted_at IS NULL AND active = 1 ${standardCatalogSqlFilter(hasKind)}`,
+    )
     .all();
   return c.json(
     results.map((r) => ({
-      id: r.id,
-      name: r.name,
-      emoji: r.emoji,
-      points: coerceRewardPoints(r.points_required, 0),
-      imageUrl: (r.image_url as string) ?? undefined,
+      id: r['id'],
+      name: r['name'],
+      emoji: r['emoji'],
+      points: coerceRewardPoints(r['points_required'], 0),
+      imageUrl: (r['image_url'] as string) ?? undefined,
     })),
   );
+});
+
+app.get("/api/v1/rewards/additional", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  if (!user.dealerId) return c.json({ lifetimeEarned: 0, claimed: null, items: [] });
+  return c.json(await listAdditionalRewardsForDealer(db, user.dealerId));
 });
 
 app.get("/api/v1/rewards/balance", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
@@ -821,12 +899,12 @@ app.get("/api/v1/rewards/ledger", requireAuth, requireActiveAccount, requirePerm
     .all();
   return c.json(
     results.map((r) => {
-      const raw = Number(r.value);
+      const raw = Number(r['value']);
       const magnitude = coerceRewardPoints(Math.abs(raw), 0);
       return {
-        label: r.label,
+        label: r['label'],
         value: raw < 0 ? -magnitude : magnitude,
-        date: formatInLabel(String(r.date ?? "")),
+        date: formatInLabel(String(r['date'] ?? "")),
       };
     }),
   );
@@ -842,12 +920,12 @@ app.get("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePerm
     .all();
   return c.json(
     results.map((r) => ({
-      id: r.id,
-      name: r.name,
-      emoji: r.emoji,
-      claimed: formatInLabel(String(r.claimed_at ?? "")),
-      status: r.status,
-      delivered: r.delivered_at ? formatInLabel(String(r.delivered_at)) : undefined,
+      id: r['id'],
+      name: r['name'],
+      emoji: r['emoji'],
+      claimed: formatInLabel(String(r['claimed_at'] ?? "")),
+      status: r['status'],
+      delivered: r['delivered_at'] ? formatInLabel(String(r['delivered_at'])) : undefined,
     })),
   );
 });
@@ -867,11 +945,15 @@ app.post("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePer
     name: string;
     emoji: string;
     points_required: number;
+    kind?: string;
   }>();
   if (!reward) return c.json({ error: "Reward not found" }, 404);
 
   try {
-    const { claimId } = await redeemRewardClaim(db, user.dealerId, reward);
+    const isMilestone = String(reward.kind ?? "standard") === "milestone";
+    const { claimId } = isMilestone
+      ? await redeemAdditionalReward(db, user.dealerId, reward)
+      : await redeemRewardClaim(db, user.dealerId, reward);
     const dealer = await db
       .prepare(`SELECT store_name, distributor_id FROM dealers WHERE id = ?`)
       .bind(user.dealerId)
@@ -889,7 +971,9 @@ app.post("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePer
     return c.json({ id: claimId, status: "pending" }, 201);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Redemption failed";
-    if (message.includes("Insufficient")) return c.json({ error: message }, 400);
+    if (message.includes("Insufficient") || message.includes("lifetime") || message.includes("already chose")) {
+      return c.json({ error: message }, 400);
+    }
     throw err;
   }
 });
@@ -908,13 +992,14 @@ app.post("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermiss
   if (!order || order.dealer_id !== user.dealerId) return c.json({ error: "Order not found" }, 404);
 
   const complaintId = id("cmp");
+  const complaintNumber = await nextComplaintNumber(db);
   const ts = nowIso();
   await db
     .prepare(
-      `INSERT INTO complaints (id, order_id, dealer_id, distributor_id, category, description, status, step, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
+      `INSERT INTO complaints (id, complaint_number, order_id, dealer_id, distributor_id, category, description, status, step, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?)`,
     )
-    .bind(complaintId, body.orderId, user.dealerId, order.distributor_id, body.category ?? "general", body.description, ts, ts)
+    .bind(complaintId, complaintNumber, body.orderId, user.dealerId, order.distributor_id, body.category ?? "general", body.description, ts, ts)
     .run();
 
   await insertComplaintTimelineEvent(db, {
@@ -963,15 +1048,16 @@ app.get("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermissi
     .bind(...binds, pageSize, offset)
     .all();
   const items = results.map((row) => ({
-    id: row.id,
-    orderId: row.order_id,
-    dealerId: row.dealer_id,
-    dealerName: row.dealer_name,
-    category: row.category,
-    description: row.description,
-    status: row.status,
-    createdAt: formatInLabel(String(row.created_at ?? "")),
-    updatedAt: formatInLabel(String(row.updated_at ?? "")),
+    id: row['id'],
+    complaintNumber: (row['complaint_number'] as string) ?? String(row['id']),
+    orderId: row['order_id'],
+    dealerId: row['dealer_id'],
+    dealerName: row['dealer_name'],
+    category: row['category'],
+    description: row['description'],
+    status: row['status'],
+    createdAt: formatInLabel(String(row['created_at'] ?? "")),
+    updatedAt: formatInLabel(String(row['updated_at'] ?? "")),
   }));
   return c.json({
     items,
@@ -1005,30 +1091,31 @@ app.get("/api/v1/complaints/:id", requireAuth, requireActiveAccount, requirePerm
     timeline.length > 0
       ? timeline
       : [
-          { label: "Submitted", at: formatInLabel(String(row.created_at ?? "")) },
-          ...(row.status !== "pending"
+          { label: "Submitted", at: formatInLabel(String(row['created_at'] ?? "")) },
+          ...(row['status'] !== "pending"
             ? [{
                 label: "Status updated",
-                at: formatInLabel(String(row.updated_at ?? "")),
-                note: row.resolution_notes
-                  ? String(row.resolution_notes)
-                  : `Now ${String(row.status).replace(/_/g, " ")}`,
+                at: formatInLabel(String(row['updated_at'] ?? "")),
+                note: row['resolution_notes']
+                  ? String(row['resolution_notes'])
+                  : `Now ${String(row['status']).replace(/_/g, " ")}`,
               }]
             : []),
         ];
 
   return c.json({
-    id: row.id,
-    orderId: row.order_id,
-    dealerId: row.dealer_id,
-    dealerName: row.dealer_name,
-    distributorName: row.distributor_name,
-    category: row.category,
-    description: row.description,
-    status: row.status,
-    resolutionNotes: (row.resolution_notes as string) ?? undefined,
-    createdAt: formatInLabel(String(row.created_at ?? "")),
-    updatedAt: formatInLabel(String(row.updated_at ?? "")),
+    id: row['id'],
+    complaintNumber: (row['complaint_number'] as string) ?? String(row['id']),
+    orderId: row['order_id'],
+    dealerId: row['dealer_id'],
+    dealerName: row['dealer_name'],
+    distributorName: row['distributor_name'],
+    category: row['category'],
+    description: row['description'],
+    status: row['status'],
+    resolutionNotes: (row['resolution_notes'] as string) ?? undefined,
+    createdAt: formatInLabel(String(row['created_at'] ?? "")),
+    updatedAt: formatInLabel(String(row['updated_at'] ?? "")),
     history,
   });
 });
@@ -1227,6 +1314,40 @@ app.patch("/api/v1/notifications/:id/read", requireAuth, requireActiveAccount, r
 app.post("/api/v1/notifications/read-all", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
   const db = await getRequestDb(c);
   await db.prepare(`UPDATE notifications SET read = 1 WHERE recipient_user_id = ?`).bind(c.get("user").id).run();
+  return c.json({ ok: true });
+});
+
+app.post("/api/v1/notifications/push-test", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
+  const vapid = getVapidPublicKeyFromEnv(c.env);
+  if (!vapid) {
+    return c.json(
+      { error: "Web Push is not configured. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY." },
+      503,
+    );
+  }
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  const subscription = await db
+    .prepare(`SELECT id FROM push_subscriptions WHERE user_id = ? LIMIT 1`)
+    .bind(user.id)
+    .first<{ id: string }>();
+  if (!subscription) {
+    return c.json({ error: "Enable push notifications on this device first." }, 400);
+  }
+  const link =
+    user.role === "master_admin" || user.role === "admin_staff"
+      ? "/admin/notifications"
+      : user.role === "distributor" || user.role === "sales_executive"
+        ? "/distributor/notifications"
+        : "/home";
+  await createNotification(db, {
+    recipientUserId: user.id,
+    category: "system",
+    type: "push_test",
+    title: "Test notification",
+    body: "Push is working. Tap to open your notification center.",
+    link,
+  });
   return c.json({ ok: true });
 });
 
@@ -1504,14 +1625,27 @@ app.get("/api/v1/reports/visit-summary", requireAuth, requireActiveAccount, requ
   if (user.role !== "sales_executive" && user.role !== "distributor" && user.role !== "master_admin") {
     return c.json({ error: "Forbidden" }, 403);
   }
-  return c.json(
-    await getVisitSummary(db, {
-      fromDate: c.req.query("fromDate"),
-      toDate: c.req.query("toDate"),
-      salesExecutiveUserId: user.role === "sales_executive" ? user.id : undefined,
-      distributorId: user.role === "distributor" ? user.distributorId : undefined,
-    }),
-  );
+  try {
+    return c.json(
+      await getVisitSummary(db, {
+        fromDate: c.req.query("fromDate"),
+        toDate: c.req.query("toDate"),
+        salesExecutiveUserId: user.role === "sales_executive" ? user.id : undefined,
+        distributorId: user.role === "distributor" ? user.distributorId : undefined,
+      }),
+    );
+  } catch (err) {
+    console.error(err);
+    return c.json({
+      total: 0,
+      completed: 0,
+      active: 0,
+      uniqueStores: 0,
+      bySalesExecutive: [],
+      byStore: [],
+      monthlyTrend: [],
+    });
+  }
 });
 
 // Signup
@@ -1843,6 +1977,89 @@ admin.get("/explore", requirePermission("reports:read"), async (c) => {
   );
 });
 
+function executiveFiltersFromQuery(c: { req: { query: (key: string) => string | undefined } }) {
+  return {
+    from: c.req.query("from") || undefined,
+    to: c.req.query("to") || undefined,
+    distributorId: c.req.query("distributorId") || undefined,
+    dealerId: c.req.query("dealerId") || undefined,
+    dealerIds: c.req.query("dealerIds") || undefined,
+    salesExecutiveId: c.req.query("salesExecutiveId") || undefined,
+    product: c.req.query("product") || undefined,
+    category: c.req.query("category") || undefined,
+    territory: c.req.query("territory") || undefined,
+    status: c.req.query("status") || undefined,
+    campaignId: c.req.query("campaignId") || undefined,
+  };
+}
+
+admin.get("/reports/snapshot", requirePermission("reports:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(await buildExecutiveSnapshot(db, executiveFiltersFromQuery(c)));
+});
+
+admin.get("/reports/monthly", requirePermission("reports:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(await buildMonthlyReport(db, executiveFiltersFromQuery(c)));
+});
+
+admin.get("/reports/accounts", requirePermission("reports:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(await buildAccountsReport(db, executiveFiltersFromQuery(c)));
+});
+
+admin.get("/reports/products", requirePermission("reports:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(await buildProductsReport(db, executiveFiltersFromQuery(c)));
+});
+
+admin.get("/reports/drilldown", requirePermission("reports:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(
+    await drilldownOrders(db, {
+      ...executiveFiltersFromQuery(c),
+      month: c.req.query("month") || undefined,
+      page: Number(c.req.query("page") ?? 1),
+      pageSize: Number(c.req.query("pageSize") ?? 20),
+    }),
+  );
+});
+
+admin.get("/pricing-tiers", requirePermission("catalog:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json({ items: await listPricingTiers(db) });
+});
+
+admin.post("/pricing-tiers", requirePermission("catalog:write"), async (c) => {
+  const db = await getRequestDb(c);
+  const body = await c.req.json();
+  try {
+    return c.json(await savePricingTier(db, body), 201);
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Could not create tier" }, 400);
+  }
+});
+
+admin.patch("/pricing-tiers/:id", requirePermission("catalog:write"), async (c) => {
+  const db = await getRequestDb(c);
+  const body = await c.req.json();
+  try {
+    return c.json(await savePricingTier(db, { ...body, id: c.req.param("id") }));
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Could not update tier" }, 400);
+  }
+});
+
+admin.delete("/pricing-tiers/:id", requirePermission("catalog:write"), async (c) => {
+  const db = await getRequestDb(c);
+  try {
+    await deletePricingTier(db, c.req.param("id"));
+    return c.json({ ok: true });
+  } catch (err) {
+    return c.json({ error: err instanceof Error ? err.message : "Could not delete tier" }, 400);
+  }
+});
+
 admin.get("/pricing/sqft-rates", requirePermission("catalog:read"), async (c) => {
   const db = await getRequestDb(c);
   const { listSqftRates } = await import("./services/mattress-sqft-rates");
@@ -1884,6 +2101,12 @@ admin.post("/pricing/sqft-rates/recalculate", requirePermission("catalog:write")
   const db = await getRequestDb(c);
   const { recalculateProductPrices } = await import("./services/mattress-sqft-rates");
   return c.json(await recalculateProductPrices(db));
+});
+
+admin.get("/pricing/sqft-rates/options", requirePermission("catalog:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const { listCatalogRateOptions } = await import("./services/mattress-sqft-rates");
+  return c.json(await listCatalogRateOptions(db));
 });
 
 admin.get("/system-notifications", requirePermission("settings:read"), async (c) => {
@@ -2184,7 +2407,7 @@ app.post("/api/v1/internal/whatsapp/process", async (c) => {
 });
 
 // Salespeople for dealer
-app.get("/api/v1/dealer/salespeople", requireAuth, requireActiveAccount, async (c) => {
+app.get("/api/v1/dealer/salespeople", requireAuth, requireActiveAccount, requirePermission("orders:create"), async (c) => {
   const db = await getRequestDb(c);
   const user = c.get("user");
   if (!user.dealerId) return c.json([]);

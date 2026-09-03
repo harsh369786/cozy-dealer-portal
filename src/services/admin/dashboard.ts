@@ -52,12 +52,13 @@ export async function getAdminDashboard(): Promise<AdminDashboardData> {
     apiGetOptional<Array<{ product: string; sales: number; units: number }>>("/api/v1/reports/product-sales"),
     api.get<{ items: OrderListItem[]; total: number }>("/api/v1/orders?page=1&pageSize=5"),
     listSignupApplications({ page: 1, pageSize: 5, status: "pending" }),
-    api.get<Array<Record<string, unknown>>>("/api/v1/complaints"),
+    api.get<{ items?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>("/api/v1/complaints?page=1&pageSize=50"),
     api.get<{ total: number }>("/api/v1/admin/campaigns?status=active&pageSize=1"),
   ]);
 
   const kpi = (id: string) => analytics?.kpis.find((k) => k.id === id)?.value ?? 0;
-  const openComplaintRows = complaints.filter(
+  const complaintRows = Array.isArray(complaints) ? complaints : (complaints.items ?? []);
+  const openComplaintRows = complaintRows.filter(
     (c) => c.status === "pending" || c.status === "in_progress",
   );
 
@@ -94,7 +95,7 @@ export async function getAdminDashboard(): Promise<AdminDashboardData> {
       totalValue: o.totalValue,
       totalItems: o.totalItems,
     })),
-    pendingSignups: pendingSignups.items,
+    pendingSignups: pendingSignups.items ?? [],
     openComplaints: openComplaintRows.map(mapComplaintRow),
   };
 }

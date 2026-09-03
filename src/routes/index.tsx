@@ -7,7 +7,9 @@ import { ApiError } from "@/lib/api-client";
 import { assetPublicPath, STATIC_ASSET_KEYS } from "@/lib/asset-url";
 import { Logo } from "@/components/brand";
 import { LanguageSwitcher } from "@/components/shared/language-switcher";
-import { getPostLoginPath, getCurrentUser, requestOtp, verifyOtp } from "@/services/auth";
+import { getPostLoginPath, getCurrentUser, requestOtp, verifyOtp, demoLogin } from "@/services/auth";
+import { isDemoLoginsEnabledByBuild } from "@/lib/demo-logins-enabled";
+import { DEMO_PHONE_SUFFIXES } from "@/lib/demo-users";
 
 const loginBg = assetPublicPath(STATIC_ASSET_KEYS.brand.loginBg);
 
@@ -45,7 +47,9 @@ function Login() {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const showDemoLogins = isDemoLoginsEnabledByBuild();
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
@@ -64,6 +68,18 @@ function Login() {
       toast.error(err instanceof ApiError ? err.message : t("auth.couldNotSendOtp"));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDemoLogin(phone: string) {
+    setDemoLoading(phone);
+    try {
+      const user = await demoLogin(phone);
+      navigate({ to: getPostLoginPath(user) });
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : t("auth.demoLoginFailed"));
+    } finally {
+      setDemoLoading(null);
     }
   }
 
@@ -129,6 +145,33 @@ function Login() {
                 {loading ? t("common.sending") : t("auth.continueWithMobile")}{" "}
                 <ArrowRight className="h-5 w-5" />
               </button>
+              {showDemoLogins ? (
+                <div className="mt-5 border-t border-border pt-4">
+                  <p className="mb-3 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t("auth.demoLogins")}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { phone: DEMO_PHONE_SUFFIXES.dealer, labelKey: "auth.demoDealer" as const },
+                        { phone: DEMO_PHONE_SUFFIXES.distributor, labelKey: "auth.demoDistributor" as const },
+                        { phone: DEMO_PHONE_SUFFIXES.salesExecutive, labelKey: "auth.demoSalesExecutive" as const },
+                        { phone: DEMO_PHONE_SUFFIXES.admin, labelKey: "auth.demoAdmin" as const },
+                      ] as const
+                    ).map(({ phone, labelKey }) => (
+                      <button
+                        key={phone}
+                        type="button"
+                        disabled={loading || Boolean(demoLoading)}
+                        onClick={() => void handleDemoLogin(phone)}
+                        className="press rounded-2xl border border-border bg-secondary/80 px-3 py-2.5 text-sm font-bold disabled:opacity-45"
+                      >
+                        {demoLoading === phone ? t("common.loading") : t(labelKey)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
             </>
           ) : (
             <>

@@ -10,14 +10,24 @@ import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAsyncData } from "@/hooks/use-async-data";
 import {
   deleteSqftRate,
   listSqftRates,
+  listSqftRateOptions,
   recalculateCatalogPrices,
   saveSqftRate,
   type SqftRate,
 } from "@/services/admin/sqft-rates";
+
+const CUSTOM_VALUE = "__custom__";
 
 export const Route = createFileRoute("/admin/pricing/sqft-rates")({
   component: SqftRatesPage,
@@ -42,6 +52,9 @@ function SqftRatesPage() {
   const [recalcOpen, setRecalcOpen] = useState(false);
 
   const { data, loading, error, retry } = useAsyncData(() => listSqftRates(), []);
+  const { data: options } = useAsyncData(() => listSqftRateOptions(), []);
+  const guaranteeOptions = options?.guarantees ?? [];
+  const thicknessOptions = options?.thicknesses ?? [];
 
   const handleSave = async () => {
     setSaving(true);
@@ -141,20 +154,77 @@ function SqftRatesPage() {
           <div className="grid max-w-lg gap-3">
             <div>
               <Label>Guarantee</Label>
-              <Input
-                className="mt-1 rounded-2xl"
-                value={draft.guarantee}
-                onChange={(e) => setDraft({ ...draft, guarantee: e.target.value })}
-              />
+              {(() => {
+                const inList = draft.guarantee !== "" && guaranteeOptions.includes(draft.guarantee);
+                const isCustom = draft.guarantee !== "" && !inList;
+                return (
+                  <>
+                    <Select
+                      value={inList ? draft.guarantee : isCustom ? CUSTOM_VALUE : ""}
+                      onValueChange={(v) =>
+                        setDraft({ ...draft, guarantee: v === CUSTOM_VALUE ? "" : v })
+                      }
+                    >
+                      <SelectTrigger className="mt-1 rounded-2xl">
+                        <SelectValue placeholder="Select guarantee" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {guaranteeOptions.map((g) => (
+                          <SelectItem key={g} value={g}>
+                            {g}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value={CUSTOM_VALUE}>Other (type manually)…</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {isCustom && (
+                      <Input
+                        className="mt-2 rounded-2xl"
+                        value={draft.guarantee}
+                        onChange={(e) => setDraft({ ...draft, guarantee: e.target.value })}
+                        placeholder="Enter new guarantee (e.g. 10 Years)"
+                      />
+                    )}
+                  </>
+                );
+              })()}
             </div>
             <div>
               <Label>Thickness</Label>
-              <Input
-                className="mt-1 rounded-2xl"
-                value={draft.thickness}
-                onChange={(e) => setDraft({ ...draft, thickness: e.target.value })}
-                placeholder="e.g. 6&quot;"
-              />
+              {(() => {
+                const inList = draft.thickness !== "" && thicknessOptions.includes(draft.thickness);
+                const isCustom = draft.thickness !== "" && !inList;
+                return (
+                  <>
+                    <Select
+                      value={inList ? draft.thickness : isCustom ? CUSTOM_VALUE : ""}
+                      onValueChange={(v) =>
+                        setDraft({ ...draft, thickness: v === CUSTOM_VALUE ? "" : v })
+                      }
+                    >
+                      <SelectTrigger className="mt-1 rounded-2xl">
+                        <SelectValue placeholder="Select thickness" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {thicknessOptions.map((th) => (
+                          <SelectItem key={th} value={th}>
+                            {th}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value={CUSTOM_VALUE}>Other (type manually)…</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {isCustom && (
+                      <Input
+                        className="mt-2 rounded-2xl"
+                        value={draft.thickness}
+                        onChange={(e) => setDraft({ ...draft, thickness: e.target.value })}
+                        placeholder="e.g. 6&quot;"
+                      />
+                    )}
+                  </>
+                );
+              })()}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

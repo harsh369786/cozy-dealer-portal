@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Pencil, Power } from "lucide-react";
@@ -48,7 +48,9 @@ import {
   getNotificationsByCategory,
   markAllRead,
   markNotificationRead,
+  sendTestNotification,
 } from "@/services/notifications";
+import { getNotificationPermission } from "@/lib/browser-notifications";
 
 export const Route = createFileRoute("/admin/notifications/")({
   component: AdminNotificationsPage,
@@ -238,6 +240,7 @@ function AdminInbox() {
 }
 
 function AnnouncementsManager() {
+  const { t } = useTranslation();
   const { can } = useAdminPermissions();
   const canWrite = can("settings:write");
   const [search, setSearch] = useState("");
@@ -249,6 +252,20 @@ function AnnouncementsManager() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [sendingTest, setSendingTest] = useState(false);
+  const pushGranted = getNotificationPermission() === "granted";
+
+  const handleSendTest = async () => {
+    setSendingTest(true);
+    try {
+      await sendTestNotification();
+      toast.success("Test notification sent");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to send test notification");
+    } finally {
+      setSendingTest(false);
+    }
+  };
 
   const { data, loading, error, retry } = useAsyncData(
     () =>
@@ -330,7 +347,12 @@ function AnnouncementsManager() {
 
   return (
     <div>
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex justify-end gap-2">
+        {pushGranted ? (
+          <Button variant="outline" onClick={handleSendTest} disabled={sendingTest} className="rounded-2xl">
+            {sendingTest ? t("common.saving") : "Send test notification"}
+          </Button>
+        ) : null}
         {canWrite ? (
           <AdminPrimaryButton onClick={() => { setForm(emptyForm()); setComposeOpen(true); }}>
             Create notification
@@ -363,7 +385,7 @@ function AnnouncementsManager() {
           {
             key: "popup",
             header: "Popup",
-            cell: (n) => (n.popupEnabled ? `Yes · max ${n.maxImpressions}` : "No"),
+            cell: (n) => (n.popupEnabled ? `Yes Â· max ${n.maxImpressions}` : "No"),
             hideOnMobile: true,
           },
           {

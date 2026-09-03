@@ -526,21 +526,5 @@ export const campaigns: SellCampaign[] = [
   },
 ];
 
-import { formatInr } from "@/lib/date-format";
-import i18n from "@/lib/i18n";
-
-export const inr = (n: number) => formatInr(n, i18n.language === "hi" ? "hi" : "en");
-
-export const inrCompact = (n: number) => {
-  if (n >= 10000000) return `₹${(n / 10000000).toFixed(1)} Cr`;
-  if (n >= 100000) return `₹${(n / 100000).toFixed(1)} L`;
-  if (n >= 1000) return `₹${(n / 1000).toFixed(1)} K`;
-  return inr(n);
-};
-
-export const compactNumber = (n: number) => {
-  if (n >= 10000000) return `${(n / 10000000).toFixed(1)} Cr`;
-  if (n >= 100000) return `${(n / 100000).toFixed(1)} L`;
-  if (n >= 1000) return `${(n / 1000).toFixed(1)} K`;
-  return n.toLocaleString("en-IN");
-};
+// Currency formatters now live in a dedicated module; re-exported here for backward compatibility.
+export { inr, inrCompact, compactNumber } from "@/lib/currency-format";

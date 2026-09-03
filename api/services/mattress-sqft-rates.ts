@@ -155,3 +155,33 @@ export async function recalculateProductPrices(db: D1Database) {
 
   return { updated, rateCount: rates.length };
 }
+
+/**
+ * Distinct guarantee + thickness values already present in the catalog, so the
+ * admin sq.ft rate form can offer dropdowns instead of free-text (which caused
+ * mismatches like "10 Years" vs "10 Year").
+ */
+export async function listCatalogRateOptions(db: D1Database) {
+  const guaranteeRows = await db
+    .prepare(
+      `SELECT DISTINCT TRIM(guarantee) AS value
+       FROM products
+       WHERE deleted_at IS NULL AND guarantee IS NOT NULL AND TRIM(guarantee) != ''
+       ORDER BY value`,
+    )
+    .all<{ value: string }>();
+
+  const thicknessRows = await db
+    .prepare(
+      `SELECT DISTINCT TRIM(thickness) AS value
+       FROM product_thicknesses
+       WHERE thickness IS NOT NULL AND TRIM(thickness) != ''
+       ORDER BY value`,
+    )
+    .all<{ value: string }>();
+
+  return {
+    guarantees: guaranteeRows.results.map((r) => r.value),
+    thicknesses: thicknessRows.results.map((r) => r.value),
+  };
+}

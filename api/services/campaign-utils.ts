@@ -21,8 +21,14 @@ export function normalizeCampaignDate(value: string): string {
   return parsed.toISOString().slice(0, 10);
 }
 
+/** Today's calendar date in IST (Asia/Kolkata) as YYYY-MM-DD, so campaign windows follow the business day. */
 export function todayIso(at = new Date()): string {
-  return at.toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(at);
 }
 
 /** Stored status + date window → status shown to dealers/distributors. */
