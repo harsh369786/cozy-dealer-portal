@@ -67,7 +67,7 @@ function UserDetailPage() {
 
   const roleOptions: UserRole[] =
     actor?.role === "master_admin"
-      ? ["dealer", "distributor", "sales_executive", "admin_staff", "master_admin"]
+      ? ["dealer", "distributor", "sales_executive", "sales_head", "admin_staff", "master_admin"]
       : ["dealer", "distributor", "sales_executive"];
 
   const roleDirty =

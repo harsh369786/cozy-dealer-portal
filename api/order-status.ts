@@ -58,9 +58,11 @@ export function assertStatusUpdate(user: SessionUser, from: OrderStatus, to: Ord
   if (to === "rejected") {
     throw new Error("Use the reject action for rejected orders");
   }
-  // Master admin can move orders forward or backward across operational statuses.
+  // Master admin can move orders forward or backward across operational statuses, but NOT out of
+  // a terminal state. 'delivered' already credited reward points; moving it backward would create
+  // an inconsistent timeline (delivered → in_making) without reversing the points.
   if (user.role === "master_admin") {
-    if (from === "cancelled" || from === "rejected") {
+    if (from === "cancelled" || from === "rejected" || from === "delivered") {
       throw new Error(`Cannot change status from ${ORDER_STATUS_LABELS[from]}`);
     }
     return;

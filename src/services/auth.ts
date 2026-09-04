@@ -5,7 +5,8 @@ const SESSION_PERSIST_KEY = "backrest_session_user";
 const SESSION_CACHE_TTL_MS = 30_000;
 
 export function getHomePath(role: UserRole): string {
-  if (role === "master_admin" || role === "admin_staff") return "/admin";
+  // sales_head is a view-only oversight role that lives in the admin area (read-only screens).
+  if (role === "master_admin" || role === "admin_staff" || role === "sales_head") return "/admin";
   if (role === "distributor" || role === "sales_executive") return "/distributor/dashboard";
   return "/home";
 }

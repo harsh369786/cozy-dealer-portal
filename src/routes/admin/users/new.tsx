@@ -150,6 +150,7 @@ function NewUserPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="admin_staff">Admin Staff</SelectItem>
+                <SelectItem value="sales_head">Sales Head (view only)</SelectItem>
                 <SelectItem value="distributor">Distributor</SelectItem>
                 <SelectItem value="sales_executive">Sales Executive</SelectItem>
                 <SelectItem value="dealer">Dealer</SelectItem>

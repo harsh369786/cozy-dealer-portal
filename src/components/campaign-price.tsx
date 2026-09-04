@@ -10,6 +10,13 @@ type CampaignPriceBlockProps = {
   qty?: number;
   compact?: boolean;
   className?: string;
+  /**
+   * When true, the final price is shown as a "From ..." starting price. Use this wherever the
+   * numbers are the BASE 72"×36", 5" price (e.g. home/catalog previews) because the real charge
+   * scales with the size and thickness chosen on the product page. Defaults to false so the
+   * product-page usage (which already reflects the exact chosen config) is unchanged.
+   */
+  isFromPrice?: boolean;
 };
 
 export function CampaignPriceBlock({
@@ -20,6 +27,7 @@ export function CampaignPriceBlock({
   qty = 1,
   compact = false,
   className,
+  isFromPrice = false,
 }: CampaignPriceBlockProps) {
   const { t } = useTranslation();
   const { formatCurrency } = useFormat();
@@ -60,6 +68,7 @@ export function CampaignPriceBlock({
           <span
             className={cn("font-display font-bold text-primary", compact ? "text-2xl" : "text-3xl")}
           >
+            {isFromPrice ? `${t("common.from")} ` : ""}
             {formatCurrency(campaignTotal!)}
           </span>
         </div>

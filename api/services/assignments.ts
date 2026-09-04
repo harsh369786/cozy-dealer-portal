@@ -439,41 +439,48 @@ export async function bulkUpdateAssignments(
   const ts = nowIso();
   const placeholders = dealerIds.map(() => "?").join(",");
 
-  if (patch.distributorId !== undefined) {
-    if (patch.distributorId) {
-      const dist = await db
-        .prepare(`SELECT id FROM distributors WHERE id = ? AND deleted_at IS NULL`)
-        .bind(patch.distributorId)
-        .first();
-      if (!dist) throw new Error("Distributor not found");
-    }
-    await db
+  // Validate the referenced distributor / sales-executive up front (reads, not part of the write
+  // transaction). Then apply BOTH column updates in a single db.batch so a mid-way failure can't
+  // leave only the distributor (or only the SE) applied to the selected dealers.
+  if (patch.distributorId) {
+    const dist = await db
+      .prepare(`SELECT id FROM distributors WHERE id = ? AND deleted_at IS NULL`)
+      .bind(patch.distributorId)
+      .first();
+    if (!dist) throw new Error("Distributor not found");
+  }
+  if (patch.salesExecutiveUserId) {
+    const se = await db
       .prepare(
-        `UPDATE dealers SET distributor_id = ?, updated_at = ?
-         WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+        `SELECT id FROM users WHERE id = ? AND role = 'sales_executive' AND deleted_at IS NULL`,
       )
-      .bind(patch.distributorId, ts, ...dealerIds)
-      .run();
+      .bind(patch.salesExecutiveUserId)
+      .first();
+    if (!se) throw new Error("Sales executive not found");
   }
 
-  if (patch.salesExecutiveUserId !== undefined) {
-    if (patch.salesExecutiveUserId) {
-      const se = await db
+  const writes: D1PreparedStatement[] = [];
+  if (patch.distributorId !== undefined) {
+    writes.push(
+      db
         .prepare(
-          `SELECT id FROM users WHERE id = ? AND role = 'sales_executive' AND deleted_at IS NULL`,
+          `UPDATE dealers SET distributor_id = ?, updated_at = ?
+           WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
         )
-        .bind(patch.salesExecutiveUserId)
-        .first();
-      if (!se) throw new Error("Sales executive not found");
-    }
-    await db
-      .prepare(
-        `UPDATE dealers SET sales_executive_user_id = ?, updated_at = ?
-         WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
-      )
-      .bind(patch.salesExecutiveUserId, ts, ...dealerIds)
-      .run();
+        .bind(patch.distributorId, ts, ...dealerIds),
+    );
   }
+  if (patch.salesExecutiveUserId !== undefined) {
+    writes.push(
+      db
+        .prepare(
+          `UPDATE dealers SET sales_executive_user_id = ?, updated_at = ?
+           WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+        )
+        .bind(patch.salesExecutiveUserId, ts, ...dealerIds),
+    );
+  }
+  if (writes.length) await db.batch(writes);
 
   const { results } = await db
     .prepare(

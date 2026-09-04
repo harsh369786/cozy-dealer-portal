@@ -141,7 +141,7 @@ export async function createOrder(
             input.customerPhone ?? null,
             input.customerAddress ?? null,
             input.customerEmail ?? null,
-            input.quantity,
+            quote.quantity,
             quote.lineTotal,
             input.notes ?? null,
           ),
@@ -161,7 +161,7 @@ export async function createOrder(
             input.sizeRequested ?? null,
             sizeStandard,
             input.thickness ?? null,
-            input.quantity,
+            quote.quantity,
             input.perma ? 1 : 0,
             input.permaCorners ?? null,
             input.permaNotes ?? null,
@@ -312,7 +312,7 @@ export async function updateOrderStatus(
   env: { WHATSAPP_QUEUE?: Queue },
 ) {
   const order = await db
-    .prepare(`SELECT * FROM orders WHERE id = ?`)
+    .prepare(`SELECT * FROM orders WHERE id = ? AND deleted_at IS NULL`)
     .bind(orderId)
     .first<Record<string, unknown>>();
   if (!order) throw new Error("Order not found");
@@ -379,7 +379,7 @@ async function handleOrderDelivered(
   const order =
     existingOrder ??
     (await db
-      .prepare(`SELECT * FROM orders WHERE id = ?`)
+      .prepare(`SELECT * FROM orders WHERE id = ? AND deleted_at IS NULL`)
       .bind(orderId)
       .first<Record<string, unknown>>());
   if (!order) return 0;
@@ -926,42 +926,45 @@ export async function updateOrderLineItems(
     .first<{ id: string }>();
   if (!item) throw new Error("Order item not found");
 
-  await db
-    .prepare(
-      `UPDATE order_items SET product_id = ?, product_name = ?, size_requested = ?, size_standard = ?, thickness = ?,
-        quantity = ?, mrp = ?, dealer_price = ?, dealer_margin_percent = ?, distributor_price = ?,
-        distributor_margin_percent = ?, campaign_id = ?, campaign_price = ?, discount_percent = ?,
-        points_earned = ?, line_total = ?, notes = COALESCE(?, notes)
-       WHERE id = ?`,
-    )
-    .bind(
-      quote.productId,
-      quote.productName,
-      input.sizeRequested ?? null,
-      sizeStandard,
-      input.thickness ?? null,
-      input.quantity,
-      quote.mrp,
-      quote.dealerPrice,
-      quote.dealerMarginPercent,
-      quote.distributorPrice,
-      quote.distributorMarginPercent,
-      quote.campaignId,
-      quote.campaignPrice,
-      quote.discountPercent,
-      quote.pointsEarned,
-      quote.lineTotal,
-      input.notes ?? null,
-      item.id,
-    )
-    .run();
-
-  await db
-    .prepare(
-      `UPDATE orders SET total_items = ?, total_value = ?, notes = COALESCE(?, notes), updated_at = ? WHERE id = ?`,
-    )
-    .bind(input.quantity, quote.lineTotal, input.notes ?? null, nowIso(), orderId)
-    .run();
+  // Update the line item and the order header totals atomically in one transaction, so a failure
+  // can't leave the item updated while orders.total_items/total_value hold stale values. Bind the
+  // CLAMPED quote.quantity (not raw input.quantity) to both so total_items and total_value always
+  // agree (the quote's lineTotal is computed from quote.quantity).
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE order_items SET product_id = ?, product_name = ?, size_requested = ?, size_standard = ?, thickness = ?,
+          quantity = ?, mrp = ?, dealer_price = ?, dealer_margin_percent = ?, distributor_price = ?,
+          distributor_margin_percent = ?, campaign_id = ?, campaign_price = ?, discount_percent = ?,
+          points_earned = ?, line_total = ?, notes = COALESCE(?, notes)
+         WHERE id = ?`,
+      )
+      .bind(
+        quote.productId,
+        quote.productName,
+        input.sizeRequested ?? null,
+        sizeStandard,
+        input.thickness ?? null,
+        quote.quantity,
+        quote.mrp,
+        quote.dealerPrice,
+        quote.dealerMarginPercent,
+        quote.distributorPrice,
+        quote.distributorMarginPercent,
+        quote.campaignId,
+        quote.campaignPrice,
+        quote.discountPercent,
+        quote.pointsEarned,
+        quote.lineTotal,
+        input.notes ?? null,
+        item.id,
+      ),
+    db
+      .prepare(
+        `UPDATE orders SET total_items = ?, total_value = ?, notes = COALESCE(?, notes), updated_at = ? WHERE id = ?`,
+      )
+      .bind(quote.quantity, quote.lineTotal, input.notes ?? null, nowIso(), orderId),
+  ]);
 
   return getOrderById(db, orderId);
 }

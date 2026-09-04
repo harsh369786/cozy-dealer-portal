@@ -12,7 +12,7 @@ import {
   clearSessionCookie,
   isSecureCookieEnv,
 } from "./middleware/auth";
-import { buildSessionUser } from "./rbac";
+import { buildSessionUser, resolveEffectiveRole } from "./rbac";
 import {
   currentMonthLabels,
   formatInLabel,
@@ -282,11 +282,16 @@ app.post("/api/v1/auth/otp/verify", async (c) => {
     .bind(sessionId, userRow['id'], tokenHash, expires, c.req.header("cf-connecting-ip") ?? null, c.req.header("user-agent") ?? null)
     .run();
 
+  const effectiveRole = await resolveEffectiveRole(
+    db,
+    userRow['id'] as string,
+    userRow['role'] as AppVariables["user"]["role"],
+  );
   const user = buildSessionUser({
     id: userRow['id'] as string,
     name: userRow['name'] as string,
     phone: userRow['phone'] as string,
-    role: userRow['role'] as AppVariables["user"]["role"],
+    role: effectiveRole,
     status: userRow['status'] as AppVariables["user"]["status"],
     dealer_id: userRow['dealer_id'] as string | null,
     distributor_id: userRow['distributor_id'] as string | null,
@@ -1722,7 +1727,10 @@ admin.use("*", requireAuth);
 admin.use("*", requireActiveAccount);
 admin.use("*", async (c, next) => {
   const user = c.get("user");
-  if (user.role !== "master_admin" && user.role !== "admin_staff") {
+  // sales_head is a read-only oversight role allowed into the admin API surface; its lack of any
+  // *:write / approve / users permissions means every mutating admin route's requirePermission
+  // gate still rejects it with 403. Read routes (gated on *:read) are what it can actually use.
+  if (user.role !== "master_admin" && user.role !== "admin_staff" && user.role !== "sales_head") {
     return c.json({ error: "Forbidden" }, 403);
   }
   await next();

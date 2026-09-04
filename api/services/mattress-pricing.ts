@@ -71,7 +71,14 @@ export function thicknessFactor(thickness?: string | null): number {
   const key = thickness.trim();
   if (THICKNESS_MULTIPLIERS[key] != null) return THICKNESS_MULTIPLIERS[key]!;
   const inches = parseThicknessInches(key);
-  if (inches == null) return 1;
+  if (inches == null) {
+    // A non-empty thickness we can't recognize (not a known key, no parseable inches) falls back
+    // to factor 1 (base 5" price). We keep that behavior to avoid breaking admin-configured
+    // thickness labels, but log it so a mislabeled/mispriced thickness is diagnosable rather than
+    // silently priced at base.
+    console.warn(`[pricing] unrecognized thickness "${key}" — pricing at base factor 1.0`);
+    return 1;
+  }
   return Math.round((inches / 5) * 100) / 100;
 }
 

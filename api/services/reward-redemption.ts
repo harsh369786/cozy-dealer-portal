@@ -14,8 +14,8 @@ export async function redeemRewardClaim(
     db
       .prepare(
         `INSERT INTO reward_claims
-           (id, dealer_id, reward_catalog_id, name, emoji, points_spent, status, claimed_at)
-         SELECT ?, ?, ?, ?, ?, ?, 'pending', ?
+           (id, dealer_id, reward_catalog_id, name, emoji, points_spent, status, claimed_at, kind)
+         SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, 'standard'
          WHERE (
            SELECT COALESCE(SUM(delta), 0)
            FROM points_ledger
@@ -35,6 +35,12 @@ export async function redeemRewardClaim(
       ),
     db
       .prepare(
+        // The debit is guarded twice: (1) the paired claim row must exist, and (2) the balance
+        // AFTER this debit must stay >= 0. Guard (2) makes concurrent redemptions safe — if two
+        // requests both passed the claim-insert balance check against the same pre-debit balance,
+        // whichever debit commits second sees the first debit already applied and its
+        // (balance - pointsRequired) >= 0 check fails, so it inserts nothing (changes=0) and the
+        // batch is rejected below. Prevents double-spend / negative balance without row locks.
         `INSERT INTO points_ledger
            (id, dealer_id, delta, balance_after, label, reference_type, reference_id, occurred_at)
          SELECT
@@ -43,7 +49,10 @@ export async function redeemRewardClaim(
            ?, 'reward_claim', ?, ?
          WHERE EXISTS (
            SELECT 1 FROM reward_claims WHERE id = ? AND dealer_id = ?
-         )`,
+         )
+         AND (
+           (SELECT COALESCE(SUM(delta), 0) FROM points_ledger WHERE dealer_id = ?) - ?
+         ) >= 0`,
       )
       .bind(
         id("pl"),
@@ -56,6 +65,8 @@ export async function redeemRewardClaim(
         claimedAt,
         claimId,
         dealerId,
+        dealerId,
+        pointsRequired,
       ),
   ]);
 

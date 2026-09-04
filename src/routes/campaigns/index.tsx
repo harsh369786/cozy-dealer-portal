@@ -204,7 +204,7 @@ function DealerCampaignCard({
       </div>
       <div className="p-5">
         {hasProductPricing && dealerPrice != null && campaignPrice != null && (
-          <CampaignPriceBlock mrp={mrp} dealerPrice={dealerPrice} campaignPrice={campaignPrice} />
+          <CampaignPriceBlock isFromPrice mrp={mrp} dealerPrice={dealerPrice} campaignPrice={campaignPrice} />
         )}
         <p className="mt-4 text-sm text-muted-foreground">{campaign.description}</p>
         {hasVolumeGoal && tab === "active" && (

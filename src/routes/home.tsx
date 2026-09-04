@@ -433,7 +433,11 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
                           <p className="text-sm text-muted-foreground line-through">
                             {t("common.dealerLabel", { price: formatCurrency(p.price) })}
                           </p>
-                          <p className="text-sm font-bold text-primary">{formatCurrency(p.campaignPrice)}</p>
+                          {/* "From": base 72"×36", 5" price; scales with size/thickness on the
+                              product page. Shown as a starting price, not the exact charge. */}
+                          <p className="text-sm font-bold text-primary">
+                            {t("common.from")} {formatCurrency(p.campaignPrice)}
+                          </p>
                         </>
                       ) : (
                         <p className="text-sm text-muted-foreground">
@@ -473,6 +477,7 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
             </p>
             <div className="mt-4">
               <CampaignPriceBlock
+                isFromPrice
                 mrp={priceProduct.mrp ?? priceProduct.price ?? 0}
                 dealerPrice={priceProduct.price ?? 0}
                 campaignPrice={campaignPrice}

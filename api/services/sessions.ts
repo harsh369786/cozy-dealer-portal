@@ -1,5 +1,5 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import { buildSessionUser } from "../rbac";
+import { buildSessionUser, resolveEffectiveRole } from "../rbac";
 import type { AppVariables } from "../types";
 import { id, SESSION_DAYS, sha256 } from "../utils";
 
@@ -26,11 +26,16 @@ export async function createSessionForUserRow(
     )
     .run();
 
+  const effectiveRole = await resolveEffectiveRole(
+    db,
+    userRow["id"] as string,
+    userRow["role"] as AppVariables["user"]["role"],
+  );
   const user = buildSessionUser({
     id: userRow["id"] as string,
     name: userRow["name"] as string,
     phone: userRow["phone"] as string,
-    role: userRow["role"] as AppVariables["user"]["role"],
+    role: effectiveRole,
     status: userRow["status"] as AppVariables["user"]["status"],
     dealer_id: userRow["dealer_id"] as string | null,
     distributor_id: userRow["distributor_id"] as string | null,

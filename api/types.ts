@@ -2,6 +2,7 @@ export type UserRole =
   | "dealer"
   | "distributor"
   | "sales_executive"
+  | "sales_head"
   | "admin_staff"
   | "master_admin";
 

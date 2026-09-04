@@ -206,3 +206,52 @@ export function isDemoModeEnabled(env?: { MOCK_OTP?: string; DEMO_LOGINS_ENABLED
     environment !== "production"
   );
 }
+
+// --- Lightweight numeric input guards -------------------------------------------------
+// These reject garbage numbers (NaN, negative, non-integer, absurdly large) at write
+// boundaries so bad values never reach the DB or pricing math. They throw plain Errors;
+// route handlers already catch and surface these as 400s.
+
+/** Max order quantity per line — a sane cap to reject fat-finger / abusive values. */
+export const MAX_ORDER_QUANTITY = 10000;
+
+/**
+ * Assert a value is a positive integer within [1, max]. Returns the validated number.
+ * Rejects NaN, Infinity, <= 0, non-integers, and anything above the cap.
+ */
+export function assertPositiveInt(value: unknown, label = "quantity", max = MAX_ORDER_QUANTITY): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) {
+    throw new Error(`Invalid ${label}: must be a whole number of at least 1`);
+  }
+  if (n > max) {
+    throw new Error(`Invalid ${label}: must be at most ${max}`);
+  }
+  return n;
+}
+
+/**
+ * Assert a value is a finite, non-negative money/points amount within [0, max]. Returns it.
+ * Allows fractional currency; rejects NaN, Infinity, negatives, and absurd magnitudes.
+ */
+export function assertNonNegativeAmount(value: unknown, label = "amount", max = 1_000_000_000): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0) {
+    throw new Error(`Invalid ${label}: must be a non-negative number`);
+  }
+  if (n > max) {
+    throw new Error(`Invalid ${label}: value is too large`);
+  }
+  return n;
+}
+
+/**
+ * Assert a percentage is finite and within [0, max] (default 0–100). Returns it.
+ */
+export function assertPercent(value: unknown, label = "percent", max = 100): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > max) {
+    throw new Error(`Invalid ${label}: must be between 0 and ${max}`);
+  }
+  return n;
+}

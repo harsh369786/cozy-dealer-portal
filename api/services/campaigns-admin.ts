@@ -224,8 +224,10 @@ async function validateCampaignInput(
   },
 ) {
   const discount = Number(args.discountPercent);
-  if (!Number.isFinite(discount) || discount < 0 || discount > 100) {
-    throw new Error("Discount must be between 0 and 100");
+  // Cap below 100% so a fat-finger 100 can't ship product for free. 99% is already an extreme
+  // discount; a true giveaway should be handled deliberately, not via a campaign discount.
+  if (!Number.isFinite(discount) || discount < 0 || discount > 99) {
+    throw new Error("Discount must be between 0 and 99");
   }
   if (args.startDate > args.endDate) {
     throw new Error("Campaign start date must be on or before the end date");

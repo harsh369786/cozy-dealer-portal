@@ -3,7 +3,7 @@ import { AdminShell } from "@/components/admin/admin-shell";
 import { requireRoles } from "@/lib/auth-guard";
 
 export const Route = createFileRoute("/admin")({
-  beforeLoad: () => requireRoles(["master_admin", "admin_staff"]),
+  beforeLoad: () => requireRoles(["master_admin", "admin_staff", "sales_head"]),
   component: AdminLayout,
 });
 

@@ -150,7 +150,9 @@ export function AdminShell({ children }: { children: ReactNode }) {
     ? t("common.masterAdmin")
     : user?.role === "admin_staff"
       ? t("common.adminStaff")
-      : user?.role;
+      : user?.role === "sales_head"
+        ? "Sales Head"
+        : user?.role;
 
   return (
     <SidebarProvider className="h-svh overflow-hidden">

@@ -57,6 +57,9 @@ export async function requireActiveAccount(
 export function requirePermission(permission: Permission) {
   return async (c: Context<{ Bindings: ApiEnv; Variables: AppVariables }>, next: Next) => {
     const user = c.get("user");
+    // Guard against a missing user (defensive: these middlewares always run after requireAuth,
+    // but a null user would make hasPermission throw a 500 instead of a clean 401).
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
     if (!hasPermission(user, permission)) return c.json({ error: "Forbidden" }, 403);
     await next();
   };
@@ -65,6 +68,7 @@ export function requirePermission(permission: Permission) {
 export function requireAnyPermission(...permissions: Permission[]) {
   return async (c: Context<{ Bindings: ApiEnv; Variables: AppVariables }>, next: Next) => {
     const user = c.get("user");
+    if (!user) return c.json({ error: "Unauthorized" }, 401);
     if (!permissions.some((p) => hasPermission(user, p))) return c.json({ error: "Forbidden" }, 403);
     await next();
   };
@@ -78,10 +82,16 @@ function getSessionCookie(c: Context) {
 
 async function resolveSession(db: D1Database, sessionId: string): Promise<SessionUser | null> {
   const tokenHash = await sha256(sessionId);
+  // ovr.role is the effective-role override (e.g. 'sales_head'), stored in user_role_overrides
+  // because the users.role CHECK constraint can't be altered on prod D1. COALESCE upgrades the
+  // effective role when an override exists; users.role stays a CHECK-legal base value.
   const row = await db
     .prepare(
-      `SELECT s.id, s.expires_at, u.id as uid, u.name, u.phone, u.role, u.status, u.dealer_id, u.distributor_id
-       FROM sessions s JOIN users u ON u.id = s.user_id
+      `SELECT s.id, s.expires_at, u.id as uid, u.name, u.phone,
+              COALESCE(ovr.role, u.role) as role, u.status, u.dealer_id, u.distributor_id
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       LEFT JOIN user_role_overrides ovr ON ovr.user_id = u.id
        WHERE s.id = ? AND s.token_hash = ? AND u.status IN ('active', 'pending_approval') AND u.deleted_at IS NULL`,
     )
     .bind(sessionId, tokenHash)

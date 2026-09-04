@@ -5,7 +5,34 @@ inclusion: always
 # Session Context — cross-laptop handoff
 
 This file is auto-written on "sync" so Kiro on the other laptop can resume instantly.
-Last updated: 2026-09-04 (session 4 — Web Push overhaul, scheduled announcements, OTP fix, misc).
+Last updated: 2026-09-04 (session 5 — whole-project bug audit + fixes, view-only sales_head role).
+
+## THIS SESSION (session 5) — committed, NOT deployed (migrations LOCAL only)
+Two NEW migrations, both ADD-only, applied to LOCAL only — REMOTE apply + deploy still pending (do on instruction):
+`0033_reward_claim_milestone_unique.sql`, `0034_user_role_overrides.sql`.
+
+### A. Whole-project bug audit + fixes (all non-breaking)
+- **P0 milestone reward double-claim**: migration 0033 adds `reward_claims.kind` (backfilled from catalog) + partial UNIQUE index `idx_reward_claims_one_milestone_per_dealer WHERE kind='milestone'`. `additional-rewards.ts` redeemAdditionalReward inserts kind='milestone', catches UNIQUE -> "already chose".
+- **P0 points redemption double-spend**: `reward-redemption.ts` ledger-debit insert now also guards `(SUM(delta) - pointsRequired) >= 0` (post-debit balance). Concurrent-safe (D1 serializes batches). Claim insert sets kind='standard'.
+- **P0 client price drift**: mattress base price shown as "From ₹X" (base 72x36/5"). Added optional `isFromPrice` prop to CampaignPriceBlock (default false so product page stays exact); set on home banner + campaigns list; "From" prefix on home card + products list ProductRow campaign price. common.from key already existed.
+- **P1 orphaned dealer**: `users.ts` updateAdminUser now runs validateRoleLinks + validateDealer/DistributorId when patch.status==="active" too (not just role/link changes) — activating a dealer/distributor with NULL store now throws.
+- **P1 non-atomic writes**: updateOrderLineItems (item + order-total) and bulkUpdateAssignments (distributor + SE) each now a single db.batch. Order totals bind quote.quantity (validated).
+- **P1 input validation**: added assertPositiveInt/assertNonNegativeAmount/assertPercent + MAX_ORDER_QUANTITY=10000 to api/utils.ts. buildPriceQuote (single choke point for order create+edit) now `assertPositiveInt(input.quantity)` (was Math.max(1,...)). createOrder INSERTs bind quote.quantity.
+- **P2**: thicknessFactor logs warn on unrecognized thickness (still factor 1, NOT thrown — avoids breaking admin labels); calculateRewardPoints rounds once on total (was per-unit×qty); order-status blocks master_admin changing FROM 'delivered'; campaign discount capped 0-99 (was 0-100, prevents free); added `deleted_at IS NULL` to 2 order SELECTs (updateOrderStatus, handleOrderDelivered); requirePermission/requireAnyPermission null-check user -> 401.
+- **NOT changed (documented)**: signup tombstone-resurrection (non-privilege-gaining, changing risks breaking re-signup); no full zod rewrite; admin numeric writes (product price/sqft rate) left (admin-trusted). SQL injection: none found. Order ownership/scope: solid. Delivered-order point credit: already safe (unique idx 0021).
+
+### B. sales_head role (STRICTLY VIEW-ONLY) — Option A (override table, no users CHECK change, no downtime)
+- Why: users.role CHECK can't be altered on prod D1 (rebuild fails FK — reset the DB last time). So sales_head is stored as base role 'admin_staff' + a row in NEW `user_role_overrides(user_id PK, role, created_at, updated_at)` (migration 0034, ADD-only). Effective role resolved at session time.
+- `api/rbac.ts`: added `resolveEffectiveRole(db, userId, baseRole)` (reads override; falls back on missing table). `middleware/auth.ts` resolveSession SQL now LEFT JOIN user_role_overrides + COALESCE(ovr.role, u.role). Login paths (sessions.ts createSessionForUserRow + app.ts OTP verify ~285) call resolveEffectiveRole so immediate post-login role is correct.
+- `shared/rbac-permissions.ts`: sales_head = READ-ONLY perms only (orders/dealers/catalog/campaigns/rewards/complaints/notifications/reports/assignments/visits :read). NO write/approve/reject/redeem/users/settings/audit/signup:review.
+- Role unions updated: api/types.ts + src/lib/mock/distributor/types.ts.
+- `users.ts`: OVERRIDE_ROLES map {sales_head:'admin_staff'} + baseRoleFor() + syncRoleOverride() (upsert on override role, delete otherwise). createAdminUser (both new + reuse-deleted paths) and updateAdminUser store baseRoleFor(role) in users.role and syncRoleOverride; updateAdminUser also drops sessions when role changes. USER_SELECT LEFT JOINs overrides as override_role; mapUserRow uses effectiveRole = override_role ?? role. validateRoleLinks treats sales_head like admin (no dealer/distributor links).
+- `api/app.ts` admin gate (`admin.use("*")`) now also allows role==='sales_head' (read routes; writes still 403 via requirePermission).
+- Client: getHomePath -> '/admin' for sales_head; admin route guard requireRoles adds sales_head; admin-shell nav is permission-driven (auto-correct) + roleLabel "Sales Head"; user create dropdown (new.tsx) + edit dropdown ($userId.tsx, master_admin only) add sales_head option. useAdminPermissions uses session permissions (works automatically).
+- KNOWN LIMITATION: Users list "filter by role" uses raw users.role in SQL, so filtering by 'sales_head' won't match (they show under admin_staff/all). Cosmetic; view-only role.
+- To create: Admin -> Users -> New/edit -> "Sales Head (view only)". Build GREEN, 0034 applied LOCAL, table verified.
+
+## SESSION 4 (previous) — DEPLOYED to production (Version e77aaaa9)
 
 ## THIS SESSION (session 4) — ALL committed AND DEPLOYED to production
 Production URL: https://backrest-pwa.shahharsh143-hs.workers.dev. Latest deploy Version ID: `e77aaaa9-a1bb-4993-b6f3-8f5d006b8b72`.

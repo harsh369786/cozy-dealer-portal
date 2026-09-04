@@ -62,10 +62,44 @@ export type UpdateUserInput = {
 const USER_ROLES = new Set([
   "master_admin",
   "admin_staff",
+  "sales_head",
   "distributor",
   "sales_executive",
   "dealer",
 ]);
+
+// Roles that cannot be stored directly in users.role because they aren't in that column's CHECK
+// constraint (which can't be altered on prod D1). They are persisted as a base role + a row in
+// user_role_overrides, and resolved back to the effective role at session time.
+const OVERRIDE_ROLES: Record<string, string> = {
+  // sales_head is stored as an admin_staff base with a 'sales_head' override.
+  sales_head: "admin_staff",
+};
+
+/** The CHECK-legal value to store in users.role for a possibly-overridden role. */
+function baseRoleFor(role: string): string {
+  return OVERRIDE_ROLES[role] ?? role;
+}
+
+/**
+ * Persist (or clear) a user's role override. If `role` is an override role (e.g. sales_head),
+ * upsert the override row; otherwise remove any existing override so the base users.role applies.
+ * ADD-only table user_role_overrides (migration 0034) — see resolveEffectiveRole / resolveSession.
+ */
+async function syncRoleOverride(db: D1Database, userId: string, role: string, ts: string) {
+  if (OVERRIDE_ROLES[role]) {
+    await db
+      .prepare(
+        `INSERT INTO user_role_overrides (user_id, role, created_at, updated_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET role = excluded.role, updated_at = excluded.updated_at`,
+      )
+      .bind(userId, role, ts, ts)
+      .run();
+  } else {
+    await db.prepare(`DELETE FROM user_role_overrides WHERE user_id = ?`).bind(userId).run();
+  }
+}
 
 function postLoginPathForRole(role: string) {
   if (role === "dealer") return "/home";
@@ -98,11 +132,14 @@ async function sendUserInviteWhatsapp(
 }
 
 function mapUserRow(r: Record<string, unknown>): AdminUserRow {
+  // Effective role reflects any override (e.g. sales_head) stored in user_role_overrides while
+  // users.role holds the CHECK-legal base value.
+  const effectiveRole = (r.override_role as string) ?? (r.role as string);
   return {
     id: r.id as string,
     name: r.name as string,
     phone: r.phone as string,
-    role: r.role as string,
+    role: effectiveRole,
     status: r.status as string,
     dealerId: (r.dealer_id as string) ?? null,
     dealerName: (r.dealer_name as string) ?? null,
@@ -121,12 +158,14 @@ function mapUserRow(r: Record<string, unknown>): AdminUserRow {
 
 const USER_SELECT = `
   SELECT u.*,
+         ovr.role as override_role,
          d.store_name as dealer_name,
          d.pricing_tier_id as dealer_pricing_tier_id,
          dist.name as distributor_name,
          dist.region as region,
          dist.pricing_tier_id as dist_pricing_tier_id
   FROM users u
+  LEFT JOIN user_role_overrides ovr ON ovr.user_id = u.id
   LEFT JOIN dealers d ON d.id = u.dealer_id
   LEFT JOIN distributors dist ON dist.id = u.distributor_id`;
 
@@ -151,7 +190,12 @@ async function validateDistributorId(db: D1Database, distributorId: string | nul
 function validateRoleLinks(role: string, dealerId: string | null, distributorId: string | null) {
   if (role === "dealer" && !dealerId) throw new Error("Dealer role requires a dealer store");
   if (role === "distributor" && !distributorId) throw new Error("Distributor role requires a distributor");
-  if (role === "master_admin" || role === "admin_staff" || role === "sales_executive") {
+  if (
+    role === "master_admin" ||
+    role === "admin_staff" ||
+    role === "sales_executive" ||
+    role === "sales_head"
+  ) {
     if (dealerId) throw new Error("Admin and sales roles cannot be linked to a dealer");
     if (distributorId) throw new Error("Admin and sales roles cannot be linked to a distributor");
   }
@@ -385,13 +429,14 @@ export async function createAdminUser(
         phone,
         input.name.trim(),
         input.email ?? null,
-        input.role,
+        baseRoleFor(input.role),
         dealerId,
         distributorId,
         ts,
         reuseUserId,
       )
       .run();
+    await syncRoleOverride(db, reuseUserId, input.role, ts);
 
     const created = await getAdminUser(db, reuseUserId);
     await writeAuditLog(db, {
@@ -449,13 +494,14 @@ export async function createAdminUser(
       phone,
       input.name.trim(),
       input.email ?? null,
-      input.role,
+      baseRoleFor(input.role),
       dealerId,
       distributorId,
       ts,
       ts,
     )
     .run();
+  await syncRoleOverride(db, userId, input.role, ts);
 
   const created = await getAdminUser(db, userId);
   await writeAuditLog(db, {
@@ -547,7 +593,17 @@ export async function updateAdminUser(
   const nextDistributorId =
     patch.distributorId !== undefined ? patch.distributorId : before.distributorId;
 
-  if (patch.role || patch.dealerId !== undefined || patch.distributorId !== undefined) {
+  // Validate role<->link consistency whenever role/links change OR when the account is being
+  // ACTIVATED. Activating (status: "active") a dealer/distributor whose dealer_id/distributor_id
+  // is still NULL would otherwise create an "orphaned" active user with no store — the exact
+  // state a self-signup produces if activated outside the approval flow. Rejecting it here forces
+  // activation of such users to go through signup approval (which creates the dealer store).
+  if (
+    patch.role ||
+    patch.dealerId !== undefined ||
+    patch.distributorId !== undefined ||
+    patch.status === "active"
+  ) {
     if (!USER_ROLES.has(nextRole)) throw new Error("Invalid role");
     validateRoleLinks(nextRole, nextDealerId, nextDistributorId);
     await validateDealerId(db, nextDealerId);
@@ -582,7 +638,8 @@ export async function updateAdminUser(
   }
   if (patch.role !== undefined) {
     sets.push("role = ?");
-    binds.push(patch.role);
+    // Store the CHECK-legal base role; the override (if any) is synced below via syncRoleOverride.
+    binds.push(baseRoleFor(patch.role));
   }
   if (patch.status !== undefined) {
     sets.push("status = ?");
@@ -606,6 +663,14 @@ export async function updateAdminUser(
   if (sets.length > 1) {
     binds.push(userId);
     await db.prepare(`UPDATE users SET ${sets.join(", ")} WHERE id = ? AND deleted_at IS NULL`).bind(...binds).run();
+  }
+
+  // Keep the role override in sync when the role changes: set it for override roles (sales_head),
+  // clear it otherwise. When the effective role changes, drop existing sessions so the user
+  // re-authenticates with the new role/permissions (mirrors the suspend behavior below).
+  if (patch.role !== undefined && patch.role !== before.role) {
+    await syncRoleOverride(db, userId, patch.role, nowIso());
+    await db.prepare(`DELETE FROM sessions WHERE user_id = ?`).bind(userId).run();
   }
 
   if (patch.pricingTierId) {

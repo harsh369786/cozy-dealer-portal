@@ -10,6 +10,7 @@ export { calculateRewardPoints };
 export type RewardEligibility = "dealer" | "distributor" | "both";
 
 import { getActivePriceCampaignRow } from "./campaigns-public";
+import { assertPositiveInt } from "../utils";
 import { applyMattressPricing, assertMattressDimensions, pricingDimensions } from "./mattress-pricing";
 import {
   calculateDealerPrice,
@@ -123,7 +124,10 @@ export async function buildPriceQuote(
   const campaign = hasRealDiscount ? matchedCampaign : null;
   const campaignPrice = hasRealDiscount ? rawCampaignPrice : null;
   const unitPrice = campaignPrice ?? dealerPrice;
-  const qty = Math.max(1, input.quantity);
+  // Reject garbage quantity (NaN / <=0 / non-integer / absurd) instead of silently coercing to 1.
+  // This is the single choke point for both order-create and order-edit, so validating here covers
+  // both paths. Throws a clean Error → the routes turn it into a 400.
+  const qty = assertPositiveInt(input.quantity, "quantity");
 
   const rewardPercent = priceRow.reward_percent ?? 0;
   const pointsEarned = calculateRewardPoints(dealerPrice, rewardPercent, qty);

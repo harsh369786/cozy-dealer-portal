@@ -72,6 +72,20 @@ export const ROLE_PERMISSIONS = {
     "reports:read",
     "visits:read",
   ],
+  // Strictly VIEW-ONLY oversight role. Read permissions only — no write/approve/reject/redeem,
+  // no user management, no settings. Used for a head-of-sales who monitors the whole operation.
+  sales_head: [
+    "orders:read",
+    "dealers:read",
+    "catalog:read",
+    "campaigns:read",
+    "rewards:read",
+    "complaints:read",
+    "notifications:read",
+    "reports:read",
+    "assignments:read",
+    "visits:read",
+  ],
   dealer: [
     "orders:read",
     "orders:create",

@@ -262,6 +262,9 @@ function ProductRow({ product: p }: { product: ListProduct }) {
         <p className="font-display text-[15px] font-bold leading-snug text-foreground">{p.name}</p>
         {hasCampaign && (
           <p className="mt-0.5 text-xs font-semibold">
+            {/* "From": this is the base 72"×36", 5" price. Final price scales up with the chosen
+                size and thickness on the product page, so it's a starting price, not exact. */}
+            <span className="mr-1 text-muted-foreground">{t("common.from")}</span>
             <span className="text-muted-foreground line-through">{formatCurrency(p.price!)}</span>
             <span className="ml-2 text-primary">{formatCurrency(p.campaignPrice!)}</span>
           </p>

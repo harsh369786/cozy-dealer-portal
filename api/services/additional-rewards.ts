@@ -90,14 +90,27 @@ export async function redeemAdditionalReward(
 
   const claimId = id("rc");
   const claimedAt = nowIso();
-  await db
-    .prepare(
-      `INSERT INTO reward_claims
-         (id, dealer_id, reward_catalog_id, name, emoji, points_spent, status, claimed_at)
-       VALUES (?, ?, ?, ?, ?, 0, 'pending', ?)`,
-    )
-    .bind(claimId, dealerId, reward.id, reward.name, reward.emoji, claimedAt)
-    .run();
+  // Persist kind='milestone' so the partial UNIQUE index
+  // (idx_reward_claims_one_milestone_per_dealer, migration 0033) enforces one milestone claim per
+  // dealer atomically at the DB level. The SELECT above is only a fast, friendly pre-check; the
+  // unique index is the real guard against a concurrent double-claim (two requests both passing
+  // the SELECT). A UNIQUE violation here is therefore "already claimed", not a server error.
+  try {
+    await db
+      .prepare(
+        `INSERT INTO reward_claims
+           (id, dealer_id, reward_catalog_id, name, emoji, points_spent, status, claimed_at, kind)
+         VALUES (?, ?, ?, ?, ?, 0, 'pending', ?, 'milestone')`,
+      )
+      .bind(claimId, dealerId, reward.id, reward.name, reward.emoji, claimedAt)
+      .run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/UNIQUE|constraint/i.test(message)) {
+      throw new Error("You already chose an additional reward");
+    }
+    throw err;
+  }
 
   return { claimId, claimedAt };
 }
