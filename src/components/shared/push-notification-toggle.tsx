@@ -3,6 +3,7 @@ import { Label } from "@/components/ui/label";
 import { useEffect, useState } from "react";
 import {
   getNotificationPermission,
+  getServerPushStatus,
   isPushSupported,
   subscribeToPush,
   unsubscribeFromPush,
@@ -21,9 +22,15 @@ export function PushNotificationToggle({ className }: { className?: string }) {
         return;
       }
       try {
+        // Reflect DB reality, not just the browser: the toggle is ON only when the browser has
+        // a live subscription, permission is granted, AND the server has a matching row.
         const registration = await navigator.serviceWorker.ready;
-        const sub = await registration.pushManager.getSubscription();
-        if (!cancelled) setEnabled(Boolean(sub) && getNotificationPermission() === "granted");
+        const [sub, serverStatus] = await Promise.all([
+          registration.pushManager.getSubscription(),
+          getServerPushStatus(),
+        ]);
+        const browserOk = Boolean(sub) && getNotificationPermission() === "granted";
+        if (!cancelled) setEnabled(browserOk && Boolean(serverStatus?.subscribed));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -53,9 +60,21 @@ export function PushNotificationToggle({ className }: { className?: string }) {
           disabled={loading || getNotificationPermission() === "denied"}
           onCheckedChange={(checked) => {
             setLoading(true);
-            void (checked ? subscribeToPush() : unsubscribeFromPush())
-              .then(() => setEnabled(checked))
-              .finally(() => setLoading(false));
+            void (async () => {
+              try {
+                if (checked) {
+                  // Only flip ON if a real subscription was created + saved to the server.
+                  // subscribeToPush() surfaces its own error toast on failure and returns false.
+                  const ok = await subscribeToPush();
+                  setEnabled(ok);
+                } else {
+                  await unsubscribeFromPush();
+                  setEnabled(false);
+                }
+              } finally {
+                setLoading(false);
+              }
+            })();
           }}
         />
       </div>

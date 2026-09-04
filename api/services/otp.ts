@@ -14,20 +14,29 @@ export function getOtpProvider(): OtpProvider {
   return new MockOtpProvider();
 }
 
-export function generateOtpCode(environment?: string): string {
-  const env = environment ?? (typeof process !== "undefined" ? process.env?.ENVIRONMENT : undefined);
-  if (env === "production") {
-    const random = new Uint32Array(1);
-    crypto.getRandomValues(random);
-    return String(100000 + (random[0]! % 900000));
-  }
-  return "123456";
+export async function generateOtpCode(env?: {
+  MOCK_OTP?: string;
+  DEMO_LOGINS_ENABLED?: string;
+  ENVIRONMENT?: string;
+}): Promise<string> {
+  const { isDemoModeEnabled } = await import("../utils");
+  // Mock OTP (123456) is used whenever demo/mock mode is on — MOCK_OTP=1 or DEMO_LOGINS_ENABLED=1 —
+  // NOT based on ENVIRONMENT. This lets a "production" worker intentionally run in demo mode with a
+  // fixed OTP. When mock mode is OFF we generate a real random 6-digit code.
+  if (isDemoModeEnabled(env)) return "123456";
+  const random = new Uint32Array(1);
+  crypto.getRandomValues(random);
+  return String(100000 + (random[0]! % 900000));
 }
 
-export async function requestOtp(db: D1Database, phone: string, environment?: string) {
+export async function requestOtp(
+  db: D1Database,
+  phone: string,
+  env?: { MOCK_OTP?: string; DEMO_LOGINS_ENABLED?: string; ENVIRONMENT?: string },
+) {
   const { normalizePhone, sha256, id, nowIso, OTP_TTL_MINUTES } = await import("../utils");
   const normalized = normalizePhone(phone);
-  const code = generateOtpCode(environment);
+  const code = await generateOtpCode(env);
   const expires = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
   const challengeId = id("otp");
 

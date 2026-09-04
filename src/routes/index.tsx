@@ -10,6 +10,19 @@ import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import { getPostLoginPath, getCurrentUser, requestOtp, verifyOtp, demoLogin } from "@/services/auth";
 import { isDemoLoginsEnabledByBuild } from "@/lib/demo-logins-enabled";
 import { DEMO_PHONE_SUFFIXES } from "@/lib/demo-users";
+import { consumePendingNotificationTarget } from "@/lib/pending-notification-target";
+import type { SessionUser } from "@/lib/mock/distributor/types";
+
+// After login, prefer a deep-link the user was headed to (e.g. a tapped push notification while
+// logged out) over the default landing page. Only applies to active users; pending/suspended keep
+// their normal routing via getPostLoginPath.
+function resolvePostLoginPath(user: SessionUser): string {
+  if (user.status === "active") {
+    const pending = consumePendingNotificationTarget();
+    if (pending) return pending;
+  }
+  return getPostLoginPath(user);
+}
 
 const loginBg = assetPublicPath(STATIC_ASSET_KEYS.brand.loginBg);
 
@@ -75,7 +88,7 @@ function Login() {
     setDemoLoading(phone);
     try {
       const user = await demoLogin(phone);
-      navigate({ to: getPostLoginPath(user) });
+      navigate({ to: resolvePostLoginPath(user) });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("auth.demoLoginFailed"));
     } finally {
@@ -87,7 +100,7 @@ function Login() {
     setLoading(true);
     try {
       const user = await verifyOtp(phone, otp);
-      navigate({ to: getPostLoginPath(user) });
+      navigate({ to: resolvePostLoginPath(user) });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : t("auth.invalidOtp"));
     } finally {

@@ -64,7 +64,9 @@ import {
 } from "./services/notification-events";
 import { createNotification, getUnreadNotificationCount, listNotifications } from "./services/notifications";
 import {
+  sendPushForNotifications,
   deletePushSubscription,
+  getPushSubscriptionStatus,
   getVapidPublicKeyFromEnv,
   savePushSubscription,
 } from "./services/push-notifications";
@@ -157,7 +159,7 @@ const VALID_COMPLAINT_STATUSES = new Set(["pending", "in_progress", "resolved", 
  * not always on the `env` handed to the Hono context. Merge both so env-driven flags
  * (ENVIRONMENT, MOCK_OTP, DEMO_LOGINS_ENABLED, CRON_SECRET, VAPID_*) resolve correctly.
  */
-function effectiveEnv(env: ApiEnv): ApiEnv {
+export function effectiveEnv(env: ApiEnv): ApiEnv {
   const globalEnv = (globalThis as { __env__?: ApiEnv }).__env__;
   if (!globalEnv) return env;
   return { ...globalEnv, ...env } as ApiEnv;
@@ -258,7 +260,7 @@ app.post("/api/v1/auth/otp/request", async (c) => {
   const ip = c.req.header("cf-connecting-ip") ?? "unknown";
   await enforceOtpRateLimits(c.env, ip, normalizedPhone);
   const db = await getRequestDb(c);
-  const result = await requestOtp(db, normalizedPhone, effectiveEnv(c.env).ENVIRONMENT);
+  const result = await requestOtp(db, normalizedPhone, effectiveEnv(c.env));
   return c.json(result);
 });
 
@@ -1321,6 +1323,14 @@ app.delete("/api/v1/notifications/push-subscribe", requireAuth, requireActiveAcc
   return c.json({ ok: true });
 });
 
+// Server-truth push status for the current user: whether a subscription row actually exists
+// (so the toggle reflects DB reality, not just browser permission) and whether push is
+// demonstrably delivering. Used by the toggle mount check and the polling-fallback decision.
+app.get("/api/v1/notifications/push-status", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
+  const db = await getRequestDb(c);
+  return c.json(await getPushSubscriptionStatus(db, c.get("user").id));
+});
+
 app.patch("/api/v1/notifications/:id/read", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
   const db = await getRequestDb(c);
   const result = await db
@@ -1360,15 +1370,32 @@ app.post("/api/v1/notifications/push-test", requireAuth, requireActiveAccount, r
       : user.role === "distributor" || user.role === "sales_executive"
         ? "/distributor/notifications"
         : "/home";
-  await createNotification(db, {
-    recipientUserId: user.id,
-    category: "system",
-    type: "push_test",
-    title: "Test notification",
-    body: "Push is working. Tap to open your notification center.",
-    link,
-  });
-  return c.json({ ok: true });
+  const created = await createNotification(
+    db,
+    {
+      recipientUserId: user.id,
+      category: "system",
+      type: "push_test",
+      title: "Test notification",
+      body: "Push is working. Tap to open your notification center.",
+      link,
+    },
+    { skipPush: true },
+  );
+  // Send synchronously and report the real result, so a failed delivery surfaces here (and in
+  // the tail) instead of dying silently in a background task. Uses the merged env so VAPID keys
+  // resolve even when they live on globalThis.__env__.
+  let result;
+  try {
+    result = await sendPushForNotifications(effectiveEnv(c.env), [created]);
+  } catch (err) {
+    console.error("[push] push-test send threw:", err instanceof Error ? err.stack ?? err.message : err);
+    return c.json(
+      { ok: false, error: err instanceof Error ? err.message : "Push send failed" },
+      500,
+    );
+  }
+  return c.json({ ok: true, ...result });
 });
 
 // Reports

@@ -2,10 +2,11 @@ import { useEffect } from "react";
 import { useSession } from "@/hooks/use-session";
 import { requestUnreadCountRefresh } from "@/lib/notification-count-cache";
 import {
-  hasActivePushSubscription,
+  getServerPushStatus,
   isViewingNotificationTarget,
   markBrowserNotificationShown,
   requestPushPromptForSessionIfNeeded,
+  resyncPushSubscription,
   showLocalNotification,
 } from "@/lib/browser-notifications";
 import {
@@ -17,6 +18,20 @@ import {
 const POLL_MS = 45_000;
 const LAST_POLL_KEY = "backrest_notifications_last_poll";
 const INITIALIZED_KEY = "backrest_notifications_poll_initialized";
+// Only suppress the browser (polling) fallback when the SERVER confirms push is actually
+// delivering: a subscription row exists, the last delivery was 2xx, and it happened recently.
+// If push is broken/stale/unknown, the fallback must keep firing so the user still gets alerts.
+const PUSH_HEALTHY_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+
+async function isPushDeliveringViaServer(): Promise<boolean> {
+  const status = await getServerPushStatus();
+  if (!status || !status.subscribed || !status.lastDeliveryOk || !status.lastAttemptAt) {
+    return false;
+  }
+  const last = new Date(status.lastAttemptAt).getTime();
+  if (!Number.isFinite(last)) return false;
+  return Date.now() - last <= PUSH_HEALTHY_WINDOW_MS;
+}
 
 function getLastPollIso(): string | undefined {
   try {
@@ -89,13 +104,19 @@ export function useNotificationBridge() {
 
     handleNotificationNavigateHash();
     requestPushPromptForSessionIfNeeded(user.role);
+    // Re-register any existing browser push subscription with the server on login, so a device
+    // that already granted push isn't left with a missing/stale server row (deploy dropped rows,
+    // cookie clear, subscribed elsewhere). Silent no-op when there's no local subscription.
+    void resyncPushSubscription();
 
     let cancelled = false;
 
     const poll = async () => {
       try {
         const since = getLastPollIso();
-        const pushSubscribed = await hasActivePushSubscription();
+        // Skip the browser fallback ONLY if the server confirms push is currently delivering.
+        // A merely-present browser subscription is NOT enough (it can be broken server-side).
+        const pushHealthy = await isPushDeliveringViaServer();
 
         if (!isPollInitialized()) {
           const baseline = await getNotificationsSince();
@@ -112,7 +133,7 @@ export function useNotificationBridge() {
         if (items.length) {
           const newest = items.reduce((a, b) => (a.createdAt > b.createdAt ? a : b));
           setLastPollIso(newest.createdAt);
-          await processNewNotifications(items, pushSubscribed);
+          await processNewNotifications(items, pushHealthy);
         }
       } catch {
         // ignore polling errors

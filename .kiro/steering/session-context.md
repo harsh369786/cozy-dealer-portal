@@ -5,7 +5,41 @@ inclusion: always
 # Session Context — cross-laptop handoff
 
 This file is auto-written on "sync" so Kiro on the other laptop can resume instantly.
-Last updated: 2026-09-03 (session 3 — reward %, buffer review, env setup).
+Last updated: 2026-09-04 (session 4 — Web Push overhaul, scheduled announcements, OTP fix, misc).
+
+## THIS SESSION (session 4) — ALL committed AND DEPLOYED to production
+Production URL: https://backrest-pwa.shahharsh143-hs.workers.dev. Latest deploy Version ID: `e77aaaa9-a1bb-4993-b6f3-8f5d006b8b72`.
+SW cache bumped to **v34** (was v32). Two migrations applied to LOCAL and **REMOTE** D1: `0031_push_delivery_status.sql`, `0032_scheduled_announcements.sql` (both ADD-only).
+
+### A. Web Push notification system — full 9-phase overhaul (all deployed, verified working)
+- **Instrumentation + pruning** (`0031` migration adds `last_attempt_at`/`last_status`/`failure_count` to push_subscriptions; `api/services/push-notifications.ts` `sendPushForNotifications` records status per attempt, prunes on 401/403/404/410, returns `PushSendResult {attempted,succeeded,statuses}` + logs `[push] send complete`).
+- **Toggle no longer lies** — new `GET /api/v1/notifications/push-status` + `getPushSubscriptionStatus(db,userId)`; toggle (`src/components/shared/push-notification-toggle.tsx`) awaits real subscribe result + checks browser+server on mount.
+- **Fallback fix** (`src/hooks/use-notification-bridge.ts`): browser polling fallback suppressed ONLY when server confirms push delivering (`isPushDeliveringViaServer()`, 2h window).
+- **SW click** (`public/sw.js` notificationclick): focus()+postMessage only (removed double-nav client.navigate); openWindow only when no client. Logged-out deep-link: NEW `src/lib/pending-notification-target.ts` (sessionStorage store/consume), stored in `src/lib/auth-guard.ts` `requireUser()` before redirect to "/", replayed in `src/routes/index.tsx` `resolvePostLoginPath`.
+- **Re-sync on login**: `resyncPushSubscription()` in browser-notifications.ts, called from use-notification-bridge effect (silent upsert of existing browser sub).
+- **Badge PNG**: `public/icons/badge-monochrome.png` (96x96, generated via sharp from the svg); payload + sw.js badge -> .png.
+- VERIFIED live via demo-login (9999999999 -> master_admin) POST /push-test => `{attempted:6,succeeded:3,statuses:[410,410,201,410,201,201]}` — 201=delivered, 410 auto-pruned. Push pipeline HEALTHY. `push-test` route now sends SYNCHRONOUSLY (createNotification with `{skipPush:true}` option added to `api/services/notifications.ts`, then awaits sendPushForNotifications, returns result) so failures surface. If a device doesn't get it, re-subscribe on that device (stale 410 sub); iOS must be installed to home screen.
+
+### B. Scheduled announcements (Phase 6) — `0032` migration NEW table `scheduled_announcements`
+- `api/services/system-notifications-admin.ts`: `createAnnouncement` — if sendAt future, INSERT into scheduled_announcements (sent=0), NOT immediate; else `sendAnnouncementNow`. `dispatchScheduledAnnouncements(db)` in cron (`workers/cron.ts` `handleCron(env, ctx?)` now sets `setPushEnv(effectiveEnv(env))`+`resolveExecutionContext(ctx)` so cron push has VAPID; `src/server.ts` passes ctx). `api/app.ts` exported `effectiveEnv`.
+- **TIMEZONE BUG FIXED**: form sent naive `datetime-local` ("2026-09-04T11:10", no TZ) → server (UTC) read it as UTC → fired ~5.5h late. Fix: client `src/routes/admin/notifications/index.tsx` `toIsoInstant()` converts to UTC ISO before send (both compose+update); server `normalizeSendAt()` stores UTC ISO. Cron compares `send_at <= nowIso()` (both UTC ISO now — string compare is chronological).
+- **Scheduled (sent=0) announcements now VISIBLE in admin list** — `listAnnouncements` merges pending scheduled_announcements rows (marked `scheduled:true`); before, they only lived in the new table and looked unsaved.
+- GOTCHA fixed: JSDoc containing "*/15" prematurely closed a block comment and broke the build; reworded to "every-15-minutes". NEVER put `*/<digit>` in a block comment.
+
+### C. OTP login fix (CRITICAL)
+- `api/services/otp.ts` `generateOtpCode` used `123456` only when `ENVIRONMENT !== "production"`, IGNORING `MOCK_OTP`. Prod worker runs ENVIRONMENT="production" + MOCK_OTP=1, so it generated a RANDOM code only logged server-side → new users could NOT log in (123456 failed). FIX: `generateOtpCode(env)` now returns 123456 whenever `isDemoModeEnabled(env)` (MOCK_OTP=1 OR DEMO_LOGINS_ENABLED=1), else random. Caller `api/app.ts` passes `effectiveEnv(c.env)`. VERIFIED 123456 works live.
+- **WHEN GOING FULLY LIVE**: set `MOCK_OTP=0` + `DEMO_LOGINS_ENABLED=0` (and wire a real SMS provider). Until then EVERY account's OTP is 123456 — fine for testing, unsafe for real launch.
+
+### D. Order review UI
+- Removed the "Delivery — Free · 5–7 days" line from the order review summary (`src/routes/products/$productId.tsx`, was `<Line label={common.delivery} value={common.deliveryFree}/>`).
+
+## OPEN / PENDING (not done)
+- **Sq.Ft pricing change REQUESTED, NOT started.** User wants ₹/Sq.Ft rate to be PER (product + thickness), each configurable. CURRENT logic (explained to user): NO per-sqft rate exists today — `api/services/mattress-pricing.ts` uses base price for base 72"×36", `sizeAreaFactor = area/(72*36)` clamped >=1, times a HARD-CODED `THICKNESS_MULTIPLIERS` table (2"→0.45 … 5"→1.0 … 10"→1.45) identical for all products. Final = basePrice × sizeFactor × thicknessMultiplier. To do the ask: switch mattresses to `Final=(L/12)*(W/12)*rate` and make rate configurable per product+thickness (DB ADD-only table, admin editor rows, client mirror `src/lib/mattress-size.ts`, order line items capturing thickness+rate). ASKED USER 4 clarifying Qs (replace base-price model entirely? which price MRP/dealer/both? keep 1" standard-size snap/floor or use raw inches? where admin enters rates?) — AWAITING ANSWERS before building.
+- **Orphaned dealer 9821650772 ("Harsh Shah")**: self-signup user is `status=active` but `dealer_id=NULL` with a still-`pending` signup_applications row — should not be reachable. Fix path given to user: approve the pending signup (Admin → Assignments → **Approvals tab**, needs `signup:review` perm) which creates the dealers store + assigns distributor. Possible hardening (NOT done): prevent a self-signup user going active without a dealer store / clear stale pending signup on admin create.
+
+## NOTES on assignment model (for the above)
+- Dealer = row in `dealers` table; dealer→distributor link is `dealers.distributor_id` (single FK, set at creation). Admin-create user = instant `status='active'` + creates dealer store (users.ts). Self-signup = `pending_approval` until admin approves (signup-review.ts creates the dealers row). Assignments UI lists `dealers` rows; "unassigned distributor" filter = `distributor_id IS NULL`. Search matches store_name/code/location (NOT phone).
+
 
 ## THIS SESSION (session 3) — committed, NOT yet deployed
 - **Reward % now computed on DEALER PRICE (not MRP) in the admin product editor.** The runtime rule

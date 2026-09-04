@@ -1,3 +1,4 @@
+import { toast } from "sonner";
 import { api } from "@/lib/api-client";
 
 const PROMPT_DISMISSED_KEY = "backrest_push_prompt_dismissed";
@@ -141,33 +142,82 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export async function subscribeToPush(): Promise<boolean> {
-  if (!isPushSupported()) return false;
-
-  const permission = await Notification.requestPermission();
-  if (permission !== "granted") return false;
-
-  const publicKey = await fetchVapidPublicKey();
-  if (!publicKey) return false;
-
-  const registration = await navigator.serviceWorker.ready;
-  let subscription = await registration.pushManager.getSubscription();
-  if (!subscription) {
-    subscription = await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(publicKey),
-    });
+  if (!isPushSupported()) {
+    toast.error("Push notifications aren't supported on this device or browser.");
+    return false;
   }
 
-  const json = subscription.toJSON();
-  if (!json.endpoint || !json.keys?.['p256dh'] || !json.keys?.['auth']) return false;
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") {
+    // User dismissed/blocked the prompt — not an error to shout about, but give a hint.
+    if (permission === "denied") {
+      toast.error("Notifications are blocked. Enable them in your browser settings to receive alerts.");
+    }
+    return false;
+  }
 
-  await api.post("/api/v1/notifications/push-subscribe", {
-    endpoint: json.endpoint,
-    keys: { p256dh: json.keys['p256dh'], auth: json.keys['auth'] },
-  });
+  const publicKey = await fetchVapidPublicKey();
+  if (!publicKey) {
+    // Server has no VAPID public key configured (or the request failed) — this is the silent
+    // failure the audit flagged; surface it so the user/admin knows push can't be enabled.
+    toast.error("Couldn't enable push: notification server is not configured. Please try again later.");
+    return false;
+  }
 
-  dismissPushPrompt();
-  return true;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+    }
+
+    const json = subscription.toJSON();
+    if (!json.endpoint || !json.keys?.["p256dh"] || !json.keys?.["auth"]) {
+      toast.error("Couldn't enable push: the browser returned an invalid subscription.");
+      return false;
+    }
+
+    await api.post("/api/v1/notifications/push-subscribe", {
+      endpoint: json.endpoint,
+      keys: { p256dh: json.keys["p256dh"], auth: json.keys["auth"] },
+    });
+
+    dismissPushPrompt();
+    return true;
+  } catch (err) {
+    // pushManager.subscribe (e.g. Brave/blocked push service) or the /push-subscribe POST failed.
+    const message = err instanceof Error ? err.message : "Unknown error";
+    toast.error(`Couldn't enable push notifications: ${message}`);
+    return false;
+  }
+}
+
+/**
+ * Silently re-register an EXISTING browser push subscription with the server (upsert). Used after
+ * login so a device that already granted push doesn't end up with a missing/stale server row
+ * (e.g. after a deploy dropped rows, cookie clear, or subscribing on another session). This never
+ * prompts for permission and never subscribes anew — if there is no local subscription it is a
+ * no-op. Failures are swallowed (best-effort background sync, no user-facing noise).
+ */
+export async function resyncPushSubscription(): Promise<void> {
+  if (!isPushSupported()) return;
+  if (getNotificationPermission() !== "granted") return;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (!subscription) return;
+    const json = subscription.toJSON();
+    if (!json.endpoint || !json.keys?.["p256dh"] || !json.keys?.["auth"]) return;
+    await api.post("/api/v1/notifications/push-subscribe", {
+      endpoint: json.endpoint,
+      keys: { p256dh: json.keys["p256dh"], auth: json.keys["auth"] },
+    });
+  } catch {
+    // best-effort; the toggle / server push-status still reflect the true state.
+  }
 }
 
 export async function unsubscribeFromPush() {
@@ -192,6 +242,23 @@ export async function hasActivePushSubscription(): Promise<boolean> {
     return Boolean(subscription);
   } catch {
     return false;
+  }
+}
+
+export type PushServerStatus = {
+  subscribed: boolean;
+  lastDeliveryOk: boolean;
+  lastAttemptAt: string | null;
+  lastStatus: number | null;
+  count: number;
+};
+
+/** Server-truth: does THIS user have a push subscription row on the server, and is it working? */
+export async function getServerPushStatus(): Promise<PushServerStatus | null> {
+  try {
+    return await api.get<PushServerStatus>("/api/v1/notifications/push-status");
+  } catch {
+    return null;
   }
 }
 

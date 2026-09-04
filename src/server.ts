@@ -132,7 +132,7 @@ export default {
   },
 
   async scheduled(_event: ScheduledEvent, env: ApiEnv, ctx: ExecutionContext) {
-    ctx.waitUntil(handleCron(env));
+    ctx.waitUntil(handleCron(env, ctx));
   },
 
   async queue(batch: MessageBatch<{ outboxId: string }>, env: ApiEnv) {

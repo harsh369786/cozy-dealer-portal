@@ -90,6 +90,19 @@ const emptyForm = (): AdminNotificationInput => ({
   maxImpressions: 1,
 });
 
+// The <input type="datetime-local"> value is a naive local wall-clock string ("2026-09-04T11:10",
+// no timezone). Convert it to a real UTC ISO instant before sending, so the server (which runs in
+// UTC) schedules it for the moment the admin actually intended instead of misreading it as UTC.
+function toIsoInstant(localDateTime: string): string {
+  const d = new Date(localDateTime);
+  if (Number.isNaN(d.getTime())) return localDateTime; // let the server validate/reject
+  return d.toISOString();
+}
+
+function withNormalizedSendAt(form: AdminNotificationInput): AdminNotificationInput {
+  return { ...form, sendAt: toIsoInstant(form.sendAt) };
+}
+
 function NotificationForm({
   form,
   onChange,
@@ -342,7 +355,7 @@ function AnnouncementsManager() {
     }
     setSaving(true);
     try {
-      await composeAnnouncement(form);
+      await composeAnnouncement(withNormalizedSendAt(form));
       toast.success("Notification scheduled");
       setComposeOpen(false);
       setForm(emptyForm());
@@ -358,7 +371,7 @@ function AnnouncementsManager() {
     if (!editingId) return;
     setSaving(true);
     try {
-      await updateNotification(editingId, form);
+      await updateNotification(editingId, withNormalizedSendAt(form));
       toast.success("Notification updated");
       setEditOpen(false);
       retry();

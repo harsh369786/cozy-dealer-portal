@@ -45,6 +45,7 @@ function mapNotificationRow(n: Record<string, unknown>) {
 export async function createNotification(
   db: D1Database,
   input: NotificationInsertInput,
+  options?: { skipPush?: boolean },
 ) {
   const notificationId = id("ntf");
   const ts = nowIso();
@@ -68,6 +69,9 @@ export async function createNotification(
     .run();
 
   const created: CreatedNotification = { id: notificationId, ...input };
+  // Callers that want to send push synchronously (e.g. the test endpoint, to surface the real
+  // delivery result) pass skipPush and call sendPushForNotifications themselves.
+  if (options?.skipPush) return created;
   // Capture env + execution context together, then bind the background send to THAT context
   // so a concurrent request can't swap it out and truncate delivery.
   const { env, ctx } = snapshotPushContext();

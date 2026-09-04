@@ -1,4 +1,4 @@
-const CACHE = "backrest-static-v32";
+const CACHE = "backrest-static-v34";
 const PRECACHE = [
   "/",
   "/manifest.webmanifest",
@@ -6,7 +6,7 @@ const PRECACHE = [
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/icon-512-maskable.png",
-  "/icons/badge-monochrome.svg",
+  "/icons/badge-monochrome.png",
   "/favicon.png",
 ];
 
@@ -45,8 +45,9 @@ function showAppNotification(title, options) {
     icon: "/icons/icon-192.png",
     // Status-bar badge: MUST be a monochrome/transparent glyph — Android masks the badge to a
     // silhouette via its alpha channel, so a full-color icon renders as a solid blob. This is
-    // a flat white spine glyph on transparent (see public/icons/badge-monochrome.svg).
-    badge: "/icons/badge-monochrome.svg",
+    // a flat white spine glyph on transparent. PNG (not SVG): several Android/Chrome builds
+    // ignore an SVG badge and fall back to a generic dot, so we ship a rasterised 96x96 PNG.
+    badge: "/icons/badge-monochrome.png",
     ...options,
   });
 }
@@ -87,19 +88,18 @@ self.addEventListener("notificationclick", (event) => {
     self.clients
       .matchAll({ type: "window", includeUncontrolled: true })
       .then((clientList) => {
+        // If a window is already open, focus it and let the in-app bridge do a single SPA
+        // navigation via postMessage. We deliberately DO NOT also call client.navigate() —
+        // doing both caused a double navigation / hard refresh on tap.
         for (const client of clientList) {
           if ("focus" in client) {
-            // Tell the app to route in-place (SPA nav) if it has a handler...
             client.postMessage({ type: "NOTIFICATION_NAVIGATE", url, notificationId });
-            // ...but also navigate the client directly, so the deep link works even when no
-            // in-app handler is mounted. client.navigate needs an absolute URL and may be
-            // unavailable/blocked in some browsers, so fall back to focus.
-            if ("navigate" in client && typeof client.navigate === "function") {
-              return client.navigate(parsed.href).then((c) => (c || client).focus()).catch(() => client.focus());
-            }
             return client.focus();
           }
         }
+        // No open window (app closed / logged out): open a fresh one at the deep link. The
+        // target carries the #ntf= hash, and if the user is logged out the login flow persists
+        // and replays it after auth (see storePendingNotificationTarget in the app).
         if (self.clients.openWindow) {
           return self.clients.openWindow(target);
         }

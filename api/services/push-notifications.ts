@@ -105,14 +105,69 @@ export function getVapidPublicKeyFromEnv(env?: PushEnv) {
   return env?.VAPID_PUBLIC_KEY ?? null;
 }
 
-export async function sendPushForNotifications(env: PushEnv, notifications: CreatedNotification[]) {
+export type PushSubscriptionStatus = {
+  /** The user has at least one push subscription row on the server. */
+  subscribed: boolean;
+  /** Whether the most recent delivery to any of the user's subscriptions succeeded (2xx). */
+  lastDeliveryOk: boolean;
+  /** ISO timestamp of the most recent delivery attempt across the user's subscriptions. */
+  lastAttemptAt: string | null;
+  lastStatus: number | null;
+  count: number;
+};
+
+/**
+ * Server-truth push status for a user: does a subscription row actually exist, and is push
+ * demonstrably working (last delivery 2xx)? Powers the toggle's mount state and the polling
+ * fallback's decision to skip the browser path.
+ */
+export async function getPushSubscriptionStatus(
+  db: D1Database,
+  userId: string,
+): Promise<PushSubscriptionStatus> {
+  const { results } = await db
+    .prepare(
+      `SELECT last_attempt_at, last_status FROM push_subscriptions
+       WHERE user_id = ?
+       ORDER BY last_attempt_at DESC`,
+    )
+    .bind(userId)
+    .all<{ last_attempt_at: string | null; last_status: number | null }>();
+
+  if (!results.length) {
+    return { subscribed: false, lastDeliveryOk: false, lastAttemptAt: null, lastStatus: null, count: 0 };
+  }
+
+  // Most recent attempt across all of the user's subscriptions (rows ordered desc; nulls last
+  // in SQLite's default ASC-null-first means DESC puts non-null first).
+  const withAttempt = results.find((r) => r.last_attempt_at) ?? results[0]!;
+  const lastStatus = withAttempt.last_status ?? null;
+  return {
+    subscribed: true,
+    lastDeliveryOk: lastStatus != null && lastStatus >= 200 && lastStatus < 300,
+    lastAttemptAt: withAttempt.last_attempt_at ?? null,
+    lastStatus,
+    count: results.length,
+  };
+}
+
+export type PushSendResult = {
+  attempted: number;
+  succeeded: number;
+  statuses: number[];
+  skipped?: string;
+};
+
+export async function sendPushForNotifications(
+  env: PushEnv,
+  notifications: CreatedNotification[],
+): Promise<PushSendResult> {
   const privateJwk = getPrivateJwk(env);
   if (!notifications.length || !privateJwk) {
     // Log WHY we bail so a misconfiguration is diagnosable instead of a silent no-op.
-    console.error(
-      `[push] skip send: notifications=${notifications.length} privateJwkResolved=${Boolean(privateJwk)} hasPublic=${Boolean(env.VAPID_PUBLIC_KEY)} hasPrivate=${Boolean(env.VAPID_PRIVATE_KEY)}`,
-    );
-    return;
+    const reason = `notifications=${notifications.length} privateJwkResolved=${Boolean(privateJwk)} hasPublic=${Boolean(env.VAPID_PUBLIC_KEY)} hasPrivate=${Boolean(env.VAPID_PRIVATE_KEY)}`;
+    console.error(`[push] skip send: ${reason}`);
+    return { attempted: 0, succeeded: 0, statuses: [], skipped: reason };
   }
   console.log(`[push] sending: notifications=${notifications.length}`);
 
@@ -130,8 +185,10 @@ export async function sendPushForNotifications(env: PushEnv, notifications: Crea
     byUser.set(n.recipientUserId, list);
   }
 
-  // Collect dead endpoints and prune them in one batch at the end.
+  // Collect dead endpoints (prune) and the last delivery status per endpoint (persist).
   const deadEndpoints = new Set<string>();
+  // endpoint -> most recent HTTP status this run (0 = network error / exception).
+  const statusByEndpoint = new Map<string, number>();
 
   for (const [userId, items] of byUser) {
     const { results } = await db
@@ -158,24 +215,37 @@ export async function sendPushForNotifications(env: PushEnv, notifications: Crea
                 // monochrome status-bar badge. The SW also has these as defaults; sending them
                 // here lets the icon change centrally without a service-worker redeploy.
                 icon: "/icons/icon-192.png",
-                badge: "/icons/badge-monochrome.svg",
+                badge: "/icons/badge-monochrome.png",
               },
               adminContact,
             },
           });
 
           const response = await fetch(endpoint, { method: "POST", headers, body });
-          if (response.status === 404 || response.status === 410) {
-            // Subscription is gone/expired — prune it.
+          statusByEndpoint.set(sub.endpoint, response.status);
+          // 404/410 = gone/expired; 401/403 = auth/subscription no longer valid for this key —
+          // in all four cases the subscription can never succeed again, so prune it.
+          if (
+            response.status === 404 ||
+            response.status === 410 ||
+            response.status === 401 ||
+            response.status === 403
+          ) {
             deadEndpoints.add(sub.endpoint);
+            if (!response.ok && response.status !== 404 && response.status !== 410) {
+              console.error(
+                `[push] pruning invalid subscription: status=${response.status} host=${pushEndpointHost(sub.endpoint)} user=${userId}`,
+              );
+            }
           } else if (!response.ok) {
-            // 401/403 = bad VAPID signature or key mismatch; 413 = payload too large; etc.
-            // Log so a misconfiguration is diagnosable instead of silently dropping delivery.
+            // 413 = payload too large; 429/5xx = transient — log, keep the subscription.
             console.error(
               `[push] delivery failed: status=${response.status} host=${pushEndpointHost(sub.endpoint)} user=${userId}`,
             );
           }
         } catch (err) {
+          // Network/exception — record as status 0 (unknown failure), keep the subscription.
+          if (!statusByEndpoint.has(sub.endpoint)) statusByEndpoint.set(sub.endpoint, 0);
           console.error(
             `[push] send error host=${pushEndpointHost(sub.endpoint)} user=${userId}:`,
             err instanceof Error ? err.message : err,
@@ -185,6 +255,33 @@ export async function sendPushForNotifications(env: PushEnv, notifications: Crea
     }
   }
 
+  // Persist the delivery outcome for every attempted subscription (except the ones we're about
+  // to delete). A 2xx resets failure_count; anything else increments it. This gives the client
+  // fallback a way to know whether push is actually working (see push-status endpoint).
+  const attemptTs = nowIso();
+  const statusWrites: Promise<unknown>[] = [];
+  const statuses: number[] = [];
+  let succeeded = 0;
+  for (const [endpoint, status] of statusByEndpoint) {
+    statuses.push(status);
+    const ok = status >= 200 && status < 300;
+    if (ok) succeeded += 1;
+    if (deadEndpoints.has(endpoint)) continue;
+    statusWrites.push(
+      db
+        .prepare(
+          `UPDATE push_subscriptions
+             SET last_attempt_at = ?,
+                 last_status = ?,
+                 failure_count = CASE WHEN ? THEN 0 ELSE failure_count + 1 END
+           WHERE endpoint = ?`,
+        )
+        .bind(attemptTs, status, ok ? 1 : 0, endpoint)
+        .run(),
+    );
+  }
+  if (statusWrites.length) await Promise.all(statusWrites);
+
   if (deadEndpoints.size) {
     await Promise.all(
       [...deadEndpoints].map((endpoint) =>
@@ -192,6 +289,11 @@ export async function sendPushForNotifications(env: PushEnv, notifications: Crea
       ),
     );
   }
+
+  console.log(
+    `[push] send complete: attempted=${statusByEndpoint.size} succeeded=${succeeded} statuses=[${statuses.join(",")}]`,
+  );
+  return { attempted: statusByEndpoint.size, succeeded, statuses };
 }
 
 /** Host of a push endpoint for safe logging (never logs the full secret endpoint token). */

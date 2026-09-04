@@ -2,6 +2,17 @@ import { redirect } from "@tanstack/react-router";
 import type { UserRole } from "@/lib/mock/distributor/types";
 import type { SessionUser } from "@/lib/mock/distributor/types";
 import { getCurrentUser, getHomePath, getPostLoginPath } from "@/services/auth";
+import { storePendingNotificationTarget } from "@/lib/pending-notification-target";
+
+// When a logged-out user opens a deep link (e.g. tapping a push notification while signed out),
+// remember where they were headed so the login page can send them there after sign-in. Only runs
+// client-side, and the helper ignores "/" and non-app paths.
+function rememberDeepLinkBeforeLogin() {
+  if (typeof window === "undefined") return;
+  storePendingNotificationTarget(
+    window.location.pathname + window.location.search + window.location.hash,
+  );
+}
 
 function deferOnSsr(): SessionUser | null {
   if (import.meta.env.SSR) return null;
@@ -15,7 +26,10 @@ export async function requireUser() {
   // last-known user (see fetchCurrentUser in services/auth.ts). So redirecting on null here
   // no longer fires on a momentary cookie-not-sent during PWA reopen / deep links.
   const user = await getCurrentUser();
-  if (!user) throw redirect({ to: "/" });
+  if (!user) {
+    rememberDeepLinkBeforeLogin();
+    throw redirect({ to: "/" });
+  }
   if (user.status === "pending_approval") throw redirect({ to: "/pending-approval" });
   if (user.status === "rejected" || user.status === "suspended") throw redirect({ to: "/" });
   return user;

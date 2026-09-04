@@ -832,7 +832,6 @@ function Configurator() {
               {customer.mobile && <Line label={t("common.mobile")} value={customer.mobile} />}
               {customer.address && <Line label={t("common.address")} value={customer.address} />}
               {customer.email && <Line label={t("common.email")} value={customer.email} />}
-              <Line label={t("common.delivery")} value={t("common.deliveryFree")} />
             </div>
 
             <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
