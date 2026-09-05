@@ -1,6 +1,7 @@
 import { id, normalizePhone, nowIso } from "../utils";
 import { notifySignupReviewers, withNotificationI18n } from "./notification-events";
 import { findActiveUserByPhone, findDeletedUserIdByPhone } from "./user-phone";
+import { resolveSubmittedLocation } from "./pincodes";
 
 export type SignupApplicationInput = {
   name: string;
@@ -10,6 +11,8 @@ export type SignupApplicationInput = {
   address: string;
   gstNumber?: string | null;
   distributorName?: string | null;
+  pincode?: string | null;
+  area?: string | null;
 };
 
 export async function createSignupApplication(db: D1Database, input: SignupApplicationInput) {
@@ -18,6 +21,10 @@ export async function createSignupApplication(db: D1Database, input: SignupAppli
   const storeName = input.storeName?.trim() || contactName;
   const gstNumber = input.gstNumber?.trim() || null;
   const distributorName = input.distributorName?.trim() || "";
+
+  // Resolve + validate the pincode server-side against the master (rejects forged/invalid input).
+  const loc = await resolveSubmittedLocation(db, { pincode: input.pincode, area: input.area });
+
   const existing = await findActiveUserByPhone(db, phone);
 
   if (existing) {
@@ -60,8 +67,9 @@ export async function createSignupApplication(db: D1Database, input: SignupAppli
       db
         .prepare(
           `INSERT INTO signup_applications (
-             id, user_id, name, birthday, store_name, phone, address, gst_number, distributor_name, status, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+             id, user_id, name, birthday, store_name, phone, address, gst_number, distributor_name,
+             pincode, state, district, area, status, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
         )
         .bind(
           appId,
@@ -73,6 +81,10 @@ export async function createSignupApplication(db: D1Database, input: SignupAppli
           input.address.trim(),
           gstNumber,
           distributorName,
+          loc.pincode,
+          loc.state,
+          loc.district,
+          loc.area,
           ts,
           ts,
         ),
@@ -88,8 +100,9 @@ export async function createSignupApplication(db: D1Database, input: SignupAppli
       db
         .prepare(
           `INSERT INTO signup_applications (
-             id, user_id, name, birthday, store_name, phone, address, gst_number, distributor_name, status, created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
+             id, user_id, name, birthday, store_name, phone, address, gst_number, distributor_name,
+             pincode, state, district, area, status, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
         )
         .bind(
           appId,
@@ -101,6 +114,10 @@ export async function createSignupApplication(db: D1Database, input: SignupAppli
           input.address.trim(),
           gstNumber,
           distributorName,
+          loc.pincode,
+          loc.state,
+          loc.district,
+          loc.area,
           ts,
           ts,
         ),

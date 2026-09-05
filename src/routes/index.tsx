@@ -170,6 +170,8 @@ function Login() {
                         { phone: DEMO_PHONE_SUFFIXES.distributor, labelKey: "auth.demoDistributor" as const },
                         { phone: DEMO_PHONE_SUFFIXES.salesExecutive, labelKey: "auth.demoSalesExecutive" as const },
                         { phone: DEMO_PHONE_SUFFIXES.admin, labelKey: "auth.demoAdmin" as const },
+                        { phone: DEMO_PHONE_SUFFIXES.adminStaff, labelKey: "auth.demoAdminStaff" as const },
+                        { phone: DEMO_PHONE_SUFFIXES.salesHead, labelKey: "auth.demoSalesHead" as const },
                       ] as const
                     ).map(({ phone, labelKey }) => (
                       <button

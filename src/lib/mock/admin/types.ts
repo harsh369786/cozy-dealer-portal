@@ -68,6 +68,11 @@ export type AdminProduct = {
     dealerMarginPercent: number;
     distributorMarginPercent: number;
   }>;
+  /** Per-thickness MRP ₹/sqft rates (mattresses). Compulsory for mattresses. */
+  sqftRates?: Array<{
+    thickness: string;
+    mrpPerSqft: number;
+  }>;
 };
 
 export type AdminOrderListItem = {

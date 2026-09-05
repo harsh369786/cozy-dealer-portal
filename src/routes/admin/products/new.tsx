@@ -274,6 +274,24 @@ export function ProductEditor({
   const { t } = useTranslation();
   const freeItemsList = product.freeItemsList ?? [];
 
+  // Mattresses (anything that isn't a Pillow/Foldable) require a per-thickness MRP ₹/sqft rate.
+  const isMattress = product.category !== "Pillows" && product.category !== "Foldable";
+
+  const sqftRateFor = (thickness: string) =>
+    (product.sqftRates ?? []).find((r) => r.thickness === thickness);
+
+  // Set/clear the MRP ₹/sqft rate for one thickness. 0/blank clears it. Rates for thicknesses no
+  // longer on the product are dropped so the table always matches the current thickness list.
+  const patchSqftRate = (thickness: string, mrpPerSqft: number) => {
+    const next = (product.sqftRates ?? []).filter(
+      (r) => r.thickness !== thickness && product.thicknesses.includes(r.thickness),
+    );
+    if (mrpPerSqft > 0) {
+      next.push({ thickness, mrpPerSqft });
+    }
+    onChange({ sqftRates: next });
+  };
+
   // Margins backfilled from legacy absolute prices can be long repeating decimals
   // (e.g. 34.61538…). Show at most 2 decimals so the fields stay clean.
   const showMargin = (value: number) => {
@@ -582,6 +600,57 @@ export function ProductEditor({
             </div>
           </div>
         </AdminSection>
+
+        {isMattress ? (
+          <AdminSection title="Per-sq.ft MRP (mattress)">
+            <p className="mb-3 max-w-2xl text-xs text-muted-foreground">
+              Required for mattresses. Set an MRP ₹/sq.ft for each thickness. MRP ={" "}
+              (length ÷ 12) × (width ÷ 12) × rate, using the standard (snapped) size. Dealer and
+              distributor prices are derived from this MRP by the price-list margins above. A mattress
+              can’t be saved or shown until every thickness has a rate.
+            </p>
+            {product.thicknesses.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Add thickness options under “Sizes &amp; thickness” first.
+              </p>
+            ) : (
+              <div className="overflow-hidden rounded-xl border border-border">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="px-3 py-2.5">Thickness</th>
+                      <th className="px-3 py-2.5 text-right">MRP ₹/sq.ft</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {product.thicknesses.map((thickness) => {
+                      const rate = sqftRateFor(thickness);
+                      return (
+                        <tr key={`sqft-${thickness}`} className="border-t border-border">
+                          <td className="px-3 py-2 font-medium">{thickness}</td>
+                          <td className="px-3 py-2">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              inputMode="decimal"
+                              disabled={readOnly}
+                              value={rate?.mrpPerSqft || ""}
+                              onChange={(e) =>
+                                patchSqftRate(thickness, Math.max(0, Number(e.target.value) || 0))
+                              }
+                              className="rounded-xl text-right"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </AdminSection>
+        ) : null}
       </TabsContent>
 
       <TabsContent value="catalogue">

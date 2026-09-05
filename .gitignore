@@ -42,3 +42,8 @@ dist-ssr
 deploy*.txt
 audit_report*.md
 patch_*.py
+
+# Generated pincode import artifact (regenerate via scripts/generate-pincodes-sql.mjs)
+scripts/pincodes.generated.sql
+# Pincode master source (22MB) — kept out of git; copy manually / regenerate load SQL from it
+pincode master.csv

@@ -11,7 +11,13 @@ export type RewardEligibility = "dealer" | "distributor" | "both";
 
 import { getActivePriceCampaignRow } from "./campaigns-public";
 import { assertPositiveInt } from "../utils";
-import { applyMattressPricing, assertMattressDimensions, pricingDimensions } from "./mattress-pricing";
+import {
+  applyMattressPricing,
+  applySqftMrp,
+  assertMattressDimensions,
+  pricingDimensions,
+} from "./mattress-pricing";
+import { getProductSqftRate, isMattressCategory } from "./product-sqft-rates";
 import {
   calculateDealerPrice,
   calculateDistributorPrice,
@@ -60,6 +66,7 @@ export async function buildPriceQuote(
     .first<{
       id: string;
       name: string;
+      category: string;
       mrp: number;
     }>();
 
@@ -91,7 +98,27 @@ export async function buildPriceQuote(
     thickness: input.thickness,
   });
   const standardDims = pricingDimensions(input.lengthIn, input.breadthIn);
-  const mrp = sized.mrp;
+
+  // Mattress square-foot MRP. A mattress (any product that isn't a pillow/foldable) is priced from
+  // its per-thickness ₹/sqft rate on the SNAPPED standard size. The rate is compulsory: if a
+  // mattress is ordered with a size + thickness but has no configured rate, we refuse to quote
+  // rather than silently fall back. Pillows/foldables and mattress previews without a size keep the
+  // base-price model.
+  const isMattress = isMattressCategory(product.category);
+  const wantsSqft = isMattress && !!input.lengthIn && !!input.breadthIn && !!input.thickness;
+  let sqft: ReturnType<typeof applySqftMrp> = null;
+  if (wantsSqft) {
+    const mrpPerSqft = await getProductSqftRate(db, input.productId, input.thickness!);
+    if (mrpPerSqft == null) {
+      throw new Error("Mattress sq.ft price not set");
+    }
+    sqft = applySqftMrp(mrpPerSqft, {
+      lengthIn: input.lengthIn,
+      breadthIn: input.breadthIn,
+    });
+  }
+
+  const mrp = sqft ? sqft.mrp : sized.mrp;
 
   // Resolve the dealer's price list (tier) and its per-product margins.
   const ctx = await resolvePricingContext(db, {
@@ -101,12 +128,18 @@ export async function buildPriceQuote(
   });
   const { dealerMarginPercent, distributorMarginPercent } = marginsFromContext(ctx, input.productId);
 
-  // Dealer Price = MRP x (1 - dealerMargin%/100), applied to the size-scaled MRP.
-  // When no tier/margins are configured, dealer margin falls back to 0 and we use the
-  // legacy stored dealer price so existing catalogs keep their prices.
+  // Dealer Price = MRP x (1 - dealerMargin%/100).
+  //  - Sqft-priced mattress: ALWAYS derive dealer price from the sqft MRP via the tier margin
+  //    (margin defaults to 0 when none configured -> dealer = MRP), so dealer/distributor are
+  //    always wired to the sqft MRP.
+  //  - Otherwise (legacy/base-price products): use the per-product margin when one exists, else
+  //    fall back to the size-scaled stored dealer price so existing catalogs keep their prices.
   const marginDealerPrice = calculateDealerPrice(mrp, dealerMarginPercent);
-  const dealerPrice =
-    ctx && ctx.dealerMarginByProduct.has(input.productId) ? marginDealerPrice : sized.dealerPrice;
+  const dealerPrice = sqft
+    ? marginDealerPrice
+    : ctx && ctx.dealerMarginByProduct.has(input.productId)
+      ? marginDealerPrice
+      : sized.dealerPrice;
 
   // Distributor Price = Dealer Price / (1 + distributorMargin%/100), rounded half-up.
   const distributorPrice = calculateDistributorPrice(dealerPrice, distributorMarginPercent);

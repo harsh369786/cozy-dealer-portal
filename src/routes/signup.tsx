@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowRight, Check, ChevronLeft, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
@@ -9,7 +9,14 @@ import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { submitSignupApplication } from "@/services/signup";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { lookupPincode, submitSignupApplication } from "@/services/signup";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { ApiError } from "@/lib/api-client";
@@ -35,6 +42,8 @@ type SignupFields = {
   birthday: string;
   storeName: string;
   phone: string;
+  pincode: string;
+  area: string;
   address: string;
   gstNumber: string;
 };
@@ -85,6 +94,8 @@ function SignUpPage() {
           .optional()
           .refine((v) => !v || v.length >= 2, t("validation.storeNameMin2")),
         phone: z.string().regex(/^\d{10}$/, t("validation.validMobile10")),
+        pincode: z.string().regex(/^\d{6}$/, t("validation.validPincode")),
+        area: z.string().trim().min(1, t("validation.selectArea")),
         address: z.string().trim().min(10, t("validation.fullStoreAddress")),
         gstNumber: z
           .string()
@@ -104,6 +115,8 @@ function SignUpPage() {
     birthday: "",
     storeName: "",
     phone: "",
+    pincode: "",
+    area: "",
     address: "",
     gstNumber: "",
   });
@@ -111,10 +124,58 @@ function SignUpPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
+  // Resolved location for the entered pincode (State/District auto-filled, Area chosen).
+  const [pinState, setPinState] = useState("");
+  const [pinDistrict, setPinDistrict] = useState("");
+  const [pinAreas, setPinAreas] = useState<string[]>([]);
+  const [pinLoading, setPinLoading] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+
   const update = (key: keyof SignupFields, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => ({ ...prev, [key]: undefined }));
   };
+
+  // Resolve State/District/Area from the master whenever a full 6-digit pincode is entered.
+  useEffect(() => {
+    const code = form.pincode;
+    if (!/^\d{6}$/.test(code)) {
+      setPinState("");
+      setPinDistrict("");
+      setPinAreas([]);
+      setPinError(null);
+      return;
+    }
+    let cancelled = false;
+    setPinLoading(true);
+    setPinError(null);
+    lookupPincode(code)
+      .then((res) => {
+        if (cancelled) return;
+        if (!res) {
+          setPinState("");
+          setPinDistrict("");
+          setPinAreas([]);
+          setPinError(t("validation.pincodeNotFound"));
+          setForm((prev) => ({ ...prev, area: "" }));
+          return;
+        }
+        setPinState(res.state);
+        setPinDistrict(res.district);
+        setPinAreas(res.areas);
+        // Auto-select the only area; otherwise clear so the user must choose.
+        setForm((prev) => ({ ...prev, area: res.areas.length === 1 ? res.areas[0]! : "" }));
+      })
+      .catch(() => {
+        if (!cancelled) setPinError(t("validation.pincodeNotFound"));
+      })
+      .finally(() => {
+        if (!cancelled) setPinLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [form.pincode, t]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -260,6 +321,55 @@ function SignUpPage() {
               />
             </div>
           </Field>
+
+          <Field id="pincode" label={t("common.pincode")} error={errors.pincode ?? pinError ?? undefined}>
+            <Input
+              id="pincode"
+              inputMode="numeric"
+              maxLength={6}
+              value={form.pincode}
+              onChange={(e) => update("pincode", e.target.value.replace(/\D/g, ""))}
+              className={fieldClass}
+              autoComplete="postal-code"
+            />
+            {pinLoading ? (
+              <p className="mt-1.5 text-sm text-muted-foreground">{t("common.loading")}</p>
+            ) : null}
+          </Field>
+
+          {pinState || pinDistrict ? (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-sm font-semibold">{t("common.state")}</Label>
+                <Input value={pinState} readOnly disabled className={cn(fieldClass, "mt-2")} />
+              </div>
+              <div>
+                <Label className="text-sm font-semibold">{t("common.district")}</Label>
+                <Input value={pinDistrict} readOnly disabled className={cn(fieldClass, "mt-2")} />
+              </div>
+            </div>
+          ) : null}
+
+          {pinAreas.length > 0 ? (
+            <Field id="area" label={t("common.area")} error={errors.area}>
+              {pinAreas.length === 1 ? (
+                <Input value={form.area} readOnly disabled className={fieldClass} />
+              ) : (
+                <Select value={form.area} onValueChange={(v) => update("area", v)}>
+                  <SelectTrigger id="area" className={fieldClass}>
+                    <SelectValue placeholder={t("common.selectArea")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pinAreas.map((a) => (
+                      <SelectItem key={a} value={a}>
+                        {a}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </Field>
+          ) : null}
 
           <Field id="address" label={t("common.address")} error={errors.address}>
             <Textarea

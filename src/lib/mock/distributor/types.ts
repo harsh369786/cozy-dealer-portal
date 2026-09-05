@@ -68,6 +68,10 @@ export type DistributorDealer = {
   contactName?: string;
   location: string;
   address?: string;
+  pincode?: string | null;
+  state?: string | null;
+  district?: string | null;
+  area?: string | null;
   phone: string;
   email: string;
   gstNumber?: string;

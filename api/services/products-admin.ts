@@ -1,6 +1,34 @@
 import { id, nowIso } from "../utils";
 import { writeAuditLog } from "./audit";
 import { listProductTierPrices, saveProductTierMargins } from "./pricing-tiers";
+import {
+  isMattressCategory,
+  listProductSqftRates,
+  saveProductSqftRates,
+  type ProductSqftRate,
+} from "./product-sqft-rates";
+
+/**
+ * Mattress sqft rates are compulsory. Every thickness on a mattress product must have a positive
+ * MRP ₹/sqft rate, otherwise the product can't be priced (and must not be saved/shown). Validated
+ * against the incoming payload so create + update behave the same. Non-mattress products are exempt.
+ */
+function assertMattressSqftRates(input: ProductInput): void {
+  if (!isMattressCategory(input.category)) return;
+  const thicknesses = (input.thicknesses ?? []).map((t) => t.trim()).filter(Boolean);
+  if (thicknesses.length === 0) {
+    throw new Error("Mattress sq.ft price not set: add at least one thickness with a rate");
+  }
+  const rateByThickness = new Map(
+    (input.sqftRates ?? [])
+      .filter((r) => Number.isFinite(Number(r.mrpPerSqft)) && Number(r.mrpPerSqft) > 0)
+      .map((r) => [r.thickness.trim(), Number(r.mrpPerSqft)]),
+  );
+  const missing = thicknesses.filter((t) => !rateByThickness.has(t));
+  if (missing.length > 0) {
+    throw new Error(`Mattress sq.ft price not set for thickness: ${missing.join(", ")}`);
+  }
+}
 
 export type AdminProductRow = {
   id: string;
@@ -28,6 +56,8 @@ export type AdminProductRow = {
     dealerMarginPercent: number;
     distributorMarginPercent: number;
   }>;
+  /** Per-thickness MRP ₹/sqft rates (mattresses). Empty = not configured. */
+  sqftRates: ProductSqftRate[];
 };
 
 export type ProductFilters = {
@@ -61,6 +91,8 @@ export type ProductInput = {
     dealerMarginPercent: number;
     distributorMarginPercent: number;
   }>;
+  /** Per-thickness MRP ₹/sqft rates to persist (mattresses). */
+  sqftRates?: ProductSqftRate[];
 };
 
 async function loadProduct(db: D1Database, productId: string): Promise<AdminProductRow | null> {
@@ -72,11 +104,13 @@ async function loadProduct(db: D1Database, productId: string): Promise<AdminProd
 
   const details = await batchLoadProductDetails(db, [productId]);
   const tierMargins = await listProductTierPrices(db, productId);
+  const sqftRates = await listProductSqftRates(db, productId);
   return mapProductRow(
     product,
     details.thicknessMap.get(productId) ?? [],
     details.priceMap.get(productId),
     tierMargins,
+    sqftRates,
   );
 }
 
@@ -85,6 +119,7 @@ function mapProductRow(
   thicknesses: string[],
   price: Record<string, unknown> | undefined,
   tierMargins: AdminProductRow["tierMargins"] = [],
+  sqftRates: ProductSqftRate[] = [],
 ): AdminProductRow {
   const active = Boolean(product.active);
   return {
@@ -106,6 +141,7 @@ function mapProductRow(
     status: active ? "active" : "archived",
     sortOrder: (product.sort_order as number) ?? 0,
     tierMargins,
+    sqftRates,
   };
 }
 
@@ -267,6 +303,7 @@ async function upsertPrice(db: D1Database, productId: string, input: ProductInpu
 
 export async function createAdminProduct(db: D1Database, input: ProductInput, actorUserId: string) {
   if (!input.name?.trim()) throw new Error("Product name is required");
+  assertMattressSqftRates(input);
 
   const productId = input.id ?? id("prod");
   const ts = nowIso();
@@ -299,6 +336,7 @@ export async function createAdminProduct(db: D1Database, input: ProductInput, ac
   if (input.tierMargins?.length) {
     await saveProductTierMargins(db, productId, input.tierMargins);
   }
+  await saveProductSqftRates(db, productId, input.sqftRates ?? [], input.thicknesses);
 
   const created = await loadProduct(db, productId);
   await writeAuditLog(db, {
@@ -319,6 +357,14 @@ export async function updateAdminProduct(
 ) {
   const before = await loadProduct(db, productId);
   if (!before) throw new Error("Product not found");
+
+  // When the incoming payload carries thicknesses, validate rates against them; otherwise validate
+  // against the product's existing thicknesses (which the update leaves unchanged).
+  assertMattressSqftRates({
+    ...input,
+    thicknesses: input.thicknesses ?? before.thicknesses,
+    sqftRates: input.sqftRates ?? before.sqftRates,
+  });
 
   const ts = nowIso();
   await db
@@ -343,6 +389,14 @@ export async function updateAdminProduct(
   await upsertPrice(db, productId, input);
   if (input.tierMargins?.length) {
     await saveProductTierMargins(db, productId, input.tierMargins);
+  }
+  if (input.sqftRates) {
+    await saveProductSqftRates(
+      db,
+      productId,
+      input.sqftRates,
+      input.thicknesses ?? before.thicknesses,
+    );
   }
 
   const after = await loadProduct(db, productId);

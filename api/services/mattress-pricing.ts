@@ -175,3 +175,39 @@ export function applyMattressPricing(
     pricingBreadth: sized.breadthIn,
   };
 }
+
+/**
+ * Per-product-per-thickness square-foot MRP (mattresses).
+ *
+ * Snaps the entered dimensions to the standard size (same 1" buffer used everywhere) and computes
+ * MRP from the snapped size:
+ *   areaSqft = (snappedLength/12) * (snappedWidth/12)
+ *   mrp      = round(mrpPerSqft * areaSqft)
+ * There is NO minimum-size floor — a smaller mattress is genuinely cheaper. Returns null when the
+ * dimensions are invalid. Dealer/distributor prices are derived from this MRP by the caller via the
+ * existing pricing-tier margins.
+ */
+export function applySqftMrp(
+  mrpPerSqft: number,
+  opts: {
+    lengthIn?: number | null;
+    breadthIn?: number | null;
+    buffer?: number;
+  },
+) {
+  const sized = pricingDimensions(
+    opts.lengthIn,
+    opts.breadthIn,
+    opts.buffer ?? getStandardSizeBuffer(),
+  );
+  if (!sized.lengthIn || !sized.breadthIn || sized.lengthIn <= 0 || sized.breadthIn <= 0) {
+    return null;
+  }
+  const areaSqft = (sized.lengthIn / 12) * (sized.breadthIn / 12);
+  return {
+    mrp: Math.round(mrpPerSqft * areaSqft),
+    pricingLength: sized.lengthIn,
+    pricingBreadth: sized.breadthIn,
+    areaSqft,
+  };
+}

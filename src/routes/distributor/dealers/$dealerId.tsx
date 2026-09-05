@@ -12,6 +12,7 @@ import { getDealerById, getDealerPerformance, getDealerRewardClaims } from "@/se
 import { getOrdersByDealer } from "@/services/orders";
 import { getComplaintsByDealer } from "@/services/complaints";
 import { cn } from "@/lib/utils";
+import { resolveLocationDisplay } from "@/lib/location";
 
 export const Route = createFileRoute("/distributor/dealers/$dealerId")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -88,7 +89,7 @@ function DealerDetailPage() {
       <div className="animate-rise">
         <p className="text-sm font-semibold text-muted-foreground">{dealer.code}</p>
         <p className="mt-2 flex items-center gap-1 text-sm text-muted-foreground">
-          <MapPin className="h-4 w-4" /> {dealer.location}
+          <MapPin className="h-4 w-4" /> {resolveLocationDisplay(dealer)}
         </p>
         <p className="mt-1 flex items-center gap-1 text-sm">
           <Phone className="h-4 w-4 text-muted-foreground" /> {dealer.phone}

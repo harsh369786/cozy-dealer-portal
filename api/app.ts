@@ -98,6 +98,8 @@ import {
   restoreAdminProduct,
   updateAdminProduct,
 } from "./services/products-admin";
+import { completeProductIds } from "./services/product-sqft-rates";
+import { lookupPincode } from "./services/pincodes";
 import {
   activateAdminCampaign,
   archiveAdminCampaign,
@@ -459,7 +461,28 @@ app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission(
     .bind(today, today)
     .all();
 
-  const pricedProducts = products.results.map(mapCatalogProductWithPricing);
+  // Hide mattresses that don't have a complete set of per-thickness ₹/sqft rates: a mattress
+  // without pricing must not be shown to dealers (it can't be quoted). Non-mattresses always pass.
+  const allThicknesses = await db
+    .prepare(`SELECT product_id, thickness FROM product_thicknesses`)
+    .all<{ product_id: string; thickness: string }>();
+  const thicknessesByProduct = new Map<string, string[]>();
+  for (const row of allThicknesses.results) {
+    if (!thicknessesByProduct.has(row.product_id)) thicknessesByProduct.set(row.product_id, []);
+    thicknessesByProduct.get(row.product_id)!.push(row.thickness);
+  }
+  const showableIds = await completeProductIds(
+    db,
+    products.results.map((p) => ({
+      id: p['id'] as string,
+      category: p['category'] as string,
+      thicknesses: thicknessesByProduct.get(p['id'] as string) ?? [],
+    })),
+  );
+
+  const pricedProducts = products.results
+    .filter((p) => showableIds.has(p['id'] as string))
+    .map(mapCatalogProductWithPricing);
 
   const mattressLayers = layers.results.map((layer) => {
     const items = layerItems.results.filter((i) => i['layer_id'] === layer['id']);
@@ -497,6 +520,16 @@ app.get("/api/v1/catalog/products/:id", requireAuth, requireActiveAccount, requi
     .prepare(`SELECT thickness FROM product_thicknesses WHERE product_id = ? ORDER BY sort_order`)
     .bind(productId)
     .all();
+
+  // A mattress without a complete set of per-thickness ₹/sqft rates isn't viewable (can't price).
+  const showable = await completeProductIds(db, [
+    {
+      id: productId,
+      category: product['category'] as string,
+      thicknesses: thicknesses.results.map((t) => t['thickness'] as string),
+    },
+  ]);
+  if (!showable.has(productId)) return c.json({ error: "Not found" }, 404);
   const price = await db
     .prepare(`SELECT * FROM product_prices WHERE product_id = ? ORDER BY effective_from DESC LIMIT 1`)
     .bind(productId)
@@ -1700,6 +1733,16 @@ app.get("/api/v1/reports/visit-summary", requireAuth, requireActiveAccount, requ
   }
 });
 
+// Public pincode lookup (pre-auth: used on the signup page). Resolves a 6-digit pincode to its
+// State / District and the list of post-office areas. 404 when not found so the client can show a
+// clear "invalid pincode" message.
+app.get("/api/v1/pincode/:code", async (c) => {
+  const db = await getRequestDb(c);
+  const lookup = await lookupPincode(db, c.req.param("code"));
+  if (!lookup) return c.json({ error: "Pincode not found" }, 404);
+  return c.json(lookup);
+});
+
 // Signup
 app.post("/api/v1/signup/applications", async (c) => {
   const db = await getRequestDb(c);
@@ -1713,6 +1756,8 @@ app.post("/api/v1/signup/applications", async (c) => {
       address: body.address,
       gstNumber: body.gstNumber ?? null,
       distributorName: body.distributorName,
+      pincode: body.pincode,
+      area: body.area ?? null,
     });
     return c.json(result, 201);
   } catch (err) {
@@ -2043,6 +2088,10 @@ function executiveFiltersFromQuery(c: { req: { query: (key: string) => string | 
     product: c.req.query("product") || undefined,
     category: c.req.query("category") || undefined,
     territory: c.req.query("territory") || undefined,
+    state: c.req.query("state") || undefined,
+    district: c.req.query("district") || undefined,
+    area: c.req.query("area") || undefined,
+    pincode: c.req.query("pincode") || undefined,
     status: c.req.query("status") || undefined,
     campaignId: c.req.query("campaignId") || undefined,
     hasArea: c.req.query("hasArea") === "1" || undefined,

@@ -13,6 +13,7 @@ import { logout } from "@/services/auth";
 import { getRewardBalance } from "@/services/rewards";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { PushNotificationToggle } from "@/components/shared/push-notification-toggle";
+import { displayLocation } from "@/lib/location";
 
 export const Route = createFileRoute("/profile")({
   beforeLoad: () => requireRoles(["dealer"]),
@@ -100,6 +101,9 @@ function DealerProfilePage() {
                 <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                 <span>{dealer.address ?? dealer.location}</span>
               </p>
+              {displayLocation(dealer) && (
+                <p className="mt-1 pl-6 text-sm text-muted-foreground">{displayLocation(dealer)}</p>
+              )}
               {dealer.gstNumber && (
                 <p className="mt-2 text-sm text-muted-foreground">
                   {t("dealer.profile.gstLabel", { gst: dealer.gstNumber })}

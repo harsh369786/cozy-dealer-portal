@@ -79,6 +79,11 @@ export type ExecutiveReportFilters = {
   product?: string | undefined;
   category?: string | undefined;
   territory?: string | undefined;
+  // Normalized structured-location filters (pincode master). Each accepts a single value or CSV.
+  state?: string | undefined;
+  district?: string | undefined;
+  area?: string | undefined;
+  pincode?: string | undefined;
   status?: string | undefined;
   campaignId?: string | undefined;
   // Drill-down only: restrict to order lines that have a computed area (sqft > 0).
@@ -155,19 +160,30 @@ function buildItemWhere(filters: ExecutiveReportFilters, range: { startIso: stri
   sql += inClause("p.category", csvList(filters.category), binds);
   sql += inClause("oi.campaign_id", csvList(filters.campaignId), binds);
 
-  // Territory is derived from dealers.location free-text, so it can't use IN — build an OR of
-  // LIKE matches across all selected territories (and their known cities).
+  // Normalized structured-location filters (from the pincode master captured at signup). These use
+  // the real dealers columns directly. Existing dealers without structured data simply won't match
+  // a state/district/area filter (they surface under "Unassigned"), which is the intended behavior.
+  sql += inClause("d.state", csvList(filters.state), binds);
+  sql += inClause("d.district", csvList(filters.district), binds);
+  sql += inClause("d.area", csvList(filters.area), binds);
+  sql += inClause("d.pincode", csvList(filters.pincode), binds);
+
+  // Territory filter: prefer the normalized `dealers.state`; for dealers that predate structured
+  // location (state IS NULL/''), fall back to the legacy free-text LIKE heuristic so old data still
+  // filters. Each selected territory matches EITHER the real state column OR the legacy text.
   const territories = csvList(filters.territory);
   if (territories.length) {
     const orParts: string[] = [];
     for (const territory of territories) {
-      orParts.push("d.location LIKE ?");
+      orParts.push("d.state = ?");
+      binds.push(territory);
+      orParts.push("((d.state IS NULL OR d.state = '') AND d.location LIKE ?)");
       binds.push(`%${territory}%`);
       const cities = Object.entries(CITY_STATE)
         .filter(([, state]) => state.toLowerCase() === territory.toLowerCase())
         .map(([city]) => city);
       for (const city of cities) {
-        orParts.push("LOWER(d.location) LIKE ?");
+        orParts.push("((d.state IS NULL OR d.state = '') AND LOWER(d.location) LIKE ?)");
         binds.push(`%${city}%`);
       }
     }
@@ -206,10 +222,21 @@ export async function loadReportFilterOptions(db: D1Database) {
       db
         .prepare(
           `SELECT id, store_name AS name, distributor_id AS distributorId,
-                  sales_executive_user_id AS salesExecutiveId, location
+                  sales_executive_user_id AS salesExecutiveId, location,
+                  state, district, area, pincode
            FROM dealers WHERE deleted_at IS NULL ORDER BY store_name`,
         )
-        .all<{ id: string; name: string; distributorId: string | null; salesExecutiveId: string | null; location: string | null }>(),
+        .all<{
+          id: string;
+          name: string;
+          distributorId: string | null;
+          salesExecutiveId: string | null;
+          location: string | null;
+          state: string | null;
+          district: string | null;
+          area: string | null;
+          pincode: string | null;
+        }>(),
       // A sales exec's distributor is users.distributor_id, falling back to the distributor of
       // any dealer they manage (mirrors assignments.ts). This lets Distributor→Sales Exec cascade.
       db
@@ -236,21 +263,33 @@ export async function loadReportFilterOptions(db: D1Database) {
         .all<{ id: string; name: string }>(),
     ]);
 
-  // Attach a derived territory to each dealer so the territory filter can cascade to dealers.
-  const dealers = dealerRows.map((d) => ({
-    id: d.id,
-    name: d.name,
-    distributorId: d.distributorId ?? undefined,
-    salesExecutiveId: d.salesExecutiveId ?? undefined,
-    territory: territoryFromLocation(d.location),
-  }));
+  // Attach normalized location to each dealer so the frontend can cascade State → District → Area →
+  // Dealer. `state` prefers the real column; when absent (legacy dealers) it falls back to the
+  // derived territory so old data still groups somewhere instead of vanishing.
+  const dealers = dealerRows.map((d) => {
+    const state = (d.state ?? "").trim() || territoryFromLocation(d.location);
+    return {
+      id: d.id,
+      name: d.name,
+      distributorId: d.distributorId ?? undefined,
+      salesExecutiveId: d.salesExecutiveId ?? undefined,
+      territory: state,
+      state,
+      district: (d.district ?? "").trim() || undefined,
+      area: (d.area ?? "").trim() || undefined,
+      pincode: (d.pincode ?? "").trim() || undefined,
+    };
+  });
   const executives = executiveRows.map((e) => ({
     id: e.id,
     name: e.name,
     distributorId: e.distributorId ?? undefined,
   }));
 
-  const territories = [...new Set(dealers.map((d) => d.territory))].sort();
+  const territories = [...new Set(dealers.map((d) => d.territory))].filter(Boolean).sort();
+  const states = territories;
+  const districts = [...new Set(dealers.map((d) => d.district).filter(Boolean))].sort() as string[];
+  const areas = [...new Set(dealers.map((d) => d.area).filter(Boolean))].sort() as string[];
 
   const monthValues: string[] = [];
   const now = new Date();
@@ -269,6 +308,9 @@ export async function loadReportFilterOptions(db: D1Database) {
     categories: categories.map((c) => c.category).filter(Boolean),
     statuses: statuses.map((s) => s.status).filter(Boolean),
     territories,
+    states,
+    districts,
+    areas,
   };
 }
 
@@ -351,21 +393,22 @@ export async function buildTerritories(db: D1Database, filters: ExecutiveReportF
   const where = buildItemWhere(filters, range, binds);
   const { results } = await db
     .prepare(
-      `SELECT d.location as location,
+      `SELECT d.location as location, d.state as state,
          COALESCE(SUM(oi.line_total), 0) as revenue,
          COALESCE(SUM(oi.quantity), 0) as pcs,
          COALESCE(SUM(${SQFT_SQL}), 0) as sqft,
          COUNT(DISTINCT d.id) as customers
        ${ITEM_FROM}
        WHERE 1=1${where}
-       GROUP BY d.location`,
+       GROUP BY COALESCE(NULLIF(d.state, ''), d.location)`,
     )
     .bind(...binds)
-    .all<{ location: string; revenue: number; pcs: number; sqft: number; customers: number }>();
+    .all<{ location: string; state: string | null; revenue: number; pcs: number; sqft: number; customers: number }>();
 
   const rolled = new Map<string, { revenue: number; pcs: number; sqft: number; customers: number }>();
   for (const row of results) {
-    const key = territoryFromLocation(row.location);
+    // Prefer the normalized state; fall back to the derived territory for legacy dealers.
+    const key = (row.state ?? "").trim() || territoryFromLocation(row.location);
     const cur = rolled.get(key) ?? { revenue: 0, pcs: 0, sqft: 0, customers: 0 };
     cur.revenue += Number(row.revenue);
     cur.pcs += Number(row.pcs);
@@ -391,7 +434,7 @@ export async function buildAccounts(db: D1Database, filters: ExecutiveReportFilt
   const where = buildItemWhere(filters, range, binds);
   const { results } = await db
     .prepare(
-      `SELECT d.id, d.store_name as name, d.location,
+      `SELECT d.id, d.store_name as name, d.location, d.state, d.district, d.area, d.pincode,
          dist.id as distributorId,
          dist.name as distributorName,
          d.sales_executive_user_id as salesExecutiveId,
@@ -409,6 +452,10 @@ export async function buildAccounts(db: D1Database, filters: ExecutiveReportFilt
       id: string;
       name: string;
       location: string;
+      state: string | null;
+      district: string | null;
+      area: string | null;
+      pincode: string | null;
       distributorId: string | null;
       distributorName: string | null;
       salesExecutiveId: string | null;
@@ -435,7 +482,11 @@ export async function buildAccounts(db: D1Database, filters: ExecutiveReportFilt
       share,
       pcs: Number(r.pcs),
       sqft: Number(r.sqft),
-      territory: territoryFromLocation(r.location),
+      territory: (r.state ?? "").trim() || territoryFromLocation(r.location),
+      state: (r.state ?? "").trim() || territoryFromLocation(r.location),
+      district: (r.district ?? "").trim() || undefined,
+      area: (r.area ?? "").trim() || undefined,
+      pincode: (r.pincode ?? "").trim() || undefined,
       distributorId: r.distributorId ?? "",
       distributorName: r.distributorName ?? "—",
       salesExecutiveId: r.salesExecutiveId ?? "",

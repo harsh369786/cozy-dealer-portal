@@ -2,6 +2,7 @@ import { formatInLabel, id, nowIso } from "../utils";
 import type { SessionUser } from "../types";
 import { writeAuditLog } from "./audit";
 import { notifySalesExecutive, notifySignupRejected, notifyUser, withNotificationI18n } from "./notification-events";
+import { displayLocation } from "./pincodes";
 
 export type SignupReviewFilters = {
   search?: string;
@@ -213,15 +214,22 @@ export async function reviewSignupApplication(
 
       dealerId = id("dlr");
       const code = await uniqueDealerCode(db, app.store_name as string);
-      const location = locationFromAddress(app.address as string);
+      // Structured location captured at signup (pincode master). Fall back to the legacy
+      // address-derived string for the free-text `location` when a structured area is absent
+      // (e.g. applications created before pincode capture existed), so display never breaks.
+      const pincode = (app.pincode as string) ?? null;
+      const state = (app.state as string) ?? null;
+      const district = (app.district as string) ?? null;
+      const area = (app.area as string) ?? null;
+      const location = displayLocation({ area, district, state }) || locationFromAddress(app.address as string);
 
       stmts.push(
         db
           .prepare(
             `INSERT INTO dealers (
                id, distributor_id, sales_executive_user_id, code, store_name, contact_name,
-               location, address, phone, gst_number, active, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+               location, address, pincode, state, district, area, phone, gst_number, active, created_at, updated_at
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
           )
           .bind(
             dealerId,
@@ -232,6 +240,10 @@ export async function reviewSignupApplication(
             app.name,
             location,
             app.address,
+            pincode,
+            state,
+            district,
+            area,
             app.phone,
             app.gst_number ?? null,
             ts,

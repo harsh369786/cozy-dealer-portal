@@ -5,7 +5,61 @@ inclusion: always
 # Session Context — cross-laptop handoff
 
 This file is auto-written on "sync" so Kiro on the other laptop can resume instantly.
-Last updated: 2026-09-04 (session 5 — whole-project bug audit + fixes, view-only sales_head role).
+Last updated: 2026-09-05 (session 6 — mattress sqft pricing, demo logins, pincode location system).
+
+## THIS SESSION (session 6) — NOT yet deployed. Migrations 0035/0036/0037 applied LOCAL only.
+Prod deploy blocked: wrangler NOT authenticated on this laptop (`wrangler login` needed). SW cache bumped v34 -> v35.
+
+### A. Mattress per-thickness ₹/sqft pricing (MRP-only; margins derive dealer/distributor)
+- Migration 0035 `product_sqft_rates(product_id, thickness, mrp_per_sqft, PK(product_id,thickness))`.
+- api/services/product-sqft-rates.ts: getProductSqftRate, listProductSqftRates, hasCompleteSqftRates,
+  completeProductIds, saveProductSqftRates, isMattressCategory (mattress = category not Pillows/Foldable).
+- api/services/mattress-pricing.ts: applySqftMrp(mrpPerSqft, dims) = round(mrpPerSqft * (snapL/12)*(snapW/12)),
+  snapped via existing 1" buffer, NO floor.
+- buildPriceQuote (pricing.ts): mattress+dims+thickness -> MRP from sqft rate; dealer=calculateDealerPrice(mrp,
+  dealerMargin) ALWAYS (bypasses stored dealer); distributor/campaign/points unchanged. Throws
+  "Mattress sq.ft price not set" if mattress lacks a rate for the chosen thickness.
+- COMPULSORY: products-admin.ts assertMattressSqftRates blocks saving a mattress without a rate for EVERY
+  thickness. Catalog list + detail (app.ts) HIDE mattresses missing complete rates (completeProductIds).
+- Admin editor (routes/admin/products/new.tsx ProductEditor): mattress-only "Per-sq.ft MRP" table, one MRP
+  input per thickness. Client type + toApiInput carry sqftRates[].
+- Tested (22 asserts): 74x63->75x66=34.375sqft@500=17188; 70x37->72x36=18@500=9000; chain 9000-50%=4500 /1.1=4091.
+- GOTCHA: existing prod mattresses will VANISH from dealer catalog until admin sets sqft rates for all thicknesses.
+
+### B. Demo logins for admin_staff + sales_head
+- shared/demo-phones.ts + src/lib/demo-users.ts: added adminStaff 9888877777 (existing user) + salesHead 9866655555.
+- Migration 0036 seeds user-sales-head (base role admin_staff + user_role_overrides row -> sales_head).
+- Login page (routes/index.tsx) now shows 6 demo buttons. i18n demoAdminStaff/demoSalesHead (en+hi). OTP 123456.
+
+### C. Pincode location system (India Post master)
+- Migration 0037: `pincodes(pincode,state,district,area, PK(pincode,area))` + idx; ADD nullable
+  pincode/state/district/area to BOTH dealers + signup_applications.
+- scripts/generate-pincodes-sql.mjs parses root `pincode master.csv` (22MB, ~165k rows) -> scripts/pincodes.generated.sql
+  (8.3MB, GITIGNORED). Loaded LOCAL: 165,602 rows. officename->area, statename->state, district, pincode; title-cased.
+- api/services/pincodes.ts: lookupPincode(db,code)->{state,district,areas[]}, resolveSubmittedLocation (server
+  validation), displayLocation(parts) composer. PUBLIC GET /api/v1/pincode/:code (no auth, for signup).
+- Signup (routes/signup.tsx): required 6-digit pincode -> auto readonly State/District + Area select (multi-area);
+  client zod + server validate. Stored on signup_applications, then dealers at approval (signup-review.ts), with
+  legacy `location` composed from parts for back-compat. dealers DTO returns the 4 fields.
+- Display: src/lib/location.ts (displayLocation/resolveLocationDisplay mirror); server-composed dealers.location
+  makes all {dealer.location} sites show structured value automatically; profile + dealer detail use structured directly.
+- Reports (admin-executive-reports.ts): filters + grouping use real d.state/district/area/pincode
+  (COALESCE(NULLIF(d.state,''), d.location) — normalized first, legacy territoryFromLocation fallback). Filter
+  options return states/districts/areas. app.ts reads state/district/area/pincode query params.
+- Admin-created dealers (users.ts createDealerStore) have NULL structured location (no pincode field added to admin
+  form per scope) -> show as Unassigned/legacy in reports. Existing dealers: no backfill (Unassigned).
+- DEPLOY needs: apply 0037 to REMOTE, then load pincodes to REMOTE via `wrangler d1 execute --remote --file
+  scripts/pincodes.generated.sql` (regenerate first with node scripts/generate-pincodes-sql.mjs). 22MB CSV is the source.
+
+### Untracked / decisions
+- `pincode master.csv` (22MB) untracked — needed to regenerate load SQL on other laptop. Decide commit vs manual copy.
+- `WhatsApp Image 2026-09-02...jpeg` — stray, NOT committed.
+
+## PENDING DEPLOY QUEUE (oldest first) — all committed-or-pending, NOT on prod (last prod deploy = session 4 e77aaaa9)
+- Session 5 (committed): audit bug fixes + sales_head role. Migrations 0033, 0034 -> apply REMOTE.
+- Session 6 (this): sqft pricing, demo logins, pincode. Migrations 0035, 0036, 0037 -> apply REMOTE (+ load pincodes remote).
+- Deploy order: REMOTE migrations 0033-0037 + remote pincode load, THEN build + `wrangler deploy --env production`,
+  bump sw.js (now v35), verify /api/v1/notifications/vapid-public-key.
 
 ## THIS SESSION (session 5) — committed, NOT deployed (migrations LOCAL only)
 Two NEW migrations, both ADD-only, applied to LOCAL only — REMOTE apply + deploy still pending (do on instruction):

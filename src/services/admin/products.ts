@@ -41,6 +41,10 @@ function toApiInput(product: AdminProduct) {
       dealerMarginPercent: t.dealerMarginPercent,
       distributorMarginPercent: t.distributorMarginPercent,
     })),
+    sqftRates: (product.sqftRates ?? []).map((r) => ({
+      thickness: r.thickness,
+      mrpPerSqft: r.mrpPerSqft,
+    })),
   };
 }
 

@@ -4,6 +4,8 @@ export const DEMO_PHONE_SUFFIXES = {
   distributor: "9823044120",
   admin: "9999999999",
   salesExecutive: "9777766666",
+  adminStaff: "9888877777",
+  salesHead: "9866655555",
 } as const;
 
 export function normalizePhoneDigits(phone: string | undefined | null): string {
