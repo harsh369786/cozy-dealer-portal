@@ -90,11 +90,6 @@ function TiersContent() {
         description="Create price lists and assign them to dealers. Dealer & distributor margins are set per product in the product editor. The distributor margin % here is only the default used for products that have no per-product value yet."
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link to="/admin/pricing/sqft-rates">
-              <Button variant="outline" className="rounded-lg font-bold">
-                Sq ft rates
-              </Button>
-            </Link>
             <Link to="/admin/products">
               <Button variant="outline" className="rounded-lg font-bold">
                 Products

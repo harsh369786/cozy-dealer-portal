@@ -55,11 +55,6 @@ function AdminProductsPage() {
         actions={
           <div className="flex flex-wrap gap-2">
             {can("catalog:read") && (
-              <Link to="/admin/pricing/sqft-rates">
-                <Button variant="outline" className="rounded-lg font-bold">Sq ft rates</Button>
-              </Link>
-            )}
-            {can("catalog:read") && (
               <Link to="/admin/pricing/tiers">
                 <Button variant="outline" className="rounded-lg font-bold">Pricing tiers</Button>
               </Link>

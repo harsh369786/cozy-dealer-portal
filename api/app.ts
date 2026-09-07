@@ -2173,54 +2173,10 @@ admin.delete("/pricing-tiers/:id", requirePermission("catalog:write"), async (c)
   }
 });
 
-admin.get("/pricing/sqft-rates", requirePermission("catalog:read"), async (c) => {
-  const db = await getRequestDb(c);
-  const { listSqftRates } = await import("./services/mattress-sqft-rates");
-  return c.json(await listSqftRates(db));
-});
-
-admin.put("/pricing/sqft-rates", requirePermission("catalog:write"), async (c) => {
-  const db = await getRequestDb(c);
-  const body = await c.req.json();
-  const { upsertSqftRate } = await import("./services/mattress-sqft-rates");
-  try {
-    return c.json(
-      await upsertSqftRate(db, {
-        guarantee: body.guarantee,
-        thickness: body.thickness,
-        mrpPerSqft: Number(body.mrpPerSqft),
-        dealerPerSqft: Number(body.dealerPerSqft),
-        rewardPercent: Number(body.rewardPercent ?? 0),
-        effectiveFrom: body.effectiveFrom,
-      }),
-    );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Save failed";
-    return c.json({ error: message }, 400);
-  }
-});
-
-admin.delete("/pricing/sqft-rates", requirePermission("catalog:write"), async (c) => {
-  const db = await getRequestDb(c);
-  const guarantee = c.req.query("guarantee");
-  const thickness = c.req.query("thickness");
-  if (!guarantee || !thickness) return c.json({ error: "guarantee and thickness required" }, 400);
-  const { deleteSqftRate } = await import("./services/mattress-sqft-rates");
-  await deleteSqftRate(db, guarantee, thickness);
-  return c.json({ ok: true });
-});
-
-admin.post("/pricing/sqft-rates/recalculate", requirePermission("catalog:write"), async (c) => {
-  const db = await getRequestDb(c);
-  const { recalculateProductPrices } = await import("./services/mattress-sqft-rates");
-  return c.json(await recalculateProductPrices(db));
-});
-
-admin.get("/pricing/sqft-rates/options", requirePermission("catalog:read"), async (c) => {
-  const db = await getRequestDb(c);
-  const { listCatalogRateOptions } = await import("./services/mattress-sqft-rates");
-  return c.json(await listCatalogRateOptions(db));
-});
+// NOTE: The legacy guarantee-keyed sqft-rate endpoints (/pricing/sqft-rates + /recalculate +
+// /options, backed by api/services/mattress-sqft-rates.ts and the mattress_sqft_rates table) were
+// removed. Mattress pricing is now per-product via product_sqft_rates (migration 0035), read live
+// by buildPriceQuote. The legacy table is left in the DB (unused) to avoid a D1 rebuild.
 
 admin.get("/system-notifications", requirePermission("settings:read"), async (c) => {
   const db = await getRequestDb(c);

@@ -52,7 +52,6 @@ import { Route as AdminExploreIndexRouteImport } from './routes/admin/explore/in
 import { Route as AdminNotificationsIndexRouteImport } from './routes/admin/notifications/index'
 import { Route as AdminOrdersIndexRouteImport } from './routes/admin/orders/index'
 import { Route as AdminOrdersOrderIdRouteImport } from './routes/admin/orders/$orderId'
-import { Route as AdminPricingSqftRatesRouteImport } from './routes/admin/pricing/sqft-rates'
 import { Route as AdminPricingTiersRouteImport } from './routes/admin/pricing/tiers'
 import { Route as AdminProductsIndexRouteImport } from './routes/admin/products/index'
 import { Route as AdminProductsProductIdRouteImport } from './routes/admin/products/$productId'
@@ -300,11 +299,6 @@ const AdminOrdersOrderIdRoute = AdminOrdersOrderIdRouteImport.update({
   path: '/orders/$orderId',
   getParentRoute: () => AdminRouteRoute,
 } as any)
-const AdminPricingSqftRatesRoute = AdminPricingSqftRatesRouteImport.update({
-  id: '/pricing/sqft-rates',
-  path: '/pricing/sqft-rates',
-  getParentRoute: () => AdminRouteRoute,
-} as any)
 const AdminPricingTiersRoute = AdminPricingTiersRouteImport.update({
   id: '/pricing/tiers',
   path: '/pricing/tiers',
@@ -497,7 +491,6 @@ export interface FileRoutesByFullPath {
   '/admin/campaigns/new': typeof AdminCampaignsNewRoute
   '/admin/complaints/$complaintId': typeof AdminComplaintsComplaintIdRoute
   '/admin/orders/$orderId': typeof AdminOrdersOrderIdRouteWithChildren
-  '/admin/pricing/sqft-rates': typeof AdminPricingSqftRatesRoute
   '/admin/pricing/tiers': typeof AdminPricingTiersRoute
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
   '/admin/products/new': typeof AdminProductsNewRoute
@@ -562,7 +555,6 @@ export interface FileRoutesByTo {
   '/admin/campaigns/new': typeof AdminCampaignsNewRoute
   '/admin/complaints/$complaintId': typeof AdminComplaintsComplaintIdRoute
   '/admin/orders/$orderId': typeof AdminOrdersOrderIdRouteWithChildren
-  '/admin/pricing/sqft-rates': typeof AdminPricingSqftRatesRoute
   '/admin/pricing/tiers': typeof AdminPricingTiersRoute
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
   '/admin/products/new': typeof AdminProductsNewRoute
@@ -638,7 +630,6 @@ export interface FileRoutesById {
   '/admin/campaigns/new': typeof AdminCampaignsNewRoute
   '/admin/complaints/$complaintId': typeof AdminComplaintsComplaintIdRoute
   '/admin/orders/$orderId': typeof AdminOrdersOrderIdRouteWithChildren
-  '/admin/pricing/sqft-rates': typeof AdminPricingSqftRatesRoute
   '/admin/pricing/tiers': typeof AdminPricingTiersRoute
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
   '/admin/products/new': typeof AdminProductsNewRoute
@@ -714,7 +705,6 @@ export interface FileRouteTypes {
     | '/admin/campaigns/new'
     | '/admin/complaints/$complaintId'
     | '/admin/orders/$orderId'
-    | '/admin/pricing/sqft-rates'
     | '/admin/pricing/tiers'
     | '/admin/products/$productId'
     | '/admin/products/new'
@@ -779,7 +769,6 @@ export interface FileRouteTypes {
     | '/admin/campaigns/new'
     | '/admin/complaints/$complaintId'
     | '/admin/orders/$orderId'
-    | '/admin/pricing/sqft-rates'
     | '/admin/pricing/tiers'
     | '/admin/products/$productId'
     | '/admin/products/new'
@@ -854,7 +843,6 @@ export interface FileRouteTypes {
     | '/admin/campaigns/new'
     | '/admin/complaints/$complaintId'
     | '/admin/orders/$orderId'
-    | '/admin/pricing/sqft-rates'
     | '/admin/pricing/tiers'
     | '/admin/products/$productId'
     | '/admin/products/new'
@@ -1213,13 +1201,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminOrdersOrderIdRouteImport
       parentRoute: typeof AdminRouteRoute
     }
-    '/admin/pricing/sqft-rates': {
-      id: '/admin/pricing/sqft-rates'
-      path: '/pricing/sqft-rates'
-      fullPath: '/admin/pricing/sqft-rates'
-      preLoaderRoute: typeof AdminPricingSqftRatesRouteImport
-      parentRoute: typeof AdminRouteRoute
-    }
     '/admin/pricing/tiers': {
       id: '/admin/pricing/tiers'
       path: '/pricing/tiers'
@@ -1526,7 +1507,6 @@ interface AdminRouteRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   AdminComplaintsComplaintIdRoute: typeof AdminComplaintsComplaintIdRoute
   AdminOrdersOrderIdRoute: typeof AdminOrdersOrderIdRouteWithChildren
-  AdminPricingSqftRatesRoute: typeof AdminPricingSqftRatesRoute
   AdminPricingTiersRoute: typeof AdminPricingTiersRoute
   AdminSalesExecutivesSeIdRoute: typeof AdminSalesExecutivesSeIdRoute
   AdminVisitsVisitIdRoute: typeof AdminVisitsVisitIdRoute
@@ -1549,7 +1529,6 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   AdminComplaintsComplaintIdRoute: AdminComplaintsComplaintIdRoute,
   AdminOrdersOrderIdRoute: AdminOrdersOrderIdRouteWithChildren,
-  AdminPricingSqftRatesRoute: AdminPricingSqftRatesRoute,
   AdminPricingTiersRoute: AdminPricingTiersRoute,
   AdminSalesExecutivesSeIdRoute: AdminSalesExecutivesSeIdRoute,
   AdminVisitsVisitIdRoute: AdminVisitsVisitIdRoute,
