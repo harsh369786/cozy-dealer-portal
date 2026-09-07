@@ -5,13 +5,7 @@ import { useTranslation } from "react-i18next";
 import { DistributorShell } from "@/components/distributor-shell";
 import { DealerPerformanceTable } from "@/components/shared/dealer-performance-table";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ChartTooltip, ChartTooltipContent, ChartContainer } from "@/components/ui/chart";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useFormat } from "@/hooks/use-format";
@@ -174,19 +168,16 @@ function ReportsPage() {
                 </button>
               ))}
             </div>
-            <Select value={dealerFilter} onValueChange={setDealerFilter}>
-              <SelectTrigger className="w-[200px] rounded-lg">
-                <SelectValue placeholder={t("common.search")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("common.all")}</SelectItem>
-                {allDealers.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              className="w-[200px]"
+              value={dealerFilter}
+              onValueChange={setDealerFilter}
+              searchPlaceholder={t("common.search")}
+              options={[
+                { value: "all", label: t("common.all") },
+                ...allDealers.map((d) => ({ value: d.id, label: d.name })),
+              ]}
+            />
           </div>
           <DealerPerformanceTable
             rows={filteredDealers}

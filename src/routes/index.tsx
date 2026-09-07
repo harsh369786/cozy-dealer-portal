@@ -7,7 +7,7 @@ import { ApiError } from "@/lib/api-client";
 import { assetPublicPath, STATIC_ASSET_KEYS } from "@/lib/asset-url";
 import { Logo } from "@/components/brand";
 import { LanguageSwitcher } from "@/components/shared/language-switcher";
-import { getPostLoginPath, getCurrentUser, requestOtp, verifyOtp, demoLogin } from "@/services/auth";
+import { getPostLoginPath, getCurrentUser, peekCachedUser, requestOtp, verifyOtp, demoLogin } from "@/services/auth";
 import { isDemoLoginsEnabledByBuild, fetchDemoLoginsEnabledFromServer } from "@/lib/demo-logins-enabled";
 import { DEMO_PHONE_SUFFIXES } from "@/lib/demo-users";
 import { consumePendingNotificationTarget } from "@/lib/pending-notification-target";
@@ -30,6 +30,15 @@ export const Route = createFileRoute("/")({
   ssr: true,
   beforeLoad: async () => {
     if (typeof window === "undefined") return;
+    // A returning user (installed-PWA cold start reopens at start_url "/") must be bounced to their
+    // home immediately from the cached/stored session — WITHOUT waiting on /auth/me, whose cookie
+    // may not be attached yet on cold start. Waiting-and-getting-null is exactly what stranded the
+    // user on this login page (a spurious "logout"). peekCachedUser() is synchronous (memory cache
+    // or localStorage); getCurrentUser() revalidates in the background on the destination route.
+    const cached = peekCachedUser();
+    if (cached) {
+      throw redirect({ to: getPostLoginPath(cached) });
+    }
     const user = await getCurrentUser();
     if (user) {
       throw redirect({ to: getPostLoginPath(user) });

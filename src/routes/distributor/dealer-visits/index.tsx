@@ -14,6 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useFormat } from "@/hooks/use-format";
 import { listVisits, getVisitSummary } from "@/services/visits";
@@ -159,35 +160,29 @@ function DealerVisitsPage() {
       <section className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="min-w-0">
           <Label className="text-xs">{t("distributor.dealerVisits.salesExecutive")}</Label>
-          <Select value={salesExec} onValueChange={setSalesExec}>
-            <SelectTrigger className="mt-1 rounded-lg">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("common.all")}</SelectItem>
-              {execOptions.map((e) => (
-                <SelectItem key={e.id} value={e.id}>
-                  {e.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            className="mt-1"
+            value={salesExec}
+            onValueChange={setSalesExec}
+            searchPlaceholder={t("common.search")}
+            options={[
+              { value: "all", label: t("common.all") },
+              ...execOptions.map((e) => ({ value: e.id, label: e.name })),
+            ]}
+          />
         </div>
         <div className="min-w-0">
           <Label className="text-xs">{t("common.dealer")}</Label>
-          <Select value={dealer} onValueChange={setDealer}>
-            <SelectTrigger className="mt-1 rounded-lg">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t("common.all")}</SelectItem>
-              {dealerOptions.map((d) => (
-                <SelectItem key={d.dealerId} value={d.dealerId!}>
-                  {d.storeName}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            className="mt-1"
+            value={dealer}
+            onValueChange={setDealer}
+            searchPlaceholder={t("common.search")}
+            options={[
+              { value: "all", label: t("common.all") },
+              ...dealerOptions.map((d) => ({ value: d.dealerId!, label: d.storeName })),
+            ]}
+          />
         </div>
         <div className="min-w-0">
           <Label className="text-xs">{t("common.status")}</Label>

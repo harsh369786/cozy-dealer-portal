@@ -147,15 +147,13 @@ function ReportsContent() {
             filters.campaignId,
         )}
         onReset={() =>
-          apply({
-            distributorId: undefined,
-            dealerId: undefined,
-            salesExecutiveId: undefined,
-            product: undefined,
-            category: undefined,
-            territory: undefined,
-            status: undefined,
-            campaignId: undefined,
+          // Replace the whole search with ONLY the view + date range, dropping every filter. We
+          // build the search from scratch (not by spreading the old search with undefined values)
+          // so stale filter params can't survive the merge — that was why "Reset all" appeared to
+          // do nothing.
+          navigate({
+            to: "/admin/reports",
+            search: { view, from: search.from, to: search.to },
           })
         }
       />
