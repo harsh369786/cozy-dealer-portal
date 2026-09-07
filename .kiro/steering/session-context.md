@@ -10,6 +10,18 @@ Last updated: 2026-09-05 (session 7 — demo-login buttons via server flag, matt
 ## IMPORTANT: backrest-pwa.shahharsh143-hs.workers.dev is STAGING, not production.
 Demo mode there (MOCK_OTP=1, DEMO_LOGINS_ENABLED=1, OTP 123456, demo buttons) is appropriate. Still a real D1 DB (reset once) — migrations ADD-only.
 
+## SESSION 7 (this laptop) — committed AND DEPLOYED to staging
+
+### C. PWA logout-on-reopen fix (client-only) — DEPLOYED (Version ed3a3754)
+- Symptom: installed PWA logs the user out after close / remove-from-background + reopen.
+- Root cause (NOT a real server expiry): the 30-day session cookie (Max-Age 2592000, SameSite=Lax, HttpOnly, Secure) + 30-day DB session are fine. On PWA cold launch, use-session (mount/pageshow/visibilitychange) fires /api/v1/auth/me BEFORE the cookie is attached -> 401; the OLD fetchCurrentUser retried once (400ms) then returned null, and getCurrentUser did writeStoredUser(null) — the client WIPED its own valid session and requireUser bounced to "/". Server never logged them out.
+- FIX in src/services/auth.ts (client-only, no migration):
+  - fetchCurrentUser now returns {user, confirmedLoggedOut} and retries auth failures 4x with backoff [300,600,900]ms (~1.8s cushion for the cookie to attach).
+  - getCurrentUser NO LONGER persists null on a transient/unconfirmed 401 — it KEEPS the stored user (localStorage untouched) and self-corrects on the next revalidation. Only writeStoredUser(null) when confirmedLoggedOut.
+  - confirmedLoggedOut is true only when (no stored user) OR (everConfirmedSession — a module flag set true after the first successful /auth/me this runtime, so a later persistent 401 = real revoke/suspend, not a cold-launch blip). Explicit logout() still clears via invalidateSessionCache.
+  - Net: cold-launch keeps you logged in; genuine visitor / real revocation still logs out.
+- NOTE: SW cache NOT bumped this deploy, so testers must reopen once to get the new client bundle. Real cold-launch cookie timing only reproduces on a device — user to verify reopen behavior.
+
 ## SESSION 7 (this laptop) — committed AND DEPLOYED to staging (Version 8f588631)
 Pulled the other laptop's session-6 commit (3a108c4: sqft pricing, pincode, admin_staff/sales_head demo logins) — clean fast-forward. Verified migrations 0033–0037 are ALL already applied on the staging REMOTE D1 (reward_claims.kind, user_role_overrides, product_sqft_rates, pincodes present). This session added NO new migrations (code-only).
 

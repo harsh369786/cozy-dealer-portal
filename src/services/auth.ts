@@ -19,6 +19,12 @@ export function getPostLoginPath(user: SessionUser): string {
 let sessionCache: { user: SessionUser | null; at: number } | null = null;
 let sessionInflight: Promise<SessionUser | null> | null = null;
 let onSessionInvalidate: (() => void) | null = null;
+// Set true once /auth/me has confirmed a session in THIS app runtime. After that, the cookie is
+// known to be attaching, so a persistent 401 is a REAL server-side logout (suspended / session
+// deleted) and should clear local state — not be treated as a cold-launch blip. Before the first
+// confirmation (cold launch), a persistent 401 with a stored user is treated as unconfirmed so we
+// don't self-logout while the cookie is still attaching.
+let everConfirmedSession = false;
 
 function readStoredUser(): SessionUser | null {
   if (typeof window === "undefined") return null;
@@ -96,10 +102,26 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   if (sessionInflight) return sessionInflight;
 
   sessionInflight = fetchCurrentUser(stored)
-    .then((user) => {
-      sessionCache = { user, at: Date.now() };
-      writeStoredUser(user);
-      return user;
+    .then((result) => {
+      if (result.confirmedLoggedOut) {
+        // The server DEFINITIVELY reported no session (see fetchCurrentUser). Clear local state.
+        sessionCache = { user: null, at: Date.now() };
+        writeStoredUser(null);
+        return null;
+      }
+      if (result.user) {
+        // Confirmed authenticated: refresh cache + stored user.
+        sessionCache = { user: result.user, at: Date.now() };
+        writeStoredUser(result.user);
+        return result.user;
+      }
+      // UNCONFIRMED (transient auth blip on a PWA cold launch, or network/server error): do NOT
+      // wipe the stored user. Keep showing the last-known user; a later revalidation (mount /
+      // pageshow / visibilitychange re-fires getCurrentUser once the cache TTL lapses) will
+      // self-correct when the session cookie is attached. Cache briefly so we don't hammer.
+      sessionCache = { user: stored, at: Date.now() };
+      // (Intentionally NOT calling writeStoredUser — leave localStorage intact.)
+      return stored ?? null;
     })
     .finally(() => {
       sessionInflight = null;
@@ -108,37 +130,59 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   return sessionInflight;
 }
 
+type FetchCurrentUserResult = {
+  /** The authenticated user, when /auth/me returned one. */
+  user: SessionUser | null;
+  /**
+   * True ONLY when the server definitively told us there is no session AND we had no session to
+   * begin with — i.e. a real logout, not a transient cold-launch cookie blip. When false and
+   * user is null, the caller must KEEP the stored user (do not clear).
+   */
+  confirmedLoggedOut: boolean;
+};
+
 /**
  * Resolve the current user via /auth/me, tolerant of TRANSIENT auth failures.
  *
- * A single 401/403 is NOT treated as a definitive logout: on some PWA cold launches /
- * deep-link navigations the session cookie is briefly not sent, which returns 401 even
- * though the server session is still valid. We retry once before deciding the user is
- * logged out. Non-auth errors (network/500/timeout) keep the last-known stored user.
+ * On installed-PWA cold launches / deep links the session cookie is sometimes not attached to the
+ * first request(s), returning 401 even though the 30-day server session is still valid. Treating
+ * that as a logout wipes a working session and bounces the user to login. So:
+ *   - Retry auth failures several times with backoff to give the cookie time to attach.
+ *   - Only report confirmedLoggedOut when we had NO stored user AND still got auth errors (a
+ *     genuinely-signed-out visitor). If we DID have a stored user, a persistent 401 is treated as
+ *     UNCONFIRMED — we keep the stored user and let a later revalidation correct it. A definitive
+ *     logout still happens via logout()/invalidateSessionCache().
+ *   - Network / server errors always keep the stored user.
  */
-async function fetchCurrentUser(stored: SessionUser | null): Promise<SessionUser | null> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+async function fetchCurrentUser(stored: SessionUser | null): Promise<FetchCurrentUserResult> {
+  const AUTH_RETRY_DELAYS_MS = [300, 600, 900]; // 4 attempts total, ~1.8s of cushion for the cookie
+  for (let attempt = 0; attempt <= AUTH_RETRY_DELAYS_MS.length; attempt++) {
     try {
       const res = await api.get<{ user: SessionUser }>("/api/v1/auth/me");
-      return res.user;
+      everConfirmedSession = true;
+      return { user: res.user, confirmedLoggedOut: false };
     } catch (err) {
       const status = err instanceof ApiError ? err.status : 0;
       const isAuthError = status === 401 || status === 403;
 
-      if (isAuthError && attempt === 0) {
-        // Transient: give the cookie a moment and try once more before clearing.
-        await delay(400);
+      if (isAuthError && attempt < AUTH_RETRY_DELAYS_MS.length) {
+        // Transient: wait (increasing backoff) and retry — the cookie may attach shortly.
+        await delay(AUTH_RETRY_DELAYS_MS[attempt]!);
         continue;
       }
       if (isAuthError) {
-        // Confirmed logged out after a retry.
-        return null;
+        // Auth errors exhausted. Treat as a CONFIRMED logout when either:
+        //   - there was no stored user (a genuinely signed-out visitor), or
+        //   - we already confirmed a session earlier this runtime (cookie was attaching, so a
+        //     fresh persistent 401 is a real server-side revocation — suspend / deleted session).
+        // Otherwise (cold launch, stored user, never confirmed yet) keep the stored user.
+        return { user: null, confirmedLoggedOut: !stored || everConfirmedSession };
       }
-      // Network / server error: don't destroy a working session over a blip.
-      return stored ?? null;
+      // Network / server error: never destroy a working session over a blip.
+      return { user: stored ?? null, confirmedLoggedOut: false };
     }
   }
-  return stored ?? null;
+  return { user: stored ?? null, confirmedLoggedOut: false };
 }
 
 function delay(ms: number): Promise<void> {
