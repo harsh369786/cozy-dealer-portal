@@ -292,6 +292,27 @@ export function ProductEditor({
     onChange({ sqftRates: next });
   };
 
+  // Base reference size for MRP previews: the standard 72"×36" = 18 sq.ft. MRP a dealer sees for a
+  // given size is rate × (length/12) × (width/12); we preview at the base size so admins can sanity
+  // -check the rate they enter (matches api/services/mattress-pricing.ts base size).
+  const BASE_MRP_LENGTH_IN = 72;
+  const BASE_MRP_WIDTH_IN = 36;
+  const BASE_AREA_SQFT = (BASE_MRP_LENGTH_IN / 12) * (BASE_MRP_WIDTH_IN / 12); // 18
+  const previewMrpForRate = (mrpPerSqft?: number) =>
+    mrpPerSqft && mrpPerSqft > 0 ? Math.round(mrpPerSqft * BASE_AREA_SQFT) : 0;
+
+  // For a mattress, MRP is dynamic (rate × size), so the manual MRP field is hidden. The price-list
+  // margins still apply; to preview dealer/distributor prices we use the base-size MRP of the
+  // cheapest configured thickness rate (the "from" price), falling back to the stored product.mrp.
+  const mattressBaseMrp = (() => {
+    const rates = (product.sqftRates ?? [])
+      .map((r) => previewMrpForRate(r.mrpPerSqft))
+      .filter((v) => v > 0);
+    if (rates.length) return Math.min(...rates);
+    return product.mrp || 0;
+  })();
+  const priceListMrp = isMattress ? mattressBaseMrp : product.mrp;
+
   // Margins backfilled from legacy absolute prices can be long repeating decimals
   // (e.g. 34.61538…). Show at most 2 decimals so the fields stay clean.
   const showMargin = (value: number) => {
@@ -450,27 +471,42 @@ export function ProductEditor({
         <AdminSection title="Pricing & rewards">
           {/* Price lists span the full available width (desktop table / tablet + mobile cards). */}
           <div className="space-y-6">
-            <div className="max-w-xs">
-              <Label>MRP (₹)</Label>
-              <Input
-                type="number"
-                inputMode="decimal"
-                value={product.mrp || ""}
-                disabled={readOnly}
-                onChange={(e) => onChange({ mrp: Number(e.target.value) })}
-                className="mt-1 rounded-2xl"
-              />
-            </div>
+            {isMattress ? (
+              // Mattress MRP is not entered manually — it is computed at order time from the
+              // per-thickness ₹/sq.ft rate and the chosen (snapped) size. Set the rates in the
+              // "Per-sq.ft MRP (mattress)" section below.
+              <div className="max-w-xl rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+                MRP for mattresses is calculated automatically from the per-thickness ₹/sq.ft rate ×
+                the ordered size — there is no manual MRP. Set the rates in the “Per-sq.ft MRP
+                (mattress)” section below. The price-list margins below preview against the base
+                72&quot;×36&quot; size.
+              </div>
+            ) : (
+              <div className="max-w-xs">
+                <Label>MRP (₹)</Label>
+                <Input
+                  type="number"
+                  inputMode="decimal"
+                  value={product.mrp || ""}
+                  disabled={readOnly}
+                  onChange={(e) => onChange({ mrp: Number(e.target.value) })}
+                  className="mt-1 rounded-2xl"
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label>Price lists (margins per product)</Label>
               <p className="text-xs text-muted-foreground">
                 Dealer Price = MRP × (1 − Dealer Margin%). Distributor Price = Dealer Price ÷ (1 +
-                Distributor Margin%), rounded to the nearest rupee. MRP is fixed for all lists.
+                Distributor Margin%), rounded to the nearest rupee.
+                {isMattress
+                  ? " MRP shown here is the base 72\"×36\" preview; the real MRP scales with the ordered size."
+                  : " MRP is fixed for all lists."}
               </p>
               <PriceListEditor
                 tiers={product.tierMargins ?? []}
-                mrp={product.mrp}
+                mrp={priceListMrp}
                 readOnly={readOnly}
                 showMargin={showMargin}
                 onChangeTiers={(next) => onChange({ tierMargins: next })}
@@ -604,10 +640,12 @@ export function ProductEditor({
         {isMattress ? (
           <AdminSection title="Per-sq.ft MRP (mattress)">
             <p className="mb-3 max-w-2xl text-xs text-muted-foreground">
-              Required for mattresses. Set an MRP ₹/sq.ft for each thickness. MRP ={" "}
-              (length ÷ 12) × (width ÷ 12) × rate, using the standard (snapped) size. Dealer and
-              distributor prices are derived from this MRP by the price-list margins above. A mattress
-              can’t be saved or shown until every thickness has a rate.
+              Required for mattresses — this is the ONLY place mattress MRP is set (there is no
+              manual MRP). MRP = (length ÷ 12) × (width ÷ 12) × rate, using the standard (snapped)
+              size. The “MRP (72&quot;×36&quot;)” column previews the MRP at the base size so you can
+              check the rate. Dealer and distributor prices are derived from this MRP by the
+              price-list margins above. A mattress can’t be saved or shown until every thickness has
+              a rate.
             </p>
             {product.thicknesses.length === 0 ? (
               <p className="text-sm text-muted-foreground">
@@ -620,11 +658,13 @@ export function ProductEditor({
                     <tr className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
                       <th className="px-3 py-2.5">Thickness</th>
                       <th className="px-3 py-2.5 text-right">MRP ₹/sq.ft</th>
+                      <th className="px-3 py-2.5 text-right">MRP (72&quot;×36&quot;)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {product.thicknesses.map((thickness) => {
                       const rate = sqftRateFor(thickness);
+                      const previewMrp = previewMrpForRate(rate?.mrpPerSqft);
                       return (
                         <tr key={`sqft-${thickness}`} className="border-t border-border">
                           <td className="px-3 py-2 font-medium">{thickness}</td>
@@ -641,6 +681,12 @@ export function ProductEditor({
                               }
                               className="rounded-xl text-right"
                             />
+                          </td>
+                          {/* Live MRP preview at the base 72"×36" (18 sq.ft) size, so the admin can
+                              confirm the rate produces the intended MRP. Actual MRP scales with the
+                              ordered size. */}
+                          <td className="px-3 py-2 text-right font-semibold tabular-nums text-muted-foreground">
+                            {previewMrp > 0 ? `₹${previewMrp.toLocaleString("en-IN")}` : "—"}
                           </td>
                         </tr>
                       );

@@ -68,6 +68,19 @@ export async function listProductSqftRates(
   }
 }
 
+/**
+ * Lowest positive ₹/sqft rate configured for a product, or null when none. Used to compute a
+ * "from" preview MRP for a mattress catalog card when the dealer hasn't chosen a thickness yet
+ * (the real MRP is computed per size+thickness at quote/order time).
+ */
+export async function minSqftRateFor(db: D1Database, productId: string): Promise<number | null> {
+  const rates = await listProductSqftRates(db, productId);
+  const positive = rates
+    .map((r) => r.mrpPerSqft)
+    .filter((v) => Number.isFinite(v) && v > 0);
+  return positive.length ? Math.min(...positive) : null;
+}
+
 /** Set of thicknesses that have a positive rate, for one product. */
 export async function ratedThicknessesFor(db: D1Database, productId: string): Promise<Set<string>> {
   const rates = await listProductSqftRates(db, productId);

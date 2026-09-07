@@ -8,7 +8,7 @@ import { assetPublicPath, STATIC_ASSET_KEYS } from "@/lib/asset-url";
 import { Logo } from "@/components/brand";
 import { LanguageSwitcher } from "@/components/shared/language-switcher";
 import { getPostLoginPath, getCurrentUser, requestOtp, verifyOtp, demoLogin } from "@/services/auth";
-import { isDemoLoginsEnabledByBuild } from "@/lib/demo-logins-enabled";
+import { isDemoLoginsEnabledByBuild, fetchDemoLoginsEnabledFromServer } from "@/lib/demo-logins-enabled";
 import { DEMO_PHONE_SUFFIXES } from "@/lib/demo-users";
 import { consumePendingNotificationTarget } from "@/lib/pending-notification-target";
 import type { SessionUser } from "@/lib/mock/distributor/types";
@@ -62,7 +62,20 @@ function Login() {
   const [loading, setLoading] = useState(false);
   const [demoLoading, setDemoLoading] = useState<string | null>(null);
   const [resendCooldown, setResendCooldown] = useState(0);
-  const showDemoLogins = isDemoLoginsEnabledByBuild();
+  // Show demo buttons when the build enables them (local dev / VITE flag) OR the server reports
+  // demo mode is on (MOCK_OTP / DEMO_LOGINS_ENABLED), so they appear on the staging worker without
+  // needing a build-time flag. Seed from the build flag to avoid a flash, then confirm via server.
+  const [showDemoLogins, setShowDemoLogins] = useState(isDemoLoginsEnabledByBuild());
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchDemoLoginsEnabledFromServer().then((enabled) => {
+      if (!cancelled && enabled) setShowDemoLogins(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;

@@ -5,6 +5,28 @@ inclusion: always
 # Session Context — cross-laptop handoff
 
 This file is auto-written on "sync" so Kiro on the other laptop can resume instantly.
+Last updated: 2026-09-05 (session 7 — demo-login buttons via server flag, mattress MRP preview + no-manual-MRP; DEPLOYED to staging).
+
+## IMPORTANT: backrest-pwa.shahharsh143-hs.workers.dev is STAGING, not production.
+Demo mode there (MOCK_OTP=1, DEMO_LOGINS_ENABLED=1, OTP 123456, demo buttons) is appropriate. Still a real D1 DB (reset once) — migrations ADD-only.
+
+## SESSION 7 (this laptop) — committed AND DEPLOYED to staging (Version 8f588631)
+Pulled the other laptop's session-6 commit (3a108c4: sqft pricing, pincode, admin_staff/sales_head demo logins) — clean fast-forward. Verified migrations 0033–0037 are ALL already applied on the staging REMOTE D1 (reward_claims.kind, user_role_overrides, product_sqft_rates, pincodes present). This session added NO new migrations (code-only).
+
+### A. Demo login buttons now show on staging via a SERVER flag (not only the build flag)
+- Root cause of "buttons missing": they render only when isDemoLoginsEnabledByBuild() (import.meta.env.DEV or VITE_DEMO_LOGINS) — a BUILD-time flag not set on the staging build. Nothing was removed; the pulled commit actually ADDED admin_staff + sales_head buttons (6 total).
+- FIX: NEW public route `GET /api/v1/config/public` -> `{ demoLoginsEnabled: isDemoModeEnabled(effectiveEnv(c.env)) }` (unauthenticated, only that boolean). `src/lib/demo-logins-enabled.ts` added `fetchDemoLoginsEnabledFromServer()`. `src/routes/index.tsx` Login: showDemoLogins is state, seeded from build flag then set true if the server reports demo mode on. All 6 role buttons now appear on staging.
+
+### B. Mattress MRP: removed manual entry + added live sqft MRP preview (mattress-only, non-breaking)
+- FIRST confirmed sqft pricing already works end-to-end (live tests on staging: twin/6" at 72x36=18sqft -> rate 500=>MRP 9000, 600=>10800, 550=>9900). MRP is computed LIVE at quote/order time by buildPriceQuote->getProductSqftRate = round(rate × snappedArea). Changing a rate needs NO redeploy. The editor's stored MRP field intentionally does NOT change (MRP is dynamic per size) — that was the user's confusion, not a bug.
+- `src/routes/admin/products/new.tsx`: for mattresses the manual MRP <Input> is HIDDEN (info note instead); pillows/foldables keep it. Added "MRP (72\"×36\")" preview column in the per-sqft table = round(rate×18). Price-list margin table for mattresses previews against priceListMrp (cheapest thickness base-size MRP) instead of the now-0 manual mrp.
+- `api/services/product-sqft-rates.ts`: added minSqftRateFor(db, productId).
+- `api/services/pricing.ts` buildPriceQuote: mattress catalog "from" preview (no size/thickness) with sized.mrp<=0 now derives MRP = round(minSqftRate × 18) so cards don't show ₹0. Imported minSqftRateFor + BASE_MATTRESS_LENGTH/BREADTH.
+- Backend product_prices.mrp = 0 for mattresses (unused at runtime); assertMattressSqftRates still enforces a rate per thickness before save. Non-mattress unchanged.
+- NOTE: did NOT bump SW cache this deploy (other laptop's session-6 note says it bumped to v35, but that build wasn't deployed by them — wrangler wasn't authed there). Current deployed SW cache = whatever was in 8f588631's build (v35 from the pulled code). Returning clients update on next SW load.
+- NOTE: the other laptop's session-6 said "wrangler NOT authenticated" there — so THEY did not deploy; THIS laptop deployed their + our combined work to staging.
+
+## SESSION 6 (other laptop) — code pulled, NOT deployed by them (wrangler unauth). Now deployed via this laptop.
 Last updated: 2026-09-05 (session 6 — mattress sqft pricing, demo logins, pincode location system).
 
 ## THIS SESSION (session 6) — NOT yet deployed. Migrations 0035/0036/0037 applied LOCAL only.

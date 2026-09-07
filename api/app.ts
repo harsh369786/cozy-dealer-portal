@@ -255,6 +255,14 @@ app.onError((err, c) => {
 
 app.get("/api/v1/health", (c) => c.json({ ok: true }));
 
+// Public, unauthenticated config the login screen needs before sign-in. Exposes only whether the
+// server is running in demo mode (MOCK_OTP / DEMO_LOGINS_ENABLED) so the login page can show the
+// one-tap demo-login buttons on any environment that actually accepts demo logins — without
+// relying on a build-time VITE flag that must be remembered at deploy time.
+app.get("/api/v1/config/public", (c) => {
+  return c.json({ demoLoginsEnabled: isDemoModeEnabled(effectiveEnv(c.env)) });
+});
+
 // Auth
 app.post("/api/v1/auth/otp/request", async (c) => {
   const body = await c.req.json<{ phone: string }>();

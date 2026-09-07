@@ -17,7 +17,8 @@ import {
   assertMattressDimensions,
   pricingDimensions,
 } from "./mattress-pricing";
-import { getProductSqftRate, isMattressCategory } from "./product-sqft-rates";
+import { getProductSqftRate, isMattressCategory, minSqftRateFor } from "./product-sqft-rates";
+import { BASE_MATTRESS_LENGTH, BASE_MATTRESS_BREADTH } from "./mattress-pricing";
 import {
   calculateDealerPrice,
   calculateDistributorPrice,
@@ -118,7 +119,21 @@ export async function buildPriceQuote(
     });
   }
 
-  const mrp = sqft ? sqft.mrp : sized.mrp;
+  // MRP resolution:
+  //  - Full sqft calc (mattress with size + thickness): use it.
+  //  - Mattress WITHOUT a chosen size/thickness (catalog "from" preview): mattresses no longer
+  //    store a manual MRP, so sized.mrp (from product_prices) is typically 0. Derive a "from"
+  //    preview MRP from the cheapest configured ₹/sqft rate at the base 72"×36" size, so cards
+  //    show a sensible starting price instead of ₹0.
+  //  - Non-mattress: keep the base-price model (sized.mrp).
+  let mrp = sqft ? sqft.mrp : sized.mrp;
+  if (!sqft && isMattress && (!mrp || mrp <= 0)) {
+    const minRate = await minSqftRateFor(db, input.productId);
+    if (minRate != null) {
+      const baseArea = (BASE_MATTRESS_LENGTH / 12) * (BASE_MATTRESS_BREADTH / 12);
+      mrp = Math.round(minRate * baseArea);
+    }
+  }
 
   // Resolve the dealer's price list (tier) and its per-product margins.
   const ctx = await resolvePricingContext(db, {
