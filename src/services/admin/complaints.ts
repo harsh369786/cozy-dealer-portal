@@ -9,6 +9,8 @@ export type ComplaintFilters = ListFilters & {
 
 type ComplaintRow = {
   id: string;
+  complaintNumber?: string;
+  complaint_number?: string;
   orderId?: string;
   order_id?: string;
   dealerId?: string;
@@ -32,6 +34,7 @@ type ComplaintRow = {
 function mapComplaint(row: ComplaintRow): AdminComplaint {
   return {
     id: row.id,
+    complaintNumber: row.complaintNumber ?? row.complaint_number ?? row.id,
     orderId: row.orderId ?? row.order_id ?? "",
     dealerId: row.dealerId ?? row.dealer_id ?? "",
     dealerName: row.dealerName ?? row.dealer_name ?? "—",
@@ -55,7 +58,7 @@ export async function listComplaints(filters: ComplaintFilters = {}): Promise<Pa
   }
   if (filters.search) {
     items = items.filter((c) =>
-      matchesQuery(filters.search, c.id, c.orderId, c.dealerName, c.category, c.description),
+      matchesQuery(filters.search, c.complaintNumber, c.id, c.orderId, c.dealerName, c.category, c.description),
     );
   }
   return paginate(items, filters);

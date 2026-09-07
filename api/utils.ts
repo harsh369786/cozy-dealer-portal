@@ -175,6 +175,12 @@ export function jsonError(message: string, status = 400) {
 }
 
 export const SESSION_COOKIE = "backrest_session";
+/**
+ * Readable (non-HttpOnly) companion to SESSION_COOKIE. Value is always "1" (no secret). The client
+ * reads it to distinguish "session cookie not attached yet" from "logged out". Must stay in sync
+ * with the client constant of the same name in src/services/auth.ts.
+ */
+export const SESSION_PRESENT_COOKIE = "backrest_session_present";
 export const SESSION_DAYS = 30;
 export const OTP_TTL_MINUTES = 10;
 export const OTP_MAX_ATTEMPTS = 5;

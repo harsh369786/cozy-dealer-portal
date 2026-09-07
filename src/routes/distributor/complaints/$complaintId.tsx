@@ -42,7 +42,7 @@ function ComplaintDetailPage() {
   }
 
   return (
-    <DistributorShell title={data.id} back="/distributor/complaints" showBell={false}>
+    <DistributorShell title={data.complaintNumber ?? data.id} back="/distributor/complaints" showBell={false}>
       <div className="animate-rise space-y-4">
         <div className="flex items-start justify-between gap-2">
           <div>

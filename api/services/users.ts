@@ -397,6 +397,35 @@ function assertActorCanAssignRole(actorRole: string, targetRole: string, current
   }
 }
 
+/**
+ * When an admin directly creates (or reuses) a user for a phone, any earlier SELF-SIGNUP that is
+ * still `pending` for that same phone is now moot — the admin has already provisioned the account.
+ * Leaving it pending strands a ghost row in the Approvals list forever (and confuses the user with
+ * a "pending signup" state even though their account is active). Resolve those rows to 'approved'
+ * so they drop off the pending queue, linking them to the created user for traceability. Best-effort:
+ * never blocks user creation if the signup_applications table/columns differ.
+ */
+async function resolvePendingSignupsForPhone(
+  db: D1Database,
+  phone: string,
+  userId: string,
+  actorUserId: string,
+  ts: string,
+) {
+  try {
+    await db
+      .prepare(
+        `UPDATE signup_applications
+         SET status = 'approved', reviewed_by = ?, user_id = COALESCE(user_id, ?), updated_at = ?
+         WHERE phone = ? AND status = 'pending'`,
+      )
+      .bind(actorUserId, userId, ts, phone)
+      .run();
+  } catch {
+    // Non-fatal: a schema mismatch must not break admin user creation.
+  }
+}
+
 export async function createAdminUser(
   db: D1Database,
   input: CreateUserInput,
@@ -437,6 +466,7 @@ export async function createAdminUser(
       )
       .run();
     await syncRoleOverride(db, reuseUserId, input.role, ts);
+    await resolvePendingSignupsForPhone(db, phone, reuseUserId, actorUserId, ts);
 
     const created = await getAdminUser(db, reuseUserId);
     await writeAuditLog(db, {
@@ -502,6 +532,7 @@ export async function createAdminUser(
     )
     .run();
   await syncRoleOverride(db, userId, input.role, ts);
+  await resolvePendingSignupsForPhone(db, phone, userId, actorUserId, ts);
 
   const created = await getAdminUser(db, userId);
   await writeAuditLog(db, {

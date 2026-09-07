@@ -73,6 +73,8 @@ export function ExecutiveFilterBar({ filters, options, onChange, onReset, canRes
   const selCategories = toArr(filters.category);
   const selStatuses = toArr(filters.status);
   const selCampaigns = toArr(filters.campaignId);
+  const selDealerTiers = toArr(filters.dealerTier);
+  const selDistributorTiers = toArr(filters.distributorTier);
 
   // ---- Cascading option lists (territory → distributor → sales exec → dealer) --------------
   // Distributors available given the selected territories: those that have at least one dealer
@@ -240,7 +242,18 @@ export function ExecutiveFilterBar({ filters, options, onChange, onReset, canRes
           label="Month"
           value={filters.from && filters.from === filters.to ? filters.from : "all"}
           onValueChange={(v) => {
-            if (v === "all") return;
+            if (v === "all") {
+              // Widen back out of a single-month drill: if a specific Year is selected, span that
+              // whole year; otherwise span the full available month range. (Previously this did
+              // nothing, so "All months" was un-selectable once a month was picked.)
+              const scope =
+                selectedYear !== "all"
+                  ? options.months.filter((m) => m.startsWith(selectedYear))
+                  : options.months;
+              if (scope.length === 0) return;
+              onChange({ ...filters, from: scope[0], to: scope[scope.length - 1] });
+              return;
+            }
             onChange({ ...filters, from: v, to: v });
           }}
           options={[{ value: "all", label: "All months in range" }, ...options.months.map((m) => ({ value: m, label: monthLabel(m) }))]}
@@ -300,6 +313,20 @@ export function ExecutiveFilterBar({ filters, options, onChange, onReset, canRes
           onChange={(next) => onChange({ ...filters, status: toCsv(next) })}
           placeholderAll="Confirmed (excl. cancelled)"
           options={options.statuses.map((s) => ({ value: s, label: s.replaceAll("_", " ") }))}
+        />
+        <MultiSelect
+          label="Dealer tier"
+          selected={selDealerTiers}
+          onChange={(next) => onChange({ ...filters, dealerTier: toCsv(next) })}
+          placeholderAll="All dealer tiers"
+          options={(options.tiers ?? []).map((tt) => ({ value: tt.id, label: tt.name }))}
+        />
+        <MultiSelect
+          label="Distributor tier"
+          selected={selDistributorTiers}
+          onChange={(next) => onChange({ ...filters, distributorTier: toCsv(next) })}
+          placeholderAll="All distributor tiers"
+          options={(options.tiers ?? []).map((tt) => ({ value: tt.id, label: tt.name }))}
         />
       </div>
     </div>

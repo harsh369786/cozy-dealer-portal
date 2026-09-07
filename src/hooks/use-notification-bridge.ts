@@ -104,12 +104,25 @@ export function useNotificationBridge() {
 
     handleNotificationNavigateHash();
     requestPushPromptForSessionIfNeeded(user.role);
-    // Re-register any existing browser push subscription with the server on login, so a device
-    // that already granted push isn't left with a missing/stale server row (deploy dropped rows,
-    // cookie clear, subscribed elsewhere). Silent no-op when there's no local subscription.
-    void resyncPushSubscription();
 
     let cancelled = false;
+
+    // Defer non-critical background work off the first paint so it doesn't compete with the
+    // page's own data fetch (home fires several API calls on mount). runIdle runs the callback
+    // when the browser is idle, with a short setTimeout fallback for environments without
+    // requestIdleCallback (Safari/iOS). All deferred work is cancellation-safe.
+    const runIdle = (fn: () => void): (() => void) => {
+      const w = window as unknown as {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
+        cancelIdleCallback?: (handle: number) => void;
+      };
+      if (typeof w.requestIdleCallback === "function") {
+        const handle = w.requestIdleCallback(fn, { timeout: 2000 });
+        return () => w.cancelIdleCallback?.(handle);
+      }
+      const t = window.setTimeout(fn, 800);
+      return () => window.clearTimeout(t);
+    };
 
     const poll = async () => {
       try {
@@ -140,7 +153,16 @@ export function useNotificationBridge() {
       }
     };
 
-    void poll();
+    // Deferred initial burst: the first notifications poll + re-registering any existing browser
+    // push subscription with the server. Neither is needed for first paint, so run them when idle.
+    const cancelIdle = runIdle(() => {
+      if (cancelled) return;
+      // Silent no-op when there's no local subscription; keeps a device that already granted push
+      // from being left with a missing/stale server row after a deploy / cookie clear.
+      void resyncPushSubscription();
+      void poll();
+    });
+
     const onVisible = () => {
       if (document.visibilityState === "visible") void poll();
     };
@@ -170,6 +192,7 @@ export function useNotificationBridge() {
 
     return () => {
       cancelled = true;
+      cancelIdle();
       document.removeEventListener("visibilitychange", onVisible);
       window.clearInterval(interval);
       navigator.serviceWorker?.removeEventListener("message", onMessage);

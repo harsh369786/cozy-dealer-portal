@@ -96,7 +96,12 @@ function OrdersPage() {
 
   const dateRange = periodToDateRange(period, customRange);
 
-  const countsQuery = useAsyncData(() => getOrderStatusCounts(), []);
+  // Count the same date window as the list so the tab badges match what's shown (e.g. "Today"
+  // counts today's pending, not all-time). Re-runs when the period / custom range changes.
+  const countsQuery = useAsyncData(
+    () => getOrderStatusCounts({ fromDate: dateRange.fromDate, toDate: dateRange.toDate }),
+    [period, customRange.from, customRange.to],
+  );
 
   const { data, loading, error, retry } = useAsyncData(
     () => {

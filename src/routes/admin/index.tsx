@@ -185,7 +185,7 @@ function AdminDashboardPage() {
             keyFn={(c) => c.id}
             onRowClick={(c) => navigate({ to: "/admin/complaints/$complaintId", params: { complaintId: c.id } })}
             columns={[
-              { key: "id", header: t("common.reference"), cell: (c) => c.id },
+              { key: "id", header: t("common.reference"), cell: (c) => c.complaintNumber },
               { key: "dealer", header: t("admin.dashboard.columnDealer"), cell: (c) => c.dealerName },
               { key: "status", header: t("admin.dashboard.columnStatus"), cell: (c) => <StatusBadge kind="complaint" status={c.status} /> },
             ]}

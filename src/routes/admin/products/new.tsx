@@ -277,6 +277,30 @@ export function ProductEditor({
   // Mattresses (anything that isn't a Pillow/Foldable) require a per-thickness MRP ₹/sqft rate.
   const isMattress = product.category !== "Pillows" && product.category !== "Foldable";
 
+  // Free-text thickness editor: type a value (e.g. 6") and Add it as a removable chip. Kept as an
+  // array on product.thicknesses (the per-sq.ft MRP table below reads the same list).
+  const [thicknessInput, setThicknessInput] = useState("");
+
+  const addThickness = () => {
+    const value = thicknessInput.trim();
+    if (!value) return;
+    // Case-insensitive dedupe so the same thickness isn't added twice.
+    if (product.thicknesses.some((existing) => existing.toLowerCase() === value.toLowerCase())) {
+      setThicknessInput("");
+      return;
+    }
+    onChange({ thicknesses: [...product.thicknesses, value] });
+    setThicknessInput("");
+  };
+
+  const removeThickness = (value: string) => {
+    onChange({
+      thicknesses: product.thicknesses.filter((existing) => existing !== value),
+      // Drop any per-sq.ft rate tied to a thickness that's being removed.
+      sqftRates: (product.sqftRates ?? []).filter((r) => r.thickness !== value),
+    });
+  };
+
   const sqftRateFor = (thickness: string) =>
     (product.sqftRates ?? []).find((r) => r.thickness === thickness);
 
@@ -451,17 +475,62 @@ export function ProductEditor({
               />
             </div>
             <div>
-              <Label>Thickness options (comma-separated)</Label>
-              <Input
-                value={product.thicknesses.join(", ")}
-                disabled={readOnly}
-                onChange={(e) =>
-                  onChange({
-                    thicknesses: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-                  })
-                }
-                className="mt-1 rounded-2xl"
-              />
+              <Label>Thickness options</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Add each thickness a customer can order (e.g. 6&quot;). Type a value and press Add or
+                Enter. For mattresses, set a ₹/sq.ft rate for every thickness under the Pricing tab.
+              </p>
+              {product.thicknesses.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {product.thicknesses.map((thickness) => (
+                    <span
+                      key={`thk-${thickness}`}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border bg-secondary/60 px-3 py-1 text-sm font-medium"
+                    >
+                      {thickness}
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          aria-label={`Remove ${thickness}`}
+                          onClick={() => removeThickness(thickness)}
+                          className="grid h-4 w-4 place-items-center rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {!readOnly && (
+                <div className="mt-2 flex max-w-sm gap-2">
+                  <Input
+                    value={thicknessInput}
+                    onChange={(e) => setThicknessInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addThickness();
+                      }
+                    }}
+                    placeholder='e.g. 6"'
+                    className="rounded-2xl"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addThickness}
+                    disabled={!thicknessInput.trim()}
+                    className="shrink-0 rounded-2xl"
+                  >
+                    <Plus className="mr-1 h-4 w-4" />
+                    Add
+                  </Button>
+                </div>
+              )}
+              {product.thicknesses.length === 0 && (
+                <p className="mt-2 text-xs text-muted-foreground">No thickness options added yet.</p>
+              )}
             </div>
           </div>
         </AdminSection>

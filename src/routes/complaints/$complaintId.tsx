@@ -60,7 +60,7 @@ function TrackComplaint() {
       <div className="rounded-3xl border border-border bg-card p-5 shadow-soft">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <p className="font-display text-lg font-bold">{complaint.id}</p>
+            <p className="font-display text-lg font-bold">{complaint.complaintNumber ?? complaint.id}</p>
             <p className="mt-1 text-sm text-muted-foreground">
               {t("dealer.complaints.orderLabel", { orderId: complaint.orderId })}
             </p>

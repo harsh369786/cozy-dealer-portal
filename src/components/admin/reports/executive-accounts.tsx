@@ -96,6 +96,7 @@ export function ExecutiveAccountsPage({
                   <th className="px-2 py-2 text-right">PCS</th>
                   <th className="px-2 py-2 text-right">Sq.ft</th>
                   <th className="px-2 py-2">Territory</th>
+                  <th className="px-2 py-2">Pricing tier</th>
                   <th className="px-2 py-2">Drilldown</th>
                 </tr>
               </thead>
@@ -125,6 +126,13 @@ export function ExecutiveAccountsPage({
                     <td className="px-2 py-3 text-right">{fmtNum(row.pcs)}</td>
                     <td className="px-2 py-3 text-right">{fmtSqft(row.sqft)}</td>
                     <td className="px-2 py-3 uppercase">{row.territory}</td>
+                    <td className="px-2 py-3">
+                      {/* Pricing tier snapshotted at sale time: dealer tier, with distributor tier below. */}
+                      <span className="font-semibold">{row.dealerTierName}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        Dist: {row.distributorTierName}
+                      </span>
+                    </td>
                     <td className="px-2 py-3">
                       <button
                         type="button"

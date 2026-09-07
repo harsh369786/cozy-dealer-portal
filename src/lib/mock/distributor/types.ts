@@ -136,6 +136,8 @@ export type DistributorOrder = {
 
 export type DistributorComplaint = {
   id: string;
+  /** Human-facing reference number (CP-DDMMYYNN). Optional for legacy/mock rows. */
+  complaintNumber?: string;
   distributorId: string;
   orderId: string;
   dealerId: string;

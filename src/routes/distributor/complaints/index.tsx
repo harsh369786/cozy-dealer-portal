@@ -64,7 +64,7 @@ function ComplaintsPage() {
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="font-display font-bold">{c.id}</p>
+                  <p className="font-display font-bold">{c.complaintNumber ?? c.id}</p>
                   <p className="text-sm text-muted-foreground">{c.dealerName}</p>
                 </div>
                 <StatusBadge kind="complaint" status={c.status} />

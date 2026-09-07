@@ -1,6 +1,6 @@
 import { MapPin } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { SnapshotReport } from "@/services/admin/executive-reports";
+import type { SnapshotReport, TierBreakdownRow } from "@/services/admin/executive-reports";
 import { fmtNum, fmtSqft, inrFull } from "@/services/admin/executive-reports";
 import { ExecutiveTrendChart } from "./executive-chart";
 import type { DrillContext } from "./executive-types";
@@ -12,8 +12,10 @@ export function ExecutiveSnapshotPage({
   data: SnapshotReport;
   onDrill: (ctx: DrillContext) => void;
 }) {
-  const { kpis, monthly, territories, campaigns, peak, filters } = data;
+  const { kpis, monthly, territories, campaigns, tierBreakdown, peak, filters } = data;
   const base = { ...filters };
+  const dealerTiers = tierBreakdown?.dealerTiers ?? [];
+  const distributorTiers = tierBreakdown?.distributorTiers ?? [];
 
   return (
     <div className="space-y-4">
@@ -127,6 +129,64 @@ export function ExecutiveSnapshotPage({
             ))}
           </div>
         </section>
+      )}
+
+      {(dealerTiers.length > 0 || distributorTiers.length > 0) && (
+        <section className="rounded-xl border border-border bg-card p-4 shadow-soft">
+          <h3 className="font-display text-base font-bold">By pricing tier</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Grouped by the tier each account was on when the order was placed, so past sales stay accurate even
+            after a tier is changed.
+          </p>
+          <div className="mt-4 grid gap-6 xl:grid-cols-2">
+            <TierTable title="Dealer pricing tiers" rows={dealerTiers} />
+            <TierTable title="Distributor pricing tiers" rows={distributorTiers} />
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function TierTable({ title, rows }: { title: string; rows: TierBreakdownRow[] }) {
+  return (
+    <div className="min-w-0">
+      <h4 className="text-sm font-bold">{title}</h4>
+      {rows.length === 0 ? (
+        <p className="mt-2 text-sm text-muted-foreground">No tier data.</p>
+      ) : (
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full min-w-[640px] text-left text-sm">
+            <thead>
+              <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="px-2 py-2">Tier</th>
+                <th className="px-2 py-2 text-right">Dealer revenue</th>
+                <th className="px-2 py-2 text-right">Distributor revenue</th>
+                <th className="px-2 py-2 text-right">PCS</th>
+                <th className="px-2 py-2 text-right">Sq.ft</th>
+                <th className="px-2 py-2 text-right">Orders</th>
+                <th className="px-2 py-2 text-right">Accounts</th>
+                <th className="px-2 py-2 text-right">Avg dealer margin %</th>
+                <th className="px-2 py-2 text-right">Avg dist. margin %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.tierId} className={cn("border-b border-border/70", i % 2 === 1 && "bg-muted/40")}>
+                  <td className="px-2 py-2 font-semibold">{r.tierName}</td>
+                  <td className="px-2 py-2 text-right font-bold">{inrFull(r.revenue)}</td>
+                  <td className="px-2 py-2 text-right">{inrFull(r.distributorRevenue)}</td>
+                  <td className="px-2 py-2 text-right">{fmtNum(r.pcs)}</td>
+                  <td className="px-2 py-2 text-right">{fmtSqft(r.sqft)}</td>
+                  <td className="px-2 py-2 text-right">{fmtNum(r.orders)}</td>
+                  <td className="px-2 py-2 text-right">{fmtNum(r.accounts)}</td>
+                  <td className="px-2 py-2 text-right">{r.avgDealerMarginPercent.toFixed(1)}%</td>
+                  <td className="px-2 py-2 text-right">{r.avgDistributorMarginPercent.toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

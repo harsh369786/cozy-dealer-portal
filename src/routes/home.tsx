@@ -91,37 +91,35 @@ function isDemoDealerPhone(phone: string | undefined | null): boolean {
 }
 
 async function loadProductionHome(user: SessionUser): Promise<ProductionHomeData> {
+  // Single parallel wave. Previously a second SEQUENTIAL wave fired getProductDetail() for each of
+  // the 3 featured mattresses — 3 extra round-trips, each running ~5-7 sequential D1 queries via
+  // buildPriceQuote, and gated behind the catalog result (a waterfall). The catalog response already
+  // carries every field the featured cards need (mrp / price / unitPrice / campaignPrice / points /
+  // image_url, priced identically to the product-detail "from" preview for a no-size mattress), so
+  // we build the cards straight from it. No behavior change to what's shown — just no extra fetches.
   const [dealerProfile, catalog, campaignsRes] = await Promise.all([
     user.dealerId ? getDealerById(user.dealerId) : Promise.resolve(null),
     getCatalog(),
     getDealerCampaigns("active"),
   ]);
 
-  const mattressIds = catalog.products
+  const featured: FeaturedProduct[] = catalog.products
     .filter((p) => p.category === "Mattresses")
     .slice(0, 3)
-    .map((p) => p.id);
-
-  const featuredDetails = await Promise.all(
-    mattressIds.map((id) =>
-      getProductDetail(id)
-        .then((p) => ({
-          id: String(p.id),
-          name: String(p.name),
-          image: (p.image_url as string) ?? undefined,
-          mrp: p.mrp as number | undefined,
-          price: p.price as number | undefined,
-          unitPrice: p.unitPrice as number | undefined,
-          campaignPrice: (p.campaignPrice as number | null | undefined) ?? null,
-          points: p.points as number | undefined,
-        }))
-        .catch(() => null),
-    ),
-  );
+    .map((p) => ({
+      id: String(p.id),
+      name: String(p.name),
+      image: (p.image_url as string | undefined) ?? undefined,
+      mrp: p.mrp as number | undefined,
+      price: p.price as number | undefined,
+      unitPrice: p.unitPrice as number | undefined,
+      campaignPrice: (p.campaignPrice as number | null | undefined) ?? null,
+      points: p.points as number | undefined,
+    }));
 
   return {
     dealerProfile,
-    featured: featuredDetails.filter((p): p is FeaturedProduct => p != null),
+    featured,
     activeCampaigns: campaignsRes.campaigns,
   };
 }
@@ -417,6 +415,9 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
                     src={resolveAssetUrl(p.image)}
                     alt={p.name}
                     loading="lazy"
+                    decoding="async"
+                    width={224}
+                    height={128}
                     className="h-32 w-full object-cover"
                   />
                 ) : (

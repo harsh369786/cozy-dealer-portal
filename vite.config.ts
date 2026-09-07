@@ -39,7 +39,12 @@ export default defineConfig({
       rollupOptions: {
         output: {
           manualChunks(id) {
-            if (id.includes("recharts") || id.includes("d3-")) return "recharts";
+            // NOTE: recharts/d3 are intentionally NOT forced into a manual chunk. Forcing them into
+            // a single named chunk made the bundler/router emit a <link rel="modulepreload"> for that
+            // ~500KiB chunk on EVERY route (including the dealer home, which renders no chart),
+            // because the shared router graph statically references it. Leaving them unassigned lets
+            // Rollup keep recharts inside the already-lazy report route chunks, so it downloads only
+            // when a report screen is actually opened.
             if (id.includes("@radix-ui")) return "radix-ui";
             if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/")) {
               return "react-vendor";

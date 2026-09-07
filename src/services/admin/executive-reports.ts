@@ -13,6 +13,10 @@ export type ReportFilters = {
   territory?: string | undefined;
   status?: string | undefined;
   campaignId?: string | undefined;
+  // Pricing-tier filters (multi-select CSV of tier ids), matched against the tier snapshotted on
+  // the order line at sale time.
+  dealerTier?: string | undefined;
+  distributorTier?: string | undefined;
   // Drill-down only: restrict to lines with computed area (sqft > 0). Serialized as hasArea=1.
   hasArea?: boolean | undefined;
 };
@@ -35,6 +39,25 @@ export type ReportFilterOptions = {
   statuses: string[];
   territories: string[];
   campaigns: Array<{ id: string; name: string }>;
+  // Pricing tiers (id + name) for the Dealer/Distributor tier filters. May be empty on older DBs.
+  tiers: Array<{ id: string; name: string }>;
+};
+
+/** Per-pricing-tier rollup row (used for both dealer-tier and distributor-tier tables). */
+export type TierBreakdownRow = {
+  tierId: string;
+  tierName: string;
+  /** Dealer-facing revenue (what dealers pay). */
+  revenue: number;
+  /** Distributor-facing revenue (what distributors transact at). */
+  distributorRevenue: number;
+  pcs: number;
+  sqft: number;
+  orders: number;
+  accounts: number;
+  avgDealerMarginPercent: number;
+  avgDistributorMarginPercent: number;
+  marginSpread: number;
 };
 
 export type MonthlyPoint = {
@@ -74,6 +97,7 @@ export type SnapshotReport = {
   monthly: MonthlyPoint[];
   territories: TerritoryRow[];
   campaigns: CampaignRow[];
+  tierBreakdown: { dealerTiers: TierBreakdownRow[]; distributorTiers: TierBreakdownRow[] };
   peak: MonthlyPoint | null;
 };
 
@@ -91,6 +115,8 @@ export type AccountRow = {
   distributorName: string;
   salesExecutiveId: string;
   salesExecutiveName: string;
+  dealerTierName: string;
+  distributorTierName: string;
 };
 
 export type AccountsReport = {

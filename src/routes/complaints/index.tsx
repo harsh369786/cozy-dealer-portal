@@ -75,7 +75,7 @@ function DealerComplaintsPage() {
             >
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="font-display font-bold">{c.id}</p>
+                  <p className="font-display font-bold">{c.complaintNumber ?? c.id}</p>
                   <p className="text-sm text-muted-foreground">
                     {t("dealer.complaints.orderLabel", { orderId: c.orderId })}
                   </p>

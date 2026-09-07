@@ -103,6 +103,8 @@ export async function getAdminDashboard(): Promise<AdminDashboardData> {
 function mapComplaintRow(row: Record<string, unknown>): AdminComplaint {
   return {
     id: row.id as string,
+    complaintNumber:
+      (row.complaintNumber as string) ?? (row.complaint_number as string) ?? (row.id as string),
     orderId: (row.orderId as string) ?? (row.order_id as string) ?? "",
     dealerId: (row.dealerId as string) ?? (row.dealer_id as string) ?? "",
     dealerName: (row.dealerName as string) ?? (row.dealer_name as string) ?? "—",

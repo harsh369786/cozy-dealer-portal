@@ -138,6 +138,8 @@ export type AdminRewardClaim = {
 
 export type AdminComplaint = {
   id: string;
+  /** Human-facing reference number (CP-DDMMYYNN). Falls back to id for legacy rows without one. */
+  complaintNumber: string;
   orderId: string;
   dealerId: string;
   dealerName: string;

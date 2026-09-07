@@ -69,7 +69,7 @@ function ComplaintDetailPage() {
   return (
     <div className="space-y-6">
       <AdminPageHeader
-        title={complaint.id}
+        title={complaint.complaintNumber}
         description={`${complaint.dealerName} · ${t("common.orderHash", { orderId: complaint.orderId })}`}
         actions={
           <Link to="/admin/complaints">

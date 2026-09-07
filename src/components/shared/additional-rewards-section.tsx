@@ -69,6 +69,10 @@ export function AdditionalRewardsSection({ className }: { className?: string }) 
                   <img
                     src={resolveAssetUrl(item.imageUrl)}
                     alt=""
+                    loading="lazy"
+                    decoding="async"
+                    width={48}
+                    height={48}
                     className="h-12 w-12 shrink-0 rounded-xl object-cover"
                   />
                 ) : (

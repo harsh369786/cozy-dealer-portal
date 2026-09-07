@@ -42,6 +42,8 @@ export const Route = createFileRoute("/admin/reports/")({
     territory: (s.territory as string) || undefined,
     status: (s.status as string) || undefined,
     campaignId: (s.campaignId as string) || undefined,
+    dealerTier: (s.dealerTier as string) || undefined,
+    distributorTier: (s.distributorTier as string) || undefined,
   }),
   component: AdminReportsPage,
 });
@@ -78,6 +80,8 @@ function ReportsContent() {
     territory: search.territory,
     status: search.status,
     campaignId: search.campaignId,
+    dealerTier: search.dealerTier,
+    distributorTier: search.distributorTier,
   };
 
   const { data, loading, error, retry } = useAsyncData(() => {
@@ -97,6 +101,8 @@ function ReportsContent() {
     filters.territory,
     filters.status,
     filters.campaignId,
+    filters.dealerTier,
+    filters.distributorTier,
   ]);
 
   const apply = (next: Search) => {
@@ -144,7 +150,9 @@ function ReportsContent() {
             filters.category ||
             filters.territory ||
             filters.status ||
-            filters.campaignId,
+            filters.campaignId ||
+            filters.dealerTier ||
+            filters.distributorTier,
         )}
         onReset={() =>
           // Replace the whole search with ONLY the view + date range, dropping every filter. We

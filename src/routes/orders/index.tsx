@@ -104,9 +104,14 @@ function Orders() {
   const [customRange, setCustomRange] = useState(defaultCustomRange);
   const [page, setPage] = useState(1);
 
-  const { data: statusCounts } = useAsyncData(() => getOrderStatusCounts(), []);
-
   const dateRange = periodToDateRange(period, customRange);
+
+  // Count the same date window as the list so the tab badges match what's shown, and re-run when
+  // the period / custom range changes (was previously all-time regardless of the date filter).
+  const { data: statusCounts } = useAsyncData(
+    () => getOrderStatusCounts({ fromDate: dateRange.fromDate, toDate: dateRange.toDate }),
+    [period, customRange.from, customRange.to],
+  );
 
   const { data, loading, error, retry } = useAsyncData(
     () =>

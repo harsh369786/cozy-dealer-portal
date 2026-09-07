@@ -3,6 +3,22 @@ import { api, ApiError } from "@/lib/api-client";
 
 const SESSION_PERSIST_KEY = "backrest_session_user";
 const SESSION_CACHE_TTL_MS = 30_000;
+// Readable companion cookie set by the server alongside the HttpOnly session cookie (see
+// SESSION_PRESENT_COOKIE in api/utils.ts). The real session token is HttpOnly and invisible to JS,
+// so this non-secret marker is the ONLY way the client can tell "a session should exist, the
+// browser just hasn't attached the cookie to this request yet" from "genuinely logged out". The
+// server clears this marker whenever it clears the session cookie (real logout / expiry), so:
+//   marker present  → keep the session on a transient 401 (cookie is attaching; don't self-logout)
+//   marker absent   → a persistent 401 is a real logout
+const SESSION_PRESENT_COOKIE = "backrest_session_present";
+
+/** True if the readable session-presence marker cookie is currently set. */
+function hasSessionPresentCookie(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie
+    .split(";")
+    .some((part) => part.trim().startsWith(`${SESSION_PRESENT_COOKIE}=`));
+}
 
 export function getHomePath(role: UserRole): string {
   // sales_head is a view-only oversight role that lives in the admin area (read-only screens).
@@ -171,11 +187,19 @@ async function fetchCurrentUser(stored: SessionUser | null): Promise<FetchCurren
         continue;
       }
       if (isAuthError) {
-        // Auth errors exhausted. Treat as a CONFIRMED logout when either:
-        //   - there was no stored user (a genuinely signed-out visitor), or
-        //   - we already confirmed a session earlier this runtime (cookie was attaching, so a
-        //     fresh persistent 401 is a real server-side revocation — suspend / deleted session).
-        // Otherwise (cold launch, stored user, never confirmed yet) keep the stored user.
+        // Auth errors exhausted. The readable presence marker is the authoritative signal now:
+        // the server sets it with the session cookie and CLEARS it only on a real logout / expiry
+        // (see api/middleware/auth.ts clearSessionCookies). So:
+        //   - marker STILL present → the server thinks a session exists; this 401 is the cookie not
+        //     being attached yet (PWA cold-launch / webview timing). Treat as UNCONFIRMED: keep the
+        //     stored user and let a later revalidation succeed. NEVER self-logout here.
+        //   - marker ABSENT → treat as a CONFIRMED logout when there is no stored user, or a session
+        //     was confirmed earlier this runtime (a genuine server-side revoke/expiry). Otherwise
+        //     (cold launch, stored user, never confirmed, marker somehow absent) stay conservative
+        //     and keep the stored user.
+        if (hasSessionPresentCookie()) {
+          return { user: null, confirmedLoggedOut: false };
+        }
         return { user: null, confirmedLoggedOut: !stored || everConfirmedSession };
       }
       // Network / server error: never destroy a working session over a blip.

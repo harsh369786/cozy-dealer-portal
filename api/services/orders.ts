@@ -95,8 +95,24 @@ export async function createOrder(
   const dealer = await db
     .prepare(`SELECT * FROM dealers WHERE id = ? AND deleted_at IS NULL`)
     .bind(user.dealerId)
-    .first<{ distributor_id: string; store_name: string; phone: string }>();
+    .first<{
+      distributor_id: string;
+      store_name: string;
+      phone: string;
+      pricing_tier_id: string | null;
+    }>();
   if (!dealer) throw new Error("Dealer not found");
+
+  // Snapshot the tier BOTH the dealer and its distributor are on right now, so tier-wise reports
+  // stay accurate even if either is later moved to a different tier (see migration 0038).
+  const dealerTierId = dealer.pricing_tier_id ?? "tier-t1";
+  const distributorTierRow = dealer.distributor_id
+    ? await db
+        .prepare(`SELECT pricing_tier_id FROM distributors WHERE id = ?`)
+        .bind(dealer.distributor_id)
+        .first<{ pricing_tier_id: string | null }>()
+    : null;
+  const distributorTierId = distributorTierRow?.pricing_tier_id ?? "tier-t1";
 
   const quote = await buildPriceQuote(db, {
     productId: input.productId,
@@ -150,8 +166,8 @@ export async function createOrder(
             `INSERT INTO order_items (id, order_id, product_id, product_name, size_requested, size_standard, thickness,
               quantity, perma, perma_corners, perma_notes, mrp, dealer_price, dealer_margin_percent,
               distributor_price, distributor_margin_percent, campaign_id, campaign_price, discount_percent,
-              free_items, points_earned, line_total, notes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              free_items, points_earned, line_total, notes, dealer_tier_id, distributor_tier_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .bind(
             itemId,
@@ -177,6 +193,8 @@ export async function createOrder(
             quote.pointsEarned,
             quote.lineTotal,
             input.notes ?? null,
+            dealerTierId,
+            distributorTierId,
           ),
         db
           .prepare(
@@ -840,7 +858,14 @@ export type OrderStatusCounts = {
 
 export async function getOrderStatusCounts(
   db: D1Database,
-  opts: Pick<ListOrdersOptions, "dealerIds" | "distributorId" | "salesExecutiveUserId">,
+  // Includes the date window (fromDate/toDate) so the badge counts match the date filter shown in
+  // the list. Deliberately NOT scoped by `search` or `status` — the badges reflect every status in
+  // the selected scope + date range. buildOrdersWhereClause only adds a date predicate when the
+  // date fields are present, so omitting them keeps the all-time behaviour (e.g. the "all" period).
+  opts: Pick<
+    ListOrdersOptions,
+    "dealerIds" | "distributorId" | "salesExecutiveUserId" | "fromDate" | "toDate"
+  >,
 ): Promise<OrderStatusCounts> {
   const { clause, binds } = buildOrdersWhereClause(opts);
   const { results } = await db

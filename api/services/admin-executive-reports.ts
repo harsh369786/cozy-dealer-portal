@@ -86,6 +86,10 @@ export type ExecutiveReportFilters = {
   pincode?: string | undefined;
   status?: string | undefined;
   campaignId?: string | undefined;
+  // Pricing-tier filters (multi-select CSV). Filter on the tier SNAPSHOTTED on the order line at
+  // sale time (oi.dealer_tier_id / oi.distributor_tier_id), not the account's current tier.
+  dealerTier?: string | undefined;
+  distributorTier?: string | undefined;
   // Drill-down only: restrict to order lines that have a computed area (sqft > 0).
   hasArea?: boolean | undefined;
 };
@@ -159,6 +163,9 @@ function buildItemWhere(filters: ExecutiveReportFilters, range: { startIso: stri
   sql += inClause("oi.product_name", csvList(filters.product), binds);
   sql += inClause("p.category", csvList(filters.category), binds);
   sql += inClause("oi.campaign_id", csvList(filters.campaignId), binds);
+  // Tier filters use the snapshotted tier on the line (historical-accurate).
+  sql += inClause("oi.dealer_tier_id", csvList(filters.dealerTier), binds);
+  sql += inClause("oi.distributor_tier_id", csvList(filters.distributorTier), binds);
 
   // Normalized structured-location filters (from the pincode master captured at signup). These use
   // the real dealers columns directly. Existing dealers without structured data simply won't match
@@ -211,7 +218,14 @@ const ITEM_FROM = `FROM order_items oi
   LEFT JOIN products p ON p.id = oi.product_id
   LEFT JOIN distributors dist ON dist.id = o.distributor_id
   LEFT JOIN users se ON se.id = d.sales_executive_user_id
-  LEFT JOIN price_campaigns pc ON pc.id = oi.campaign_id`;
+  LEFT JOIN price_campaigns pc ON pc.id = oi.campaign_id
+  LEFT JOIN pricing_tiers dtier ON dtier.id = oi.dealer_tier_id
+  LEFT JOIN pricing_tiers xtier ON xtier.id = oi.distributor_tier_id`;
+
+// Distributor-facing revenue: what distributors transact at (distributor_price × qty), as opposed
+// to line_total which is the dealer-facing amount. Falls back to line_total for legacy rows that
+// predate distributor_price capture.
+const DISTRIBUTOR_REVENUE_SQL = `COALESCE(oi.distributor_price, 0) * oi.quantity`;
 
 export async function loadReportFilterOptions(db: D1Database) {
   const [{ results: distributors }, { results: dealerRows }, { results: executiveRows }, { results: products }, { results: categories }, { results: statuses }, { results: campaigns }] =
@@ -298,6 +312,18 @@ export async function loadReportFilterOptions(db: D1Database) {
     monthValues.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
   }
 
+  // Pricing tiers (id + name) power both the tier filters and the "By pricing tier" breakdown.
+  // Tolerant of the table not existing (older DBs): empty list means no tier filter is shown.
+  let tiers: Array<{ id: string; name: string }> = [];
+  try {
+    const { results } = await db
+      .prepare(`SELECT id, name FROM pricing_tiers WHERE deleted_at IS NULL ORDER BY sort_order, name`)
+      .all<{ id: string; name: string }>();
+    tiers = results.map((r) => ({ id: r.id, name: r.name }));
+  } catch {
+    tiers = [];
+  }
+
   return {
     months: monthValues,
     distributors,
@@ -311,6 +337,7 @@ export async function loadReportFilterOptions(db: D1Database) {
     states,
     districts,
     areas,
+    tiers,
   };
 }
 
@@ -439,6 +466,8 @@ export async function buildAccounts(db: D1Database, filters: ExecutiveReportFilt
          dist.name as distributorName,
          d.sales_executive_user_id as salesExecutiveId,
          se.name as salesExecutiveName,
+         MAX(COALESCE(dtier.name, 'Unassigned')) as dealerTierName,
+         MAX(COALESCE(xtier.name, 'Unassigned')) as distributorTierName,
          COALESCE(SUM(oi.line_total), 0) as revenue,
          COALESCE(SUM(oi.quantity), 0) as pcs,
          COALESCE(SUM(${SQFT_SQL}), 0) as sqft
@@ -460,6 +489,8 @@ export async function buildAccounts(db: D1Database, filters: ExecutiveReportFilt
       distributorName: string | null;
       salesExecutiveId: string | null;
       salesExecutiveName: string | null;
+      dealerTierName: string | null;
+      distributorTierName: string | null;
       revenue: number;
       pcs: number;
       sqft: number;
@@ -491,6 +522,8 @@ export async function buildAccounts(db: D1Database, filters: ExecutiveReportFilt
       distributorName: r.distributorName ?? "—",
       salesExecutiveId: r.salesExecutiveId ?? "",
       salesExecutiveName: r.salesExecutiveName ?? "—",
+      dealerTierName: (r.dealerTierName ?? "Unassigned") || "Unassigned",
+      distributorTierName: (r.distributorTierName ?? "Unassigned") || "Unassigned",
     };
   });
 }
@@ -550,15 +583,95 @@ export async function buildCampaigns(db: D1Database, filters: ExecutiveReportFil
   }));
 }
 
+export type TierBreakdownRow = {
+  tierId: string;
+  tierName: string;
+  /** Dealer-facing revenue = SUM(line_total). */
+  revenue: number;
+  /** Distributor-facing revenue = SUM(distributor_price × qty). */
+  distributorRevenue: number;
+  pcs: number;
+  sqft: number;
+  orders: number;
+  /** Distinct dealers (for dealer-tier rows) or distributors (for distributor-tier rows). */
+  accounts: number;
+  avgDealerMarginPercent: number;
+  avgDistributorMarginPercent: number;
+  /** MRP value minus dealer-facing revenue = total discount given off MRP. */
+  marginSpread: number;
+};
+
+/**
+ * Per-pricing-tier rollup for BOTH sides:
+ *  - dealerTiers: grouped by the DEALER tier snapshotted on each line (oi.dealer_tier_id).
+ *  - distributorTiers: grouped by the DISTRIBUTOR tier (oi.distributor_tier_id).
+ * All metrics respect the current filters/date range. Uses the tier snapshotted at sale time so
+ * moving an account to a new tier later doesn't rewrite past months.
+ */
+export async function buildTierBreakdown(
+  db: D1Database,
+  filters: ExecutiveReportFilters,
+  range: { startIso: string; endIso: string },
+): Promise<{ dealerTiers: TierBreakdownRow[]; distributorTiers: TierBreakdownRow[] }> {
+  const querySide = async (
+    tierIdCol: string,
+    tierNameCol: string,
+    accountCol: string,
+  ): Promise<TierBreakdownRow[]> => {
+    const binds: unknown[] = [];
+    const where = buildItemWhere(filters, range, binds);
+    const { results } = await db
+      .prepare(
+        `SELECT ${tierIdCol} as tierId,
+           COALESCE(${tierNameCol}, 'Unassigned') as tierName,
+           COALESCE(SUM(oi.line_total), 0) as revenue,
+           COALESCE(SUM(${DISTRIBUTOR_REVENUE_SQL}), 0) as distributorRevenue,
+           COALESCE(SUM(oi.quantity), 0) as pcs,
+           COALESCE(SUM(${SQFT_SQL}), 0) as sqft,
+           COUNT(DISTINCT o.id) as orders,
+           COUNT(DISTINCT ${accountCol}) as accounts,
+           COALESCE(AVG(oi.dealer_margin_percent), 0) as avgDealerMarginPercent,
+           COALESCE(AVG(oi.distributor_margin_percent), 0) as avgDistributorMarginPercent,
+           COALESCE(SUM(oi.mrp * oi.quantity), 0) - COALESCE(SUM(oi.line_total), 0) as marginSpread
+         ${ITEM_FROM}
+         WHERE 1=1${where}
+         GROUP BY ${tierIdCol}
+         ORDER BY revenue DESC`,
+      )
+      .bind(...binds)
+      .all<Record<string, number | string>>();
+    return results.map((r) => ({
+      tierId: String(r.tierId ?? ""),
+      tierName: String(r.tierName ?? "Unassigned"),
+      revenue: Number(r.revenue),
+      distributorRevenue: Number(r.distributorRevenue),
+      pcs: Number(r.pcs),
+      sqft: Number(r.sqft),
+      orders: Number(r.orders),
+      accounts: Number(r.accounts),
+      avgDealerMarginPercent: Number(r.avgDealerMarginPercent),
+      avgDistributorMarginPercent: Number(r.avgDistributorMarginPercent),
+      marginSpread: Number(r.marginSpread),
+    }));
+  };
+
+  const [dealerTiers, distributorTiers] = await Promise.all([
+    querySide("oi.dealer_tier_id", "dtier.name", "o.dealer_id"),
+    querySide("oi.distributor_tier_id", "xtier.name", "o.distributor_id"),
+  ]);
+  return { dealerTiers, distributorTiers };
+}
+
 export async function buildExecutiveSnapshot(db: D1Database, raw: ExecutiveReportFilters = {}) {
   const defaults = defaultFromTo();
   const filters = { ...raw, from: raw.from ?? defaults.from, to: raw.to ?? defaults.to };
   const range = monthBounds(filters.from!, filters.to!);
-  const [kpis, monthly, territories, campaigns, filterOptions] = await Promise.all([
+  const [kpis, monthly, territories, campaigns, tierBreakdown, filterOptions] = await Promise.all([
     totals(db, filters, range),
     buildMonthlySeries(db, filters, range),
     buildTerritories(db, filters, range),
     buildCampaigns(db, filters, range),
+    buildTierBreakdown(db, filters, range),
     loadReportFilterOptions(db),
   ]);
   const peak = monthly.reduce<(typeof monthly)[0] | null>((best, row) => (!best || row.revenue > best.revenue ? row : best), null);
@@ -574,6 +687,7 @@ export async function buildExecutiveSnapshot(db: D1Database, raw: ExecutiveRepor
     monthly,
     territories,
     campaigns,
+    tierBreakdown,
     peak,
   };
 }

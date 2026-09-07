@@ -67,6 +67,9 @@ export function OrderHelpPanel({
   const [lookupOrder, setLookupOrder] = useState<DistributorOrder | null>(null);
   const [description, setDescription] = useState("");
   const [submittedId, setSubmittedId] = useState<string | null>(null);
+  // Human-facing reference (CP-DDMMYYNN) shown to the user; submittedId stays the internal id used
+  // for routing to the complaint detail page.
+  const [submittedNumber, setSubmittedNumber] = useState<string | null>(null);
 
   const resolvedOrderId = order?.id ?? lookupOrder?.id ?? orderIdInput.trim();
 
@@ -105,9 +108,10 @@ export function OrderHelpPanel({
         description: description.trim(),
       });
       toast.success(t("common.helpRequestSubmittedToast"), {
-        description: t("common.helpRequestReference", { id: res.id }),
+        description: t("common.helpRequestReference", { id: res.complaintNumber }),
       });
       setSubmittedId(res.id);
+      setSubmittedNumber(res.complaintNumber);
       onSubmitted?.(res.id);
     } catch (e) {
       toast.error(formatApiError(e, "common.couldNotSubmitHelp"));
@@ -122,7 +126,7 @@ export function OrderHelpPanel({
         </div>
         <p className="mt-3 font-display font-bold">{t("common.helpRequestSubmittedTitle")}</p>
         <p className="mt-1 text-sm text-muted-foreground">
-          {t("common.referenceLabel", { id: submittedId })}
+          {t("common.referenceLabel", { id: submittedNumber ?? submittedId })}
         </p>
         <Link
           to="/complaints/$complaintId"

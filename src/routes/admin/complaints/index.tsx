@@ -66,7 +66,7 @@ function AdminComplaintsPage() {
         onRowClick={(c) => navigate({ to: "/admin/complaints/$complaintId", params: { complaintId: c.id } })}
         emptyTitle={t("common.noMatchingResults")}
         columns={[
-          { key: "id", header: t("common.reference"), cell: (c) => <span className="font-bold">{c.id}</span> },
+          { key: "id", header: t("common.reference"), cell: (c) => <span className="font-bold">{c.complaintNumber}</span> },
           { key: "order", header: t("admin.dashboard.columnOrder"), cell: (c) => c.orderId, hideOnMobile: true },
           { key: "dealer", header: t("admin.dashboard.columnDealer"), cell: (c) => c.dealerName },
           { key: "status", header: t("admin.dashboard.columnStatus"), cell: (c) => <StatusBadge kind="complaint" status={c.status} /> },

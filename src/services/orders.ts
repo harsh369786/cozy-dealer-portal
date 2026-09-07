@@ -255,8 +255,14 @@ export type OrderStatusCounts = {
   all: number;
 };
 
-export async function getOrderStatusCounts(): Promise<OrderStatusCounts> {
-  return api.get<OrderStatusCounts>("/api/v1/orders/status-counts");
+export async function getOrderStatusCounts(
+  params: { fromDate?: string; toDate?: string } = {},
+): Promise<OrderStatusCounts> {
+  const qs = new URLSearchParams();
+  if (params.fromDate) qs.set("fromDate", params.fromDate);
+  if (params.toDate) qs.set("toDate", params.toDate);
+  const query = qs.toString();
+  return api.get<OrderStatusCounts>(`/api/v1/orders/status-counts${query ? `?${query}` : ""}`);
 }
 
 export async function updateOrderLineItems(

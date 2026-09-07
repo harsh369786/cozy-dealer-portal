@@ -10,6 +10,8 @@ import {
   requireAnyPermission,
   setSessionCookie,
   clearSessionCookie,
+  setSessionPresentCookie,
+  clearSessionPresentCookie,
   isSecureCookieEnv,
 } from "./middleware/auth";
 import { buildSessionUser, resolveEffectiveRole } from "./rbac";
@@ -307,17 +309,19 @@ app.post("/api/v1/auth/otp/verify", async (c) => {
     distributor_id: userRow['distributor_id'] as string | null,
   });
 
-  return c.json({ user }, 200, {
-    "Set-Cookie": setSessionCookie(sessionId, secureCookies(c.env)),
-  });
+  const secure = secureCookies(c.env);
+  c.header("Set-Cookie", setSessionCookie(sessionId, secure), { append: true });
+  c.header("Set-Cookie", setSessionPresentCookie(secure), { append: true });
+  return c.json({ user }, 200);
 });
 
 app.post("/api/v1/auth/logout", requireAuth, async (c) => {
   const db = await getRequestDb(c);
   await db.prepare(`DELETE FROM sessions WHERE id = ?`).bind(c.get("sessionId")).run();
-  return c.json({ ok: true }, 200, {
-    "Set-Cookie": clearSessionCookie(secureCookies(c.env)),
-  });
+  const secure = secureCookies(c.env);
+  c.header("Set-Cookie", clearSessionCookie(secure), { append: true });
+  c.header("Set-Cookie", clearSessionPresentCookie(secure), { append: true });
+  return c.json({ ok: true }, 200);
 });
 
 app.get("/api/v1/auth/me", requireAuth, (c) => c.json({ user: c.get("user") }));
@@ -334,9 +338,10 @@ app.post("/api/v1/auth/demo-login", async (c) => {
       ip: c.req.header("cf-connecting-ip") ?? null,
       userAgent: c.req.header("user-agent") ?? null,
     });
-    return c.json({ user }, 200, {
-      "Set-Cookie": setSessionCookie(sessionId, secureCookies(c.env)),
-    });
+    const secure = secureCookies(c.env);
+    c.header("Set-Cookie", setSessionCookie(sessionId, secure), { append: true });
+    c.header("Set-Cookie", setSessionPresentCookie(secure), { append: true });
+    return c.json({ user }, 200);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Demo login failed";
     if (message === "DEMO_LOGIN_NOT_ALLOWED") throw new AppError("Demo login is not allowed for this number", 403);
@@ -633,7 +638,13 @@ app.get("/api/v1/orders", requireAuth, requireActiveAccount, requirePermission("
 app.get("/api/v1/orders/status-counts", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
   const db = await getRequestDb(c);
   const user = c.get("user");
+  // Apply the SAME date window as the list so the badge counts match what's shown. Omitted (no
+  // fromDate/toDate) means all-time, matching the "all" period.
+  const fromDate = c.req.query("fromDate");
+  const toDate = c.req.query("toDate");
   const scopeOpts = {
+    ...(fromDate ? { fromDate } : {}),
+    ...(toDate ? { toDate } : {}),
     ...(user.role === "dealer" && user.dealerId ? { dealerIds: [user.dealerId] } : {}),
     ...(user.role === "distributor" && user.distributorId ? { distributorId: user.distributorId } : {}),
     ...(user.role === "sales_executive" ? { salesExecutiveUserId: user.id } : {}),
@@ -1085,7 +1096,7 @@ app.post("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermiss
     dealerName: dealer?.store_name ?? "Dealer",
   });
 
-  return c.json({ id: complaintId }, 201);
+  return c.json({ id: complaintId, complaintNumber }, 201);
 });
 
 app.get("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermission("complaints:read"), async (c) => {

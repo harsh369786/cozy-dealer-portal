@@ -31,5 +31,7 @@ export async function submitComplaint(input: {
   description: string;
   category?: string;
 }) {
-  return api.post<{ id: string }>("/api/v1/complaints", input);
+  // `id` is the internal record id (used for routing to the detail page); `complaintNumber` is the
+  // human-facing reference (CP-DDMMYYNN) shown to the user.
+  return api.post<{ id: string; complaintNumber: string }>("/api/v1/complaints", input);
 }
