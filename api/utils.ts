@@ -2,6 +2,20 @@ export function id(prefix: string) {
   return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
+/**
+ * M-5: a session token needs cryptographically strong, high-entropy randomness because it is a
+ * bearer credential (its sha256 is stored as token_hash). The generic `id()` above uses only the
+ * first 8 hex chars of a UUID (~32 bits) which is fine for DB row ids but far too little for a
+ * guessable auth token. This yields 128 bits from crypto.getRandomValues as hex.
+ */
+export function sessionId(prefix = "sess"): string {
+  const bytes = new Uint8Array(16); // 128 bits
+  crypto.getRandomValues(bytes);
+  let hex = "";
+  for (const b of bytes) hex += b.toString(16).padStart(2, "0");
+  return `${prefix}-${hex}`;
+}
+
 /** Order id prefix for a calendar day in IST: `BR-DDMMYY` */
 export function orderIdDatePrefix(reference = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-GB", {

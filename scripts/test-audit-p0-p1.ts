@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import { createD1DatabaseAdapter } from "../api/db/sqlite-d1.ts";
+import { createD1DatabaseAdapter, applyPendingDevMigrations } from "../api/db/sqlite-d1.ts";
 import { handleApiRequest } from "../api/app.ts";
 import { assertStatusUpdate } from "../api/order-status.ts";
 import { listAdminCampaigns } from "../api/services/campaigns-admin.ts";
@@ -15,15 +15,21 @@ import { nextOrderId, sha256 } from "../api/utils.ts";
 import type { ApiEnv, SessionUser } from "../api/types.ts";
 
 const sqlite = new Database(":memory:");
+// Apply the FULL migration set (not a hardcoded subset that drifted out of date and left the test
+// missing later columns like reward_claims.kind from 0033). The base migrations 0001–0005 build the
+// core schema; applyPendingDevMigrations then applies 0006–0041 in order with the same guards the
+// dev runtime uses. This keeps the test schema in lockstep with production going forward.
+const migrationsRoot = process.cwd();
 for (const migration of [
   "0001_initial.sql",
   "0002_order_status_rewards_campaigns.sql",
+  "0003_dealer_assignments.sql",
+  "0004_performance_indexes.sql",
   "0005_signup_user_status.sql",
-  "0016_audit_p0_p1.sql",
 ]) {
-  sqlite.exec(readFileSync(join(process.cwd(), "migrations", migration), "utf8"));
+  sqlite.exec(readFileSync(join(migrationsRoot, "migrations", migration), "utf8"));
 }
-sqlite.exec("ALTER TABLE price_campaigns ADD COLUMN distributor_id TEXT");
+applyPendingDevMigrations(sqlite, migrationsRoot);
 const db = createD1DatabaseAdapter(sqlite);
 
 sqlite.exec(`

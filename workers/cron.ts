@@ -28,8 +28,22 @@ export async function handleCron(env: ApiEnv, ctx?: ExecutionContext) {
   resolveExecutionContext(ctx);
 
   const db = await getDatabase(merged);
-  await purgeExpiredOtpChallenges(db);
-  await purgeExpiredSessions(db);
-  await scanPendingOrderReminders(db);
-  await dispatchScheduledAnnouncements(db);
+
+  // M-1: run each cron step in isolation AND one at a time. Steps are lazy thunks (not eagerly
+  // invoked) so the work starts only when its turn comes — this avoids firing every DB write
+  // concurrently against D1. Each step is wrapped in its own try/catch so a failure in one is
+  // logged and the remaining steps still run.
+  const steps: Array<[string, () => Promise<unknown>]> = [
+    ["purgeExpiredOtpChallenges", () => purgeExpiredOtpChallenges(db)],
+    ["purgeExpiredSessions", () => purgeExpiredSessions(db)],
+    ["scanPendingOrderReminders", () => scanPendingOrderReminders(db)],
+    ["dispatchScheduledAnnouncements", () => dispatchScheduledAnnouncements(db)],
+  ];
+  for (const [name, run] of steps) {
+    try {
+      await run();
+    } catch (error) {
+      console.error(`[cron] step "${name}" failed:`, error);
+    }
+  }
 }

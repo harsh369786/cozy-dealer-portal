@@ -230,6 +230,8 @@ export async function getPriceQuote(input: {
   campaignId?: string;
   lengthIn?: number;
   breadthIn?: number;
+  /** Raw ordered width for width-based free-item rules (pricing uses breadthIn separately). */
+  freeItemWidthIn?: number;
 }) {
   return api.post("/api/v1/catalog/price-quote", input);
 }

@@ -60,13 +60,30 @@ function campaignTabSql(tab: CampaignStatus) {
   return ` AND (date(substr(pc.end_at, 1, 10)) < date('now', '+05:30') OR pc.status = 'expired')`;
 }
 
-export async function listDealerCampaigns(db: D1Database, tab: CampaignStatus = "active") {
+export async function listDealerCampaigns(
+  db: D1Database,
+  tab: CampaignStatus = "active",
+  distributorId?: string | null,
+) {
+  // Distributor scoping: a dealer must only see GLOBAL campaigns (distributor_id IS NULL) plus
+  // campaigns targeted at THEIR distributor — never another distributor's targeted campaign. When
+  // no distributor is known (e.g. an admin-facing call), fall back to global-only to avoid bleed.
+  let scopeSql: string;
+  const binds: unknown[] = [];
+  if (distributorId) {
+    scopeSql = ` AND (pc.distributor_id IS NULL OR pc.distributor_id = ?)`;
+    binds.push(distributorId);
+  } else {
+    scopeSql = ` AND pc.distributor_id IS NULL`;
+  }
+
   const { results } = await db
     .prepare(
       `SELECT pc.*, p.name as product_name FROM price_campaigns pc
        LEFT JOIN products p ON p.id = pc.product_id
-       WHERE pc.deleted_at IS NULL AND pc.whatsapp_target_dealers = 1${campaignTabSql(tab)}`,
+       WHERE pc.deleted_at IS NULL AND pc.whatsapp_target_dealers = 1${scopeSql}${campaignTabSql(tab)}`,
     )
+    .bind(...binds)
     .all();
 
   return results
@@ -115,19 +132,28 @@ export async function getPublicCampaignById(db: D1Database, campaignId: string) 
 export async function getActivePriceCampaignRow(
   db: D1Database,
   productId: string,
-  options?: { campaignId?: string; at?: Date },
+  options?: { campaignId?: string; at?: Date; distributorId?: string | null },
 ) {
   const at = options?.at ?? new Date();
   const today = istTodayIso(at);
 
+  // Distributor scoping to prevent cross-bleed: only a global campaign (distributor_id IS NULL) or
+  // one targeted at this dealer's distributor may price their order. When distributorId is unknown,
+  // restrict to global-only.
+  const distributorClause = options?.distributorId
+    ? ` AND (pc.distributor_id IS NULL OR pc.distributor_id = ?)`
+    : ` AND pc.distributor_id IS NULL`;
+
   if (options?.campaignId) {
+    const binds: unknown[] = [options.campaignId, productId];
+    if (options.distributorId) binds.push(options.distributorId);
     const row = await db
       .prepare(
         `SELECT pc.*, p.name as product_name FROM price_campaigns pc
          LEFT JOIN products p ON p.id = pc.product_id
-         WHERE pc.id = ? AND (pc.product_id = ? OR pc.product_id IS NULL) AND pc.deleted_at IS NULL`,
+         WHERE pc.id = ? AND (pc.product_id = ? OR pc.product_id IS NULL) AND pc.deleted_at IS NULL${distributorClause}`,
       )
-      .bind(options.campaignId, productId)
+      .bind(...binds)
       .first<Record<string, unknown>>();
     if (!row) return null;
     const startDate = readCampaignDate(row.start_at);
@@ -139,17 +165,20 @@ export async function getActivePriceCampaignRow(
 
   // Match product-specific OR all-products (product_id IS NULL) campaigns.
   // A product-specific campaign wins over an all-products one (product_id IS NULL sorts last).
+  const binds: unknown[] = [productId];
+  if (options?.distributorId) binds.push(options.distributorId);
+  binds.push(today, today);
   return db
     .prepare(
       `SELECT pc.*, p.name as product_name FROM price_campaigns pc
        LEFT JOIN products p ON p.id = pc.product_id
-       WHERE (pc.product_id = ? OR pc.product_id IS NULL) AND pc.deleted_at IS NULL
+       WHERE (pc.product_id = ? OR pc.product_id IS NULL) AND pc.deleted_at IS NULL${distributorClause}
          AND pc.status = 'active'
          AND date(pc.start_at) <= date(?)
          AND date(pc.end_at) >= date(?)
        ORDER BY (pc.product_id IS NULL) ASC, pc.start_at DESC LIMIT 1`,
     )
-    .bind(productId, today, today)
+    .bind(...binds)
     .first<Record<string, unknown>>();
 }
 

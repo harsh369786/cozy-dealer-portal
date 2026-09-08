@@ -18,6 +18,8 @@ import { PwaInstallPrompt } from "../components/shared/pwa-install-prompt";
 import { useOnline } from "../hooks/use-online";
 import { useNotificationBridge } from "../hooks/use-notification-bridge";
 import { PushNotificationPrompt } from "../components/shared/push-notification-prompt";
+import { registerSuspensionHandler } from "@/lib/api-client";
+import { invalidateSessionCache } from "@/services/auth";
 
 function NotFoundComponent() {
   return (
@@ -131,7 +133,7 @@ function RootShell({ children }: { children: ReactNode }) {
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
         <script
           dangerouslySetInnerHTML={{
-            __html: `if("serviceWorker"in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js",{scope:"/",updateViaCache:"none"}).catch(function(){});});}`,
+            __html: `if("serviceWorker"in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js",{scope:"/",updateViaCache:"none"}).catch(function(e){console.error("[SW] Registration failed:",e);});});}`,
           }}
         />
         <HeadContent />
@@ -146,9 +148,19 @@ function RootShell({ children }: { children: ReactNode }) {
 
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
   const { online, mounted } = useOnline();
   const showOffline = mounted && !online;
   useNotificationBridge();
+
+  // P0-3: when any API call returns 401 { code: "USER_SUSPENDED" }, clear session state and send the
+  // user to the login page with a reason flag — exactly once — instead of looping through redirects.
+  useEffect(() => {
+    registerSuspensionHandler(() => {
+      invalidateSessionCache();
+      router.navigate({ to: "/", search: { reason: "suspended" } });
+    });
+  }, [router]);
 
   return (
     <QueryClientProvider client={queryClient}>

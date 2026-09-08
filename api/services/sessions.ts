@@ -1,14 +1,14 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { buildSessionUser, resolveEffectiveRole } from "../rbac";
 import type { AppVariables } from "../types";
-import { id, SESSION_DAYS, sha256 } from "../utils";
+import { sessionId as newSessionId, SESSION_DAYS, sha256 } from "../utils";
 
 export async function createSessionForUserRow(
   db: D1Database,
   userRow: Record<string, unknown>,
   meta: { ip: string | null; userAgent: string | null },
 ) {
-  const sessionId = id("sess");
+  const sessionId = newSessionId(); // M-5: 128-bit high-entropy session token
   const tokenHash = await sha256(sessionId);
   const expires = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString();
 

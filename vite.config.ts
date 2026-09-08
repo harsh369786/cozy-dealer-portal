@@ -51,6 +51,9 @@ export default defineConfig({
             }
             if (id.includes("node_modules/@tanstack")) return "tanstack";
             if (id.includes("node_modules/lucide-react")) return "icons";
+            // L-1: everything else stays unassigned — return undefined explicitly so the function
+            // has a consistent return on every path (satisfies noImplicitReturns / TS7030).
+            return undefined;
           },
         },
       },

@@ -13,9 +13,9 @@ export async function optionalAuth(c: Context<{ Bindings: ApiEnv; Variables: App
     if (resolved.user) {
       c.set("user", resolved.user);
       c.set("sessionId", sessionId);
-    } else if (resolved.invalid) {
-      // Only clear when the session is DEFINITIVELY gone — not on a transient DB error, which
-      // would otherwise erase a valid cookie and cause the reopen auto-logout.
+    } else if (resolved.invalid || resolved.suspended) {
+      // Only clear when the session is DEFINITIVELY gone (invalid/expired) or the account was
+      // suspended — not on a transient DB error, which would otherwise erase a valid cookie.
       clearSessionCookies(c);
     }
   }
@@ -27,6 +27,12 @@ export async function requireAuth(c: Context<{ Bindings: ApiEnv; Variables: AppV
   if (!sessionId) return c.json({ error: "Unauthorized" }, 401);
   const db = await getRequestDb(c);
   const resolved = await resolveSession(db, sessionId);
+  if (resolved.suspended) {
+    // P0-3: distinct signal so the client clears state + redirects to /login?reason=suspended
+    // exactly once, instead of looping through the home redirect.
+    clearSessionCookies(c);
+    return c.json({ error: "Your account has been suspended.", code: "USER_SUSPENDED" }, 401);
+  }
   if (!resolved.user) {
     // A missing cookie value never reaches here (handled above). If the session is DEFINITIVELY
     // invalid/expired, clear the cookies; if it's a TRANSIENT DB error, leave the cookie intact so
@@ -105,9 +111,12 @@ function getSessionCookie(c: Context) {
  * cookie, so a single cookie-less-or-hiccuping request permanently erased a valid 30-day session.
  */
 type ResolvedSession =
-  | { user: SessionUser; invalid?: false; transient?: false }
-  | { user?: undefined; invalid: true; transient?: false }
-  | { user?: undefined; invalid?: false; transient: true };
+  | { user: SessionUser; invalid?: false; transient?: false; suspended?: false }
+  | { user?: undefined; invalid: true; transient?: false; suspended?: false }
+  | { user?: undefined; invalid?: false; transient: true; suspended?: false }
+  // The session cookie is valid but the account has been SUSPENDED. Distinct from `invalid` so the
+  // client can break the /login → /home → guard → / redirect loop with a definitive signal.
+  | { user?: undefined; invalid?: false; transient?: false; suspended: true };
 
 async function resolveSession(db: D1Database, sessionId: string): Promise<ResolvedSession> {
   const tokenHash = await sha256(sessionId);
@@ -135,7 +144,7 @@ async function resolveSession(db: D1Database, sessionId: string): Promise<Resolv
          FROM sessions s
          JOIN users u ON u.id = s.user_id
          LEFT JOIN user_role_overrides ovr ON ovr.user_id = u.id
-         WHERE s.id = ? AND s.token_hash = ? AND u.status IN ('active', 'pending_approval') AND u.deleted_at IS NULL`,
+         WHERE s.id = ? AND s.token_hash = ? AND u.status IN ('active', 'pending_approval', 'suspended') AND u.deleted_at IS NULL`,
       )
       .bind(sessionId, tokenHash)
       .first();
@@ -148,6 +157,19 @@ async function resolveSession(db: D1Database, sessionId: string): Promise<Resolv
   // No matching row: the session id / token is not a live session (unknown, already deleted, or the
   // user is no longer active). This is DEFINITIVE — safe to clear the cookie.
   if (!row) return { invalid: true };
+
+  // P0-3: A SUSPENDED account with a still-valid cookie must be handled distinctly. Delete the
+  // session row (so it can never resolve again) and signal `suspended` so requireAuth returns a
+  // { code: "USER_SUSPENDED" } 401 the client can act on — instead of a plain 401 that caused the
+  // /login → /home → guard → / redirect loop.
+  if (row.status === "suspended") {
+    try {
+      await db.prepare(`DELETE FROM sessions WHERE id = ?`).bind(sessionId).run();
+    } catch {
+      // Non-fatal: the account is still suspended for this request regardless.
+    }
+    return { suspended: true };
+  }
 
   if (new Date(row.expires_at).getTime() < Date.now()) {
     // Genuinely expired. Delete the row and clear the cookie.

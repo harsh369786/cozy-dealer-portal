@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
@@ -10,28 +10,22 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
-import { archiveProduct, getProduct, restoreProduct, saveProduct } from "@/services/admin/products";
+import { archiveProduct, deleteProduct, getProduct, restoreProduct, saveProduct } from "@/services/admin/products";
 import { ProductEditor } from "./new";
+import { parseFreeItemRules } from "../../../../shared/free-item-rules";
 
-/** Parse the stored free-items value (JSON array or legacy plain text) into editor rows. */
-function parseFreeItemsList(value?: string | null): Array<{ label: string; quantity: number }> {
-  const raw = String(value ?? "").trim();
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (Array.isArray(parsed)) {
-      return parsed
-        .map((row) => {
-          if (typeof row === "string") return { label: row.trim(), quantity: 1 };
-          const r = row as { label?: string; quantity?: number };
-          return { label: String(r.label ?? "").trim(), quantity: Math.max(1, Number(r.quantity) || 1) };
-        })
-        .filter((row) => row.label);
-    }
-  } catch {
-    // legacy plain-text label
-  }
-  return [{ label: raw, quantity: 1 }];
+/**
+ * Parse the stored free-items value (JSON array or legacy plain text) into editor rows, preserving
+ * the optional per-row width condition + threshold so the editor round-trips them. Delegates to the
+ * shared rule parser (single source of truth).
+ */
+function parseFreeItemsList(value?: string | null) {
+  return parseFreeItemRules(value).map((rule) => ({
+    label: rule.label,
+    quantity: rule.quantity,
+    widthCondition: rule.widthCondition ?? null,
+    widthThreshold: rule.widthThreshold ?? null,
+  }));
 }
 
 export const Route = createFileRoute("/admin/products/$productId")({
@@ -40,9 +34,12 @@ export const Route = createFileRoute("/admin/products/$productId")({
 
 function EditProductPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { productId } = Route.useParams();
   const { can } = useAdminPermissions();
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [local, setLocal] = useState<Awaited<ReturnType<typeof getProduct>>>(null);
 
@@ -84,6 +81,22 @@ function EditProductPage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!local) return;
+    setDeleting(true);
+    try {
+      await deleteProduct(local.id);
+      toast.success(t("common.deleted"));
+      setConfirmDelete(false);
+      // The product is gone from every list now — return to the products list.
+      navigate({ to: "/admin/products" });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (loading) return <PageSkeleton rows={4} />;
   if (error || !local) return <ErrorState message={error ?? t("common.productNotFound")} onRetry={retry} />;
 
@@ -109,6 +122,7 @@ function EditProductPage() {
         onChange={(patch) => setLocal((p) => (p ? { ...p, ...patch } : p))}
         onSave={handleSave}
         onArchive={readOnly ? undefined : () => setConfirmArchive(true)}
+        onDelete={readOnly ? undefined : () => setConfirmDelete(true)}
         saving={saving}
         readOnly={readOnly}
       />
@@ -122,6 +136,15 @@ function EditProductPage() {
           confirmLabel={local.status === "active" ? t("common.deactivate") : t("common.activate")}
           onConfirm={handleArchive}
           variant={local.status === "active" ? "destructive" : "default"}
+        />
+        <ConfirmActionDialog
+          open={confirmDelete}
+          onOpenChange={setConfirmDelete}
+          title={t("common.deleteProduct")}
+          description={t("common.deleteProductConfirm")}
+          confirmLabel={deleting ? t("common.deleting") : t("common.delete")}
+          onConfirm={handleDelete}
+          variant="destructive"
         />
       </AdminPermissionGate>
     </div>

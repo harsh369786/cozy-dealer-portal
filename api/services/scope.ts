@@ -1,10 +1,21 @@
 import type { SessionUser } from "../types";
 
+/**
+ * Roles that see the entire operation (nationwide, no dealer/distributor restriction).
+ * sales_head is a first-class effective role (migration 0034 / api/types.ts) — a view-only
+ * head-of-sales who monitors the whole network — so it must get the SAME full read scope as
+ * master_admin / admin_staff. It was previously omitted here, which silently scoped it to nothing
+ * (the `AND 1=0` fallthrough), hiding all data from that role.
+ */
+function isFullAccessRole(role: SessionUser["role"]): boolean {
+  return role === "master_admin" || role === "admin_staff" || role === "sales_head";
+}
+
 export async function getAssignedDealerIds(
   db: D1Database,
   user: SessionUser,
 ): Promise<string[] | "all"> {
-  if (user.role === "master_admin" || user.role === "admin_staff") return "all";
+  if (isFullAccessRole(user.role)) return "all";
   if (user.role === "dealer" && user.dealerId) return [user.dealerId];
   if (user.role === "distributor" && user.distributorId) {
     const { results } = await db
@@ -31,7 +42,7 @@ export function appendUserDealerScopeSql(
   column: string,
   binds: unknown[],
 ): string {
-  if (user.role === "master_admin" || user.role === "admin_staff") return "";
+  if (isFullAccessRole(user.role)) return "";
   if (user.role === "dealer") {
     if (!user.dealerId) return " AND 1=0";
     binds.push(user.dealerId);
@@ -84,7 +95,7 @@ export async function canAccessDealer(
   user: SessionUser,
   dealerId: string,
 ): Promise<boolean> {
-  if (user.role === "master_admin" || user.role === "admin_staff") return true;
+  if (isFullAccessRole(user.role)) return true;
   if (user.role === "dealer") return user.dealerId === dealerId;
   if (user.role === "distributor" && user.distributorId) {
     const row = await db
@@ -115,7 +126,7 @@ export async function canAccessOrder(
     .bind(orderId)
     .first<{ dealer_id: string; distributor_id: string }>();
   if (!order) return false;
-  if (user.role === "master_admin" || user.role === "admin_staff") return true;
+  if (isFullAccessRole(user.role)) return true;
   if (user.role === "dealer") return user.dealerId === order.dealer_id;
   if (user.role === "distributor" || user.role === "sales_executive") {
     return canAccessDealer(db, user, order.dealer_id);
@@ -133,7 +144,7 @@ export async function canAccessComplaint(
     .bind(complaintId)
     .first<{ dealer_id: string }>();
   if (!complaint) return false;
-  if (user.role === "master_admin" || user.role === "admin_staff") return true;
+  if (isFullAccessRole(user.role)) return true;
   if (user.role === "dealer") return user.dealerId === complaint.dealer_id;
   if (user.role === "distributor" || user.role === "sales_executive") {
     return canAccessDealer(db, user, complaint.dealer_id);

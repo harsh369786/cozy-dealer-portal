@@ -20,16 +20,36 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { AdminProduct } from "@/lib/mock/admin/types";
-import { PRODUCT_CATALOGUE_LAYERS, PRODUCT_CATEGORIES, PRODUCT_GUARANTEES } from "@/lib/demo-data";
+import { NO_GUARANTEE, PRODUCT_CATALOGUE_LAYERS, PRODUCT_CATEGORIES, PRODUCT_GUARANTEES } from "@/lib/demo-data";
 import { saveProduct } from "@/services/admin/products";
 import { listPricingTiers } from "@/services/admin/pricing-tiers";
 import { calculateDealerPrice, calculateDistributorPrice } from "@/lib/distributor-price";
 import { formatFreeItemsDisplay } from "@/lib/free-items";
 import { calculateRewardPoints } from "../../../../shared/reward-points";
+import {
+  DEFAULT_FREE_ITEM_WIDTH_THRESHOLD,
+  FREE_ITEM_WIDTH_GREATER_EQUAL,
+  FREE_ITEM_WIDTH_LESS_THAN,
+} from "../../../../shared/free-item-rules";
+
+// A single editable free-item row in the product editor. `widthCondition` null => always given.
+type FreeItemRow = {
+  label: string;
+  quantity: number;
+  widthCondition?: "WIDTH_LESS_THAN" | "WIDTH_GREATER_EQUAL" | null;
+  widthThreshold?: number | null;
+};
+
+// Radix Select needs a non-empty value; this sentinel represents "no width condition (always)".
+const FREE_ITEM_WIDTH_ANY = "ANY";
 
 export const Route = createFileRoute("/admin/products/new")({
   component: NewProductPage,
 });
+
+// Radix Select can't use an empty-string item value, so this sentinel represents "no catalogue
+// warranty layer" and is mapped to undefined on change / from undefined on display.
+const NO_LAYER_VALUE = "__none__";
 
 const emptyProduct = (): AdminProduct => ({
   id: `prod-${Date.now()}`,
@@ -261,6 +281,7 @@ export function ProductEditor({
   onChange,
   onSave,
   onArchive,
+  onDelete,
   saving,
   readOnly,
 }: {
@@ -268,6 +289,7 @@ export function ProductEditor({
   onChange: (patch: Partial<AdminProduct>) => void;
   onSave: () => void;
   onArchive?: () => void;
+  onDelete?: () => void;
   saving?: boolean;
   readOnly?: boolean;
 }) {
@@ -371,10 +393,31 @@ export function ProductEditor({
 
   // Keep the legacy freeItems string in sync with the structured list, so existing
   // consumers (catalog/order display) keep working.
-  const syncFreeItems = (list: Array<{ label: string; quantity: number }>) => {
+  const syncFreeItems = (list: FreeItemRow[]) => {
     const cleaned = list
-      .map((row) => ({ label: row.label, quantity: Math.max(1, row.quantity || 1) }))
-      .filter((row) => row.label.trim() || row.quantity);
+      .map((row) => {
+        const condition =
+          row.widthCondition === FREE_ITEM_WIDTH_LESS_THAN ||
+          row.widthCondition === FREE_ITEM_WIDTH_GREATER_EQUAL
+            ? row.widthCondition
+            : null;
+        return {
+          label: row.label.trim(),
+          quantity: Math.max(1, row.quantity || 1),
+          // Only persist width fields when a condition is actually set, so "always" rows stay
+          // identical to the legacy {label, quantity} shape (backward compatible).
+          ...(condition
+            ? {
+                widthCondition: condition,
+                widthThreshold: Math.max(
+                  1,
+                  Number(row.widthThreshold) || DEFAULT_FREE_ITEM_WIDTH_THRESHOLD,
+                ),
+              }
+            : {}),
+        };
+      })
+      .filter((row) => row.label);
     onChange({
       freeItemsList: list,
       freeItems: cleaned.length ? JSON.stringify(cleaned) : undefined,
@@ -440,8 +483,14 @@ export function ProductEditor({
                 onValueChange={(v) =>
                   onChange({
                     guarantee: v,
+                    // Keep the catalogue warranty-layer in sync with the guarantee while the admin
+                    // hasn't overridden it. "No guarantee" has no warranty layer, so clear it.
                     layerGroup:
-                      !product.layerGroup || product.layerGroup === product.guarantee ? v : product.layerGroup,
+                      v === NO_GUARANTEE
+                        ? undefined
+                        : !product.layerGroup || product.layerGroup === product.guarantee
+                          ? v
+                          : product.layerGroup,
                   })
                 }
               >
@@ -632,73 +681,149 @@ export function ProductEditor({
             </div>
             <div className="sm:col-span-2 space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <Label>Free items</Label>
+                <Label>Free items with this product</Label>
                 {!readOnly ? (
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     className="rounded-xl"
-                    onClick={() => syncFreeItems([...freeItemsList, { label: "", quantity: 1 }])}
+                    onClick={() =>
+                      syncFreeItems([
+                        ...freeItemsList,
+                        { label: "", quantity: 1, widthCondition: null },
+                      ])
+                    }
                   >
                     <Plus className="mr-1 h-4 w-4" />
-                    Add item
+                    Add free item
                   </Button>
                 ) : null}
               </div>
+              <p className="text-xs text-muted-foreground">
+                Free items can apply always, or only for a width range. Width uses the ordered
+                mattress width (breadth); length is ignored. “Less than” means width &lt; threshold;
+                “Greater or equal” means width ≥ threshold (so exactly the threshold falls here).
+              </p>
               {freeItemsList.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No free items added yet.</p>
               ) : (
-                <div className="space-y-2">
-                  {freeItemsList.map((item, index) => (
-                    <div key={`free-item-${index}`} className="flex items-center gap-2">
-                      <div className="w-20 shrink-0">
-                        <Input
-                          type="text"
-                          inputMode="numeric"
-                          disabled={readOnly}
-                          value={item.quantity > 0 ? String(item.quantity) : ""}
-                          placeholder="Qty"
-                          aria-label="Quantity"
-                          className="rounded-xl"
-                          onChange={(e) => {
-                            const digits = e.target.value.replace(/\D/g, "");
-                            const next = [...freeItemsList];
-                            next[index] = {
-                              ...item,
-                              quantity: digits === "" ? 0 : Math.max(1, Number(digits)),
-                            };
-                            syncFreeItems(next);
-                          }}
-                        />
+                <div className="space-y-3">
+                  {freeItemsList.map((item, index) => {
+                    const condition =
+                      item.widthCondition === FREE_ITEM_WIDTH_LESS_THAN ||
+                      item.widthCondition === FREE_ITEM_WIDTH_GREATER_EQUAL
+                        ? item.widthCondition
+                        : FREE_ITEM_WIDTH_ANY;
+                    const threshold =
+                      item.widthThreshold && item.widthThreshold > 0
+                        ? item.widthThreshold
+                        : DEFAULT_FREE_ITEM_WIDTH_THRESHOLD;
+                    const patchRow = (patch: Partial<FreeItemRow>) => {
+                      const next = [...freeItemsList];
+                      next[index] = { ...item, ...patch };
+                      syncFreeItems(next);
+                    };
+                    return (
+                      <div
+                        key={`free-item-${index}`}
+                        className="space-y-2 rounded-xl border border-border p-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="w-20 shrink-0">
+                            <Input
+                              type="text"
+                              inputMode="numeric"
+                              disabled={readOnly}
+                              value={item.quantity > 0 ? String(item.quantity) : ""}
+                              placeholder="Qty"
+                              aria-label="Quantity"
+                              className="rounded-xl"
+                              onChange={(e) => {
+                                const digits = e.target.value.replace(/\D/g, "");
+                                patchRow({
+                                  quantity: digits === "" ? 0 : Math.max(1, Number(digits)),
+                                });
+                              }}
+                            />
+                          </div>
+                          <Input
+                            disabled={readOnly}
+                            value={item.label}
+                            placeholder="e.g. Fiber Pillow"
+                            className="flex-1 rounded-xl"
+                            onChange={(e) => patchRow({ label: e.target.value })}
+                          />
+                          {!readOnly ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="rounded-xl"
+                              aria-label="Remove"
+                              onClick={() =>
+                                syncFreeItems(
+                                  freeItemsList.filter((_, rowIndex) => rowIndex !== index),
+                                )
+                              }
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          ) : null}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2 pl-1">
+                          <span className="text-xs text-muted-foreground">Applies when width</span>
+                          <Select
+                            value={condition}
+                            disabled={readOnly}
+                            onValueChange={(v) =>
+                              patchRow({
+                                widthCondition:
+                                  v === FREE_ITEM_WIDTH_ANY
+                                    ? null
+                                    : (v as FreeItemRow["widthCondition"]),
+                                // Seed a sensible threshold the first time a condition is chosen.
+                                widthThreshold:
+                                  v === FREE_ITEM_WIDTH_ANY ? item.widthThreshold : threshold,
+                              })
+                            }
+                          >
+                            <SelectTrigger className="h-8 w-[190px] rounded-xl text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={FREE_ITEM_WIDTH_ANY}>Any width (always)</SelectItem>
+                              <SelectItem value={FREE_ITEM_WIDTH_LESS_THAN}>
+                                Less than…
+                              </SelectItem>
+                              <SelectItem value={FREE_ITEM_WIDTH_GREATER_EQUAL}>
+                                Greater than or equal to…
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {condition !== FREE_ITEM_WIDTH_ANY ? (
+                            <div className="flex items-center gap-1">
+                              <Input
+                                type="text"
+                                inputMode="decimal"
+                                disabled={readOnly}
+                                value={String(threshold)}
+                                aria-label="Width threshold (inches)"
+                                className="h-8 w-20 rounded-xl text-right text-xs"
+                                onChange={(e) => {
+                                  const cleaned = e.target.value.replace(/[^\d.]/g, "");
+                                  patchRow({
+                                    widthThreshold: cleaned === "" ? 0 : Number(cleaned),
+                                  });
+                                }}
+                              />
+                              <span className="text-xs text-muted-foreground">inches</span>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
-                      <Input
-                        disabled={readOnly}
-                        value={item.label}
-                        placeholder="e.g. Fiber Pillows"
-                        className="flex-1 rounded-xl"
-                        onChange={(e) => {
-                          const next = [...freeItemsList];
-                          next[index] = { ...item, label: e.target.value };
-                          syncFreeItems(next);
-                        }}
-                      />
-                      {!readOnly ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="rounded-xl"
-                          aria-label="Remove"
-                          onClick={() =>
-                            syncFreeItems(freeItemsList.filter((_, rowIndex) => rowIndex !== index))
-                          }
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      ) : null}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -773,14 +898,20 @@ export function ProductEditor({
           <div className="max-w-lg">
             <Label>Catalogue layer (warranty group)</Label>
             <Select
-              value={product.layerGroup ?? product.guarantee}
+              // Warranty-less products (No guarantee) have no layer: show "None". A real layerGroup
+              // wins; otherwise fall back to the guarantee unless it's No-guarantee.
+              value={
+                product.layerGroup ??
+                (product.guarantee === NO_GUARANTEE ? NO_LAYER_VALUE : product.guarantee)
+              }
               disabled={readOnly}
-              onValueChange={(v) => onChange({ layerGroup: v })}
+              onValueChange={(v) => onChange({ layerGroup: v === NO_LAYER_VALUE ? undefined : v })}
             >
               <SelectTrigger className="mt-1 rounded-2xl">
                 <SelectValue placeholder="Select catalogue layer" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value={NO_LAYER_VALUE}>None (no warranty layer)</SelectItem>
                 {PRODUCT_CATALOGUE_LAYERS.map((layer) => (
                   <SelectItem key={layer} value={layer}>
                     {layer}
@@ -800,6 +931,16 @@ export function ProductEditor({
           {onArchive && (
             <Button variant="outline" className="rounded-2xl font-bold" onClick={onArchive}>
               Archive
+            </Button>
+          )}
+          {onDelete && (
+            <Button
+              variant="outline"
+              className="rounded-2xl font-bold text-destructive hover:bg-destructive/10"
+              onClick={onDelete}
+            >
+              <Trash2 className="mr-1 h-4 w-4" />
+              Delete
             </Button>
           )}
         </div>

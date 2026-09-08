@@ -28,8 +28,15 @@ const loginBg = assetPublicPath(STATIC_ASSET_KEYS.brand.loginBg);
 
 export const Route = createFileRoute("/")({
   ssr: true,
-  beforeLoad: async () => {
+  // `reason=suspended` is set by the suspension handler so the login page can show a banner.
+  validateSearch: (search: Record<string, unknown>): { reason?: string } => ({
+    reason: typeof search.reason === "string" ? search.reason : undefined,
+  }),
+  beforeLoad: async ({ search }) => {
     if (typeof window === "undefined") return;
+    // If we arrived here because the account was suspended, stay on the login page and show the
+    // banner — do NOT auto-redirect back into the app (that was the redirect loop).
+    if (search.reason === "suspended") return;
     // A returning user (installed-PWA cold start reopens at start_url "/") must be bounced to their
     // home immediately from the cached/stored session — WITHOUT waiting on /auth/me, whose cookie
     // may not be attached yet on cold start. Waiting-and-getting-null is exactly what stranded the
@@ -65,6 +72,8 @@ export const Route = createFileRoute("/")({
 function Login() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { reason } = Route.useSearch();
+  const suspended = reason === "suspended";
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
@@ -156,6 +165,15 @@ function Login() {
           </p>
           <p className="mt-3 text-base text-muted-foreground">{t("auth.welcomeBack")}</p>
         </div>
+
+        {suspended && (
+          <div
+            role="alert"
+            className="mt-4 animate-rise rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm font-semibold text-destructive"
+          >
+            {t("auth.suspendedBanner")}
+          </div>
+        )}
 
         <div className="mt-auto animate-rise rounded-3xl border border-border bg-card p-5 shadow-lift">
           {step === "phone" ? (

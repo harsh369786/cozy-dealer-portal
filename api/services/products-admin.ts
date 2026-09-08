@@ -453,6 +453,36 @@ export async function restoreAdminProduct(db: D1Database, productId: string, act
   return after!;
 }
 
+/**
+ * PERMANENTLY remove a product (soft-delete: sets deleted_at). Unlike archive (active = 0, which is
+ * restorable and shows under the "Archived" filter), a deleted product disappears from EVERY list
+ * and catalog for good, because all product queries filter `deleted_at IS NULL`.
+ *
+ * We deliberately do NOT hard-DELETE the row: order_items reference this product for historical
+ * orders and reports. A soft-delete removes it everywhere the admin/dealer can see it while keeping
+ * past orders and analytics intact. This is the safe "delete" for a product with any history.
+ */
+export async function deleteAdminProduct(db: D1Database, productId: string, actorUserId: string) {
+  const before = await loadProduct(db, productId);
+  if (!before) throw new Error("Product not found");
+
+  const ts = nowIso();
+  await db
+    .prepare(`UPDATE products SET deleted_at = ?, active = 0, updated_at = ? WHERE id = ? AND deleted_at IS NULL`)
+    .bind(ts, ts, productId)
+    .run();
+
+  await writeAuditLog(db, {
+    actorUserId,
+    action: "product.delete",
+    entityType: "product",
+    entityId: productId,
+    before,
+    after: { deleted: true },
+  });
+  return { ok: true };
+}
+
 export async function listProductCategories(db: D1Database) {
   const { results } = await db
     .prepare(`SELECT DISTINCT category FROM products WHERE deleted_at IS NULL ORDER BY category`)

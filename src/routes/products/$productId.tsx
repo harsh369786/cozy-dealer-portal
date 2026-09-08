@@ -46,6 +46,7 @@ import {
   snapDimensionInput,
 } from "@/lib/mattress-size";
 import { formatFreeItemsDisplay } from "@/lib/free-items";
+import { hasNoGuarantee } from "@/lib/demo-data";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
@@ -218,6 +219,9 @@ function Configurator() {
       campaignId: campaignId ?? campaign?.id,
       lengthIn: isMattress ? (mapped?.standardLength ?? length) : undefined,
       breadthIn: isMattress ? (mapped?.standardBreadth ?? breadth) : undefined,
+      // Raw entered width for width-based free-item rules (pricing snaps breadthIn; free items use
+      // the raw width so 59.99" stays in the "< 60" bucket).
+      freeItemWidthIn: isMattress ? breadth : undefined,
     })
       .then((res) => {
         if (!cancelled) setQuote(res as PriceQuote);
@@ -290,6 +294,8 @@ function Configurator() {
         thickness: thickness || undefined,
         lengthIn: isMattress ? mapped!.standardLength : undefined,
         breadthIn: isMattress ? mapped!.standardBreadth : undefined,
+        // Raw entered width so width-based free items match the actual ordered width.
+        freeItemWidthIn: isMattress ? breadth : undefined,
         campaignId: quote?.campaign?.id ?? campaignId ?? campaign?.id,
         sizeRequested: isMattress ? `${length}" × ${breadth}"` : undefined,
         sizeStandard:
@@ -374,10 +380,12 @@ function Configurator() {
         />
         <div className="flex-1">
           <p className="font-display text-lg font-bold">{product.name}</p>
-          <p className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
-            <ShieldCheck className="h-3.5 w-3.5 text-primary" />
-            {product.guarantee} {t("common.guarantee")}
-          </p>
+          {!hasNoGuarantee(product.guarantee) && (
+            <p className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+              <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+              {product.guarantee} {t("common.guarantee")}
+            </p>
+          )}
           {showPrice && quote && !quoteLoading ? (
             <div className="mt-2 space-y-1 text-sm">
               <div className="flex items-center justify-between gap-2">
@@ -773,7 +781,9 @@ function Configurator() {
 
             <div className="mt-4 divide-y divide-border rounded-2xl border border-border">
               <Line label={t("common.model")} value={product.name} />
-              <Line label={t("common.guarantee")} value={product.guarantee} />
+              {!hasNoGuarantee(product.guarantee) && (
+                <Line label={t("common.guarantee")} value={product.guarantee} />
+              )}
               {isPillow ? (
                 <Line label={t("common.size")} value={product.fixed_size!} />
               ) : isFoldable ? (

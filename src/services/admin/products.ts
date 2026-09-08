@@ -77,6 +77,11 @@ export async function restoreProduct(id: string): Promise<void> {
   await api.patch(`/api/v1/admin/products/${id}/restore`);
 }
 
+/** Permanently remove a product (soft-delete on the server; disappears from all lists/catalog). */
+export async function deleteProduct(id: string): Promise<void> {
+  await api.delete(`/api/v1/admin/products/${id}`);
+}
+
 export async function getProductCategories(): Promise<string[]> {
   const result = await listProducts({ pageSize: 100 });
   return [...new Set(result.items.map((p) => p.category))];

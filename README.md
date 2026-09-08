@@ -656,3 +656,32 @@ cd <repository-name>
 npm i
 npm run dev
 ```
+
+
+## Deploy order (IMPORTANT)
+
+Always apply D1 migrations to the remote database **before** deploying the Worker, so any new
+columns/tables the new code references already exist:
+
+```
+npm run db:migrate:remote   # apply pending migrations to the remote D1 first
+npm run deploy              # then build + wrangler deploy
+```
+
+If you deploy the Worker first, code that references a not-yet-created column/table (e.g.
+`notifications.announcement_id` from migration `0041`) will error until the migration lands.
+
+### D1 database bindings (default vs production) — CAUTION
+
+The default Worker (built/run with no `--env`, e.g. `wrangler dev` or `npm run deploy:staging`) and
+the `[env.production]` Worker in `wrangler.toml` currently point at the **same** D1 database id
+(`0960e05b-…`). That means a "staging"/default deploy writes to the **live production data**.
+
+Until a separate staging D1 is provisioned:
+
+- Do **not** run `npm run deploy:staging` (or a bare `wrangler deploy`) expecting an isolated DB —
+  it hits production data.
+- To create a real staging environment, provision a new D1, then set a different `database_id` on
+  the default `[[d1_databases]]` block (leave `[env.production]` pointing at the production id).
+
+See the WARNING comment at the top of `wrangler.toml`.

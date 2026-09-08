@@ -133,6 +133,8 @@ function DealerOrderDetail() {
         thickness: firstItem.thickness !== "—" ? firstItem.thickness : undefined,
         lengthIn: mapped.standardLength,
         breadthIn: mapped.standardBreadth,
+        // Raw entered width so width-based free items re-evaluate against the actual ordered width.
+        freeItemWidthIn: breadth,
         campaignId: firstItem.campaignId ?? undefined,
         sizeRequested: `${length}" × ${breadth}"`,
         sizeStandard: `${mapped.standardLength}" × ${mapped.standardBreadth}"`,

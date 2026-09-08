@@ -10,12 +10,37 @@ import {
 } from "../order-status";
 import { buildPriceQuote } from "./pricing";
 import { pricingDimensions } from "./mattress-pricing";
+import { isMattressCategory } from "./product-sqft-rates";
 import { enqueueWhatsapp } from "./whatsapp";
 import { coerceRewardPoints } from "./reward-points";
 import {
   notifyNewOrder,
   notifyOrderStatusChange,
 } from "./notification-events";
+
+/**
+ * Thrown when an order status update loses the optimistic-lock race (the row changed status
+ * between the read and the guarded UPDATE). Route handlers map this to HTTP 409 Conflict.
+ */
+export class OrderConflictError extends Error {
+  constructor(message = "Order status changed — please refresh and try again.") {
+    super(message);
+    this.name = "OrderConflictError";
+  }
+}
+
+/**
+ * H-2: thrown when a mattress order is submitted without a size + thickness. A mattress is priced
+ * from its per-thickness ₹/sqft rate on the snapped standard size, so both are mandatory for a real
+ * order. Without this guard a client could omit the dimensions to skip sqft pricing and be quoted
+ * the cheap catalog "from" preview MRP. Route handlers map this to HTTP 422.
+ */
+export class OrderValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OrderValidationError";
+  }
+}
 
 type CreateOrderInput = {
   productId: string;
@@ -25,6 +50,8 @@ type CreateOrderInput = {
   sizeStandard?: string;
   lengthIn?: number;
   breadthIn?: number;
+  /** Raw ordered width for width-based free-item rules (pricing snaps breadthIn separately). */
+  freeItemWidthIn?: number;
   campaignId?: string;
   perma?: boolean;
   permaCorners?: string;
@@ -114,6 +141,25 @@ export async function createOrder(
     : null;
   const distributorTierId = distributorTierRow?.pricing_tier_id ?? "tier-t1";
 
+  // H-2: a mattress MUST be ordered with a size (length + breadth) and a thickness — its price is
+  // computed from the per-thickness ₹/sqft rate on the snapped size. Enforce this server-side so a
+  // client can't omit the dimensions to bypass sqft pricing and be quoted the cheap "from" preview
+  // MRP. buildPriceQuote already throws when a rate is missing for a chosen thickness; this guard
+  // covers the "dimensions omitted entirely" case. Pillows/foldables are exempt (not sqft-priced).
+  const productRow = await db
+    .prepare(`SELECT category FROM products WHERE id = ? AND deleted_at IS NULL`)
+    .bind(input.productId)
+    .first<{ category: string | null }>();
+  if (!productRow) throw new Error("Product not found");
+  if (isMattressCategory(productRow.category)) {
+    if (!input.lengthIn || !input.breadthIn) {
+      throw new OrderValidationError("Mattress orders require a size (length and breadth).");
+    }
+    if (!input.thickness || !input.thickness.trim()) {
+      throw new OrderValidationError("Mattress orders require a thickness.");
+    }
+  }
+
   const quote = await buildPriceQuote(db, {
     productId: input.productId,
     quantity: input.quantity,
@@ -121,6 +167,7 @@ export async function createOrder(
     campaignId: input.campaignId,
     lengthIn: input.lengthIn,
     breadthIn: input.breadthIn,
+    freeItemWidthIn: input.freeItemWidthIn,
     dealerId: user.dealerId,
     distributorId: dealer.distributor_id,
   });
@@ -256,12 +303,17 @@ export async function rejectOrder(
   if (from !== "order_placed") throw new Error("Order cannot be rejected in its current status");
 
   const rejectedAt = nowIso();
-  await db
+  // P0-5: optimistic lock — only reject if the row is STILL in the status we read. Guards against a
+  // concurrent approve/reject racing on stale state. `order.status` is the raw stored value.
+  const rejectResult = await db
     .prepare(
-      `UPDATE orders SET status = 'rejected', rejected_at = ?, rejection_reason = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE orders SET status = 'rejected', rejected_at = ?, rejection_reason = ?, updated_at = ? WHERE id = ? AND status = ?`,
     )
-    .bind(rejectedAt, reason, rejectedAt, orderId)
+    .bind(rejectedAt, reason, rejectedAt, orderId, order.status)
     .run();
+  if ((rejectResult.meta.changes ?? 0) === 0) {
+    throw new OrderConflictError();
+  }
 
   await addTimelineEvent(db, orderId, "rejected", ORDER_STATUS_LABELS.rejected, actor.id, reason);
 
@@ -301,12 +353,17 @@ export async function cancelApprovedOrder(
   if (from !== "approved") throw new Error("Only approved orders can be cancelled");
 
   const cancelledAt = nowIso();
-  await db
+  // P0-5: optimistic lock — only cancel if still in the status we read (guards a concurrent
+  // status change from committing against stale state).
+  const cancelResult = await db
     .prepare(
-      `UPDATE orders SET status = 'cancelled', rejection_reason = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE orders SET status = 'cancelled', rejection_reason = ?, updated_at = ? WHERE id = ? AND status = ?`,
     )
-    .bind(reason ?? null, cancelledAt, orderId)
+    .bind(reason ?? null, cancelledAt, orderId, order.status)
     .run();
+  if ((cancelResult.meta.changes ?? 0) === 0) {
+    throw new OrderConflictError();
+  }
 
   await addTimelineEvent(
     db,
@@ -436,13 +493,17 @@ async function handleOrderDelivered(
       .first<{ balance: number | string }>();
     const balanceAfter = Math.max(0, coerceRewardPoints(current?.balance, 0) + dealerPoints);
     try {
-      await db.batch([
-        db
-          .prepare(
-            `UPDATE orders SET rewards_credited_at = ? WHERE id = ? AND rewards_credited_at IS NULL`,
-          )
-          .bind(creditedAt, orderId),
-        db
+      // H-1: The `rewards_credited_at IS NULL` guard is the atomic "first delivery" lock. Claim it
+      // FIRST and check it actually changed a row before inserting the ledger credit — otherwise a
+      // re-delivered / double-fired order would insert a DUPLICATE points_ledger row (there is no
+      // UNIQUE on that table) and re-send the "you earned N points" notification.
+      const claim = await db
+        .prepare(`UPDATE orders SET rewards_credited_at = ? WHERE id = ? AND rewards_credited_at IS NULL`)
+        .bind(creditedAt, orderId)
+        .run();
+      const firstCredit = (claim.meta.changes ?? 0) > 0;
+      if (firstCredit) {
+        await db
           .prepare(
             `INSERT INTO points_ledger (id, dealer_id, delta, balance_after, label, reference_type, reference_id, occurred_at)
              VALUES (?, ?, ?, ?, ?, 'order', ?, ?)`,
@@ -455,9 +516,12 @@ async function handleOrderDelivered(
             `Order ${orderId} delivered`,
             orderId,
             creditedAt,
-          ),
-      ]);
-      creditedPoints = dealerPoints;
+          )
+          .run();
+        // Only report credited points (which drives the "you earned N points" notification) when we
+        // actually credited them on THIS call.
+        creditedPoints = dealerPoints;
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (!message.includes("UNIQUE")) throw err;
@@ -914,6 +978,8 @@ export async function updateOrderLineItems(
     sizeStandard?: string;
     lengthIn?: number;
     breadthIn?: number;
+    /** Raw ordered width for width-based free-item rules. */
+    freeItemWidthIn?: number;
     campaignId?: string;
     notes?: string;
   },
@@ -936,6 +1002,7 @@ export async function updateOrderLineItems(
     campaignId: input.campaignId,
     lengthIn: input.lengthIn,
     breadthIn: input.breadthIn,
+    freeItemWidthIn: input.freeItemWidthIn,
     dealerId: order.dealer_id,
   });
 
@@ -961,7 +1028,7 @@ export async function updateOrderLineItems(
         `UPDATE order_items SET product_id = ?, product_name = ?, size_requested = ?, size_standard = ?, thickness = ?,
           quantity = ?, mrp = ?, dealer_price = ?, dealer_margin_percent = ?, distributor_price = ?,
           distributor_margin_percent = ?, campaign_id = ?, campaign_price = ?, discount_percent = ?,
-          points_earned = ?, line_total = ?, notes = COALESCE(?, notes)
+          free_items = ?, points_earned = ?, line_total = ?, notes = COALESCE(?, notes)
          WHERE id = ?`,
       )
       .bind(
@@ -979,6 +1046,8 @@ export async function updateOrderLineItems(
         quote.campaignId,
         quote.campaignPrice,
         quote.discountPercent,
+        // Re-snapshot the width-matched free items when the size/width changes on edit.
+        quote.freeItems,
         quote.pointsEarned,
         quote.lineTotal,
         input.notes ?? null,

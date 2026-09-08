@@ -1,4 +1,4 @@
-const CACHE = "backrest-static-v41";
+const CACHE = "backrest-static-v42";
 const PRECACHE = [
   "/",
   "/manifest.webmanifest",
@@ -28,6 +28,19 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// L-4: surface (instead of silently swallowing) any promise rejection or error that escapes a
+// handler in the service worker. Without this, a rejected waitUntil()/fetch()/push handler just
+// vanishes, making SW bugs (e.g. a failed cache write or a bad push payload) invisible in the
+// field. We log for diagnostics and mark it handled so it doesn't spam the console as "Uncaught".
+self.addEventListener("unhandledrejection", (event) => {
+  console.error("[sw] unhandled promise rejection:", event.reason);
+  event.preventDefault();
+});
+
+self.addEventListener("error", (event) => {
+  console.error("[sw] uncaught error:", event.message, event.error);
+});
+
 function parsePushData(event) {
   try {
     if (event.data) {
@@ -48,6 +61,11 @@ function showAppNotification(title, options) {
     // a flat white spine glyph on transparent. PNG (not SVG): several Android/Chrome builds
     // ignore an SVG badge and fall back to a generic dot, so we ship a rasterised 96x96 PNG.
     badge: "/icons/badge-monochrome.png",
+    // Defaults so notifications STACK (unique tag per call, set by callers), buzz, carry a
+    // timestamp, and stay until the user acts on them. Callers can still override any of these.
+    vibrate: [200, 100, 200],
+    timestamp: Date.now(),
+    requireInteraction: true,
     ...options,
   });
 }
@@ -68,8 +86,12 @@ self.addEventListener("push", (event) => {
     showAppNotification(title, {
       body,
       data: { url, notificationId },
-      tag: notificationId || url,
+      // Unique tag per notification so they STACK instead of collapsing onto the same tag.
+      tag: notificationId || "msg-" + Date.now(),
       renotify: Boolean(notificationId),
+      vibrate: [200, 100, 200],
+      timestamp: Date.now(),
+      requireInteraction: true,
       ...extra,
     }),
   );
@@ -114,8 +136,11 @@ self.addEventListener("message", (event) => {
     showAppNotification(title || "BackRest", {
       body: body || "",
       data: { url: url || "/", notificationId: notificationId || null },
-      tag: notificationId || url || "backrest",
+      tag: notificationId || "msg-" + Date.now(),
       renotify: Boolean(notificationId),
+      vibrate: [200, 100, 200],
+      timestamp: Date.now(),
+      requireInteraction: true,
     }),
   );
 });

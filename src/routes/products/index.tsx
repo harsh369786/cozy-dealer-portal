@@ -7,7 +7,8 @@ import { SearchBar, matchesSearch } from "@/components/shared/search-bar";
 import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
 import { cn } from "@/lib/utils";
 import { requireRoles } from "@/lib/auth-guard";
-import { useAsyncData } from "@/hooks/use-async-data";
+import { useQuery } from "@tanstack/react-query";
+import { useFormatApiError } from "@/lib/api-errors";
 import { useFormat } from "@/hooks/use-format";
 import { getCatalog, type CatalogProduct, type CatalogResponse } from "@/services/catalog";
 import i18n from "@/lib/i18n";
@@ -63,13 +64,21 @@ function mapCatalogProduct(p: CatalogProduct): ListProduct {
 
 function Catalogue() {
   const { t } = useTranslation();
-  const catalogQuery = useAsyncData(() => getCatalog(), []);
+  const formatApiError = useFormatApiError();
+  // L-2: the catalog is fetched through React Query so it's cached and shared (staleTime 60s) rather
+  // than re-fetched on every mount via a bare fetch. QueryClient defaults are configured centrally
+  // in src/router.tsx — do NOT re-declare client-wide options here.
+  const catalogQuery = useQuery<CatalogResponse>({
+    queryKey: ["catalog"],
+    queryFn: () => getCatalog(),
+    staleTime: 60_000,
+  });
   const [tab, setTab] = useState<(typeof tabs)[number]>("Mattresses");
   const [search, setSearch] = useState("");
 
   const catalog = catalogQuery.data;
-  const loading = catalogQuery.loading;
-  const error = catalogQuery.error;
+  const loading = catalogQuery.isLoading;
+  const error = catalogQuery.error ? formatApiError(catalogQuery.error) : null;
 
   const productMap = useMemo(() => {
     const map = new Map<string, ListProduct>();
@@ -99,7 +108,7 @@ function Catalogue() {
   if (error) {
     return (
       <AppShell title={pageTitle}>
-        <ErrorState message={error} onRetry={catalogQuery.retry} />
+        <ErrorState message={error} onRetry={() => void catalogQuery.refetch()} />
       </AppShell>
     );
   }

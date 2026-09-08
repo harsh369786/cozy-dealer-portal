@@ -214,8 +214,16 @@ function delay(ms: number): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-  await api.post("/api/v1/auth/logout");
+  // M-3: clear local session state FIRST so the user is logged out from the app's perspective
+  // immediately and deterministically — even if the network is down or the server call hangs.
+  // The server-side session delete is then best-effort: a failure here must not leave the client
+  // stuck in a half-logged-in state. (The server session also expires on its own TTL.)
   invalidateSessionCache();
+  try {
+    await api.post("/api/v1/auth/logout");
+  } catch {
+    // Best-effort: local state is already cleared; ignore transient/network errors on logout.
+  }
 }
 
 export function isLoggedIn(): boolean {

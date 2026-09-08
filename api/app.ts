@@ -26,6 +26,7 @@ import {
   normalizePhone,
   nowIso,
   SESSION_DAYS,
+  sessionId as newSessionId,
   sha256,
 } from "./utils";
 import { requestOtp, verifyOtp } from "./services/otp";
@@ -44,6 +45,8 @@ import {
   createOrder,
   approveOrder,
   rejectOrder,
+  OrderConflictError,
+  OrderValidationError,
   cancelApprovedOrder,
   getOrderById,
   listOrders,
@@ -52,6 +55,7 @@ import {
   getOrderStatusCounts,
   updateOrderLineItems,
 } from "./services/orders";
+import { InvalidStatusTransitionError } from "./order-status";
 import {
   canAccessDealer,
   canAccessOrder,
@@ -71,6 +75,7 @@ import {
   getPushSubscriptionStatus,
   getVapidPublicKeyFromEnv,
   savePushSubscription,
+  PushSubscriptionConflictError,
 } from "./services/push-notifications";
 import { setPushEnv, resolveExecutionContext } from "./push-env";
 import { enqueueWhatsapp, processWhatsappOutbox, scanPendingOrderReminders } from "./services/whatsapp";
@@ -94,6 +99,7 @@ import {
 } from "./services/users";
 import {
   archiveAdminProduct,
+  deleteAdminProduct,
   createAdminProduct,
   getAdminProduct,
   listAdminProducts,
@@ -171,6 +177,37 @@ export function effectiveEnv(env: ApiEnv): ApiEnv {
 
 function secureCookies(env: ApiEnv) {
   return isSecureCookieEnv(effectiveEnv(env).ENVIRONMENT);
+}
+
+/**
+ * Resolve the distributor a campaign viewer belongs to, for campaign scoping (prevents a dealer /
+ * sales-exec from seeing another distributor's targeted campaign). Returns null when it can't be
+ * determined, which the campaign queries treat as "global campaigns only".
+ */
+async function resolveDealerDistributorId(
+  db: D1Database,
+  user: { role: string; dealerId?: string | null; distributorId?: string | null; id: string },
+): Promise<string | null> {
+  if (user.distributorId) return user.distributorId;
+  if (user.role === "dealer" && user.dealerId) {
+    const row = await db
+      .prepare(`SELECT distributor_id FROM dealers WHERE id = ? AND deleted_at IS NULL`)
+      .bind(user.dealerId)
+      .first<{ distributor_id: string | null }>();
+    return row?.distributor_id ?? null;
+  }
+  if (user.role === "sales_executive") {
+    const row = await db
+      .prepare(
+        `SELECT distributor_id FROM dealers
+         WHERE sales_executive_user_id = ? AND deleted_at IS NULL AND distributor_id IS NOT NULL
+         ORDER BY created_at LIMIT 1`,
+      )
+      .bind(user.id)
+      .first<{ distributor_id: string | null }>();
+    return row?.distributor_id ?? null;
+  }
+  return null;
 }
 
 function isAllowedRequestOrigin(origin: string, requestUrl: string, configuredOrigins?: string) {
@@ -283,7 +320,7 @@ app.post("/api/v1/auth/otp/verify", async (c) => {
   await enforceOtpVerifyRateLimits(c.env, ip, normalizedPhone);
   const db = await getRequestDb(c);
   const userRow = await verifyOtp(db, body.phone, body.code);
-  const sessionId = id("sess");
+  const sessionId = newSessionId(); // M-5: 128-bit high-entropy session token
   const tokenHash = await sha256(sessionId);
   const expires = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
@@ -578,23 +615,44 @@ app.post("/api/v1/catalog/price-quote", requireAuth, requireActiveAccount, requi
     campaignId?: string;
     lengthIn?: number;
     breadthIn?: number;
+    freeItemWidthIn?: number;
   }>();
   const db = await getRequestDb(c);
   const viewer = c.get("user");
-  const quote = await buildPriceQuote(db, {
-    ...body,
-    dealerId: viewer?.dealerId,
-    distributorId: viewer?.distributorId,
-  });
-  return c.json(quote);
+  try {
+    const quote = await buildPriceQuote(db, {
+      ...body,
+      dealerId: viewer?.dealerId,
+      distributorId: viewer?.distributorId,
+    });
+    return c.json(quote);
+  } catch (error) {
+    // H-2: a mattress quoted WITH a size + thickness but no configured sqft rate -> 422 (never fall
+    // back to a base price). The no-dimensions catalog "from" preview path is unaffected.
+    if (error instanceof Error && error.message === "Mattress sq.ft price not set") {
+      return c.json({ error: error.message }, 422);
+    }
+    throw error;
+  }
 });
 
 // Orders
 app.post("/api/v1/orders", requireAuth, requireActiveAccount, requirePermission("orders:create"), async (c) => {
   const db = await getRequestDb(c);
   const body = await c.req.json();
-  const order = await createOrder(db, c.get("user"), body, c.env);
-  return c.json(order, 201);
+  try {
+    const order = await createOrder(db, c.get("user"), body, c.env);
+    return c.json(order, 201);
+  } catch (error) {
+    // H-2: mattress size/thickness missing, or no configured sqft rate for the chosen thickness -> 422.
+    if (
+      error instanceof OrderValidationError ||
+      (error instanceof Error && error.message === "Mattress sq.ft price not set")
+    ) {
+      return c.json({ error: error instanceof Error ? error.message : "Invalid order" }, 422);
+    }
+    throw error;
+  }
 });
 
 app.get("/api/v1/orders", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
@@ -731,6 +789,10 @@ app.patch(
     const order = await updateOrderStatus(db, orderId, status, user, c.env);
     return c.json(order);
   } catch (error) {
+    // P0-6: a state-machine violation is a 422 (unprocessable); other failures stay 400 as before.
+    if (error instanceof InvalidStatusTransitionError) {
+      return c.json({ error: error.message }, 422);
+    }
     return c.json(
       { error: error instanceof Error ? error.message : "Could not update order status" },
       400,
@@ -753,8 +815,13 @@ app.post("/api/v1/orders/:id/reject", requireAuth, requireActiveAccount, require
   const body = await c.req.json<{ reason: string }>();
   if (!body.reason?.trim()) return c.json({ error: "Reason required" }, 400);
   if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
-  const order = await rejectOrder(db, orderId, body.reason.trim(), c.get("user"), c.env);
-  return c.json(order);
+  try {
+    const order = await rejectOrder(db, orderId, body.reason.trim(), c.get("user"), c.env);
+    return c.json(order);
+  } catch (err) {
+    if (err instanceof OrderConflictError) return c.json({ error: err.message }, 409);
+    throw err;
+  }
 });
 
 app.post("/api/v1/orders/:id/cancel", requireAuth, requireActiveAccount, requirePermission("orders:cancel"), async (c) => {
@@ -762,8 +829,13 @@ app.post("/api/v1/orders/:id/cancel", requireAuth, requireActiveAccount, require
   const orderId = c.req.param("id");
   const body = await c.req.json<{ reason?: string }>().catch(() => ({ reason: undefined }));
   if (!(await canAccessOrder(db, c.get("user"), orderId))) return c.json({ error: "Forbidden" }, 403);
-  const order = await cancelApprovedOrder(db, orderId, c.get("user"), body.reason);
-  return c.json(order);
+  try {
+    const order = await cancelApprovedOrder(db, orderId, c.get("user"), body.reason);
+    return c.json(order);
+  } catch (err) {
+    if (err instanceof OrderConflictError) return c.json({ error: err.message }, 409);
+    throw err;
+  }
 });
 
 app.get("/api/v1/dealers/:id/orders", requireAuth, requireActiveAccount, requirePermission("orders:read"), async (c) => {
@@ -853,8 +925,12 @@ app.get("/api/v1/dealers/:id/reward-claims", requireAuth, requireActiveAccount, 
 // Campaigns
 app.get("/api/v1/campaigns", requireAuth, requireActiveAccount, requirePermission("campaigns:read"), async (c) => {
   const db = await getRequestDb(c);
+  const user = c.get("user");
   const tab = (c.req.query("tab") ?? "active") as "active" | "upcoming" | "expired";
-  const campaigns = await listDealerCampaigns(db, tab);
+  // Scope campaigns to the dealer's distributor so they never see another distributor's targeted
+  // campaign. Resolve the dealer's distributor_id from their dealer store.
+  const distributorId = await resolveDealerDistributorId(db, user);
+  const campaigns = await listDealerCampaigns(db, tab, distributorId);
   return c.json({
     campaigns: campaigns.map((campaign) => ({
       id: campaign.id,
@@ -886,7 +962,8 @@ app.get("/api/v1/distributor/campaigns", requireAuth, requireActiveAccount, requ
   const user = c.get("user");
   const tab = c.req.query("tab") as "active" | "upcoming" | "expired" | undefined;
   if (user.role === "sales_executive") {
-    const campaigns = await listDealerCampaigns(db, tab ?? "active");
+    const seDistributorId = await resolveDealerDistributorId(db, user);
+    const campaigns = await listDealerCampaigns(db, tab ?? "active", seDistributorId);
     return c.json(
       campaigns.map((campaign) => ({
         id: campaign.id,
@@ -1368,8 +1445,16 @@ app.post("/api/v1/notifications/push-subscribe", requireAuth, requireActiveAccou
   if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
     return c.json({ error: "Invalid subscription" }, 400);
   }
-  const row = await savePushSubscription(db, c.get("user").id, body);
-  return c.json(row, 201);
+  try {
+    const row = await savePushSubscription(db, c.get("user").id, body);
+    return c.json(row, 201);
+  } catch (error) {
+    // P0-7: endpoint already owned by another account -> 403 (do not reassign it to the caller).
+    if (error instanceof PushSubscriptionConflictError) {
+      return c.json({ error: error.message }, 403);
+    }
+    throw error;
+  }
 });
 
 app.delete("/api/v1/notifications/push-subscribe", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
@@ -1943,6 +2028,16 @@ admin.patch("/products/:id/restore", requirePermission("catalog:write"), async (
     return c.json(await restoreAdminProduct(db, c.req.param("id"), c.get("user").id));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Restore failed";
+    return c.json({ error: message }, message.includes("not found") ? 404 : 400);
+  }
+});
+
+admin.delete("/products/:id", requirePermission("catalog:write"), async (c) => {
+  const db = await getRequestDb(c);
+  try {
+    return c.json(await deleteAdminProduct(db, c.req.param("id"), c.get("user").id));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Delete failed";
     return c.json({ error: message }, message.includes("not found") ? 404 : 400);
   }
 });

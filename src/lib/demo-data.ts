@@ -6,7 +6,21 @@ const cushion = assetPublicPath(STATIC_ASSET_KEYS.products.cushionSupport);
 
 export const PRODUCT_CATEGORIES = ["Mattresses", "Foldable", "Pillows"] as const;
 
+/**
+ * Sentinel value for products that carry no warranty (e.g. pillows / foldable mattresses that may
+ * or may not have a guarantee). Stored as-is in products.guarantee. The UI treats this specially:
+ * no warranty badge is shown and it is NOT offered as a catalogue warranty-layer group.
+ */
+export const NO_GUARANTEE = "No guarantee" as const;
+
+/** Returns true when a product has no warranty (empty or the NO_GUARANTEE sentinel). */
+export function hasNoGuarantee(guarantee?: string | null): boolean {
+  const value = String(guarantee ?? "").trim().toLowerCase();
+  return value === "" || value === NO_GUARANTEE.toLowerCase();
+}
+
 export const PRODUCT_GUARANTEES = [
+  NO_GUARANTEE,
   "3 Years",
   "5 Years",
   "7 Years",
@@ -14,8 +28,11 @@ export const PRODUCT_GUARANTEES = [
   "12 Years",
 ] as const;
 
-/** Dealer catalogue grouping — warranty tiers only (not product categories). */
-export const PRODUCT_CATALOGUE_LAYERS = [...PRODUCT_GUARANTEES] as const;
+/**
+ * Dealer catalogue grouping — real warranty tiers only. "No guarantee" is intentionally excluded so
+ * warranty-less products don't create an empty/confusing warranty layer.
+ */
+export const PRODUCT_CATALOGUE_LAYERS = PRODUCT_GUARANTEES.filter((g) => g !== NO_GUARANTEE);
 
 export type Product = {
   id: string;

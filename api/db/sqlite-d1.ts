@@ -81,7 +81,7 @@ function applyTrackedMigration(db: Database.Database, root: string, id: string, 
   markMigrationApplied(db, id);
 }
 
-function applyPendingDevMigrations(db: Database.Database, root: string) {
+export function applyPendingDevMigrations(db: Database.Database, root: string) {
   const structural: Array<{ file: string; applied: () => unknown }> = [
     { file: "0006_missing_indexes.sql", applied: () => hasIndex(db, "idx_otp_phone") },
     { file: "0007_order_items_index.sql", applied: () => hasIndex(db, "idx_order_items_order_id") },
@@ -124,9 +124,41 @@ function applyPendingDevMigrations(db: Database.Database, root: string) {
       file: "0021_prod_readiness.sql",
       applied: () => hasIndex(db, "idx_points_ledger_order_reference"),
     },
+    // P0-2/P0-3: 0022–0027 and 0029 were previously OMITTED from this list, so the dev/test schema
+    // jumped 0021 -> 0028 and never applied e.g. 0027 (reward_catalog.kind). That made 0033 (which
+    // reads cat.kind) fail with "no such column: cat.kind". They must run in numeric order BEFORE
+    // 0028/0030 below because later migrations depend on the columns/tables they add.
+    {
+      file: "0022_demo_login_users.sql",
+      applied: () => Boolean(db.prepare(`SELECT id FROM users WHERE id = 'user-admin'`).get()),
+    },
+    {
+      file: "0023_product_admin_fixes.sql",
+      applied: () => hasColumn(db, "product_thicknesses", "mrp"),
+    },
+    {
+      file: "0024_order_reward_reversal.sql",
+      applied: () => hasIndex(db, "idx_points_ledger_order_reversal_reference"),
+    },
+    {
+      file: "0025_reward_claim_approved.sql",
+      applied: () => hasColumn(db, "reward_claims", "approved_at"),
+    },
+    {
+      file: "0026_complaint_number.sql",
+      applied: () => hasColumn(db, "complaints", "complaint_number"),
+    },
+    {
+      file: "0027_additional_rewards.sql",
+      applied: () => hasColumn(db, "reward_catalog", "kind"),
+    },
     {
       file: "0028_pricing_tiers.sql",
       applied: () => hasColumn(db, "dealers", "pricing_tier_id"),
+    },
+    {
+      file: "0029_complaint_indexes.sql",
+      applied: () => hasIndex(db, "idx_complaints_distributor"),
     },
     {
       file: "0030_pricing_margins.sql",
@@ -143,6 +175,62 @@ function applyPendingDevMigrations(db: Database.Database, root: string) {
   applyTrackedMigration(db, root, "0011_clear_legacy_image_urls", "0011_clear_legacy_image_urls.sql");
   applyTrackedMigration(db, root, "0012_fix_campaign_dates", "0012_fix_campaign_dates.sql");
   applyTrackedMigration(db, root, "0013_fix_product_guarantees", "0013_fix_product_guarantees.sql");
+
+  // 0031–0041: keep the local dev DB in sync with the migrations that shipped after 0030. These are
+  // guarded structurally (column/table/index existence) so they only run when actually missing —
+  // matching the "run if not already applied" contract. All are ADD-only and safe to re-check.
+  const laterStructural: Array<{ file: string; applied: () => unknown }> = [
+    {
+      file: "0031_push_delivery_status.sql",
+      applied: () => hasColumn(db, "push_subscriptions", "last_status"),
+    },
+    {
+      file: "0032_scheduled_announcements.sql",
+      applied: () => hasTable(db, "scheduled_announcements"),
+    },
+    {
+      file: "0033_reward_claim_milestone_unique.sql",
+      applied: () => hasColumn(db, "reward_claims", "kind"),
+    },
+    {
+      file: "0034_user_role_overrides.sql",
+      applied: () => hasTable(db, "user_role_overrides"),
+    },
+    {
+      file: "0035_product_sqft_rates.sql",
+      applied: () => hasTable(db, "product_sqft_rates"),
+    },
+    {
+      file: "0036_demo_sales_head_user.sql",
+      applied: () => Boolean(db.prepare(`SELECT id FROM users WHERE id = 'user-sales-head'`).get()),
+    },
+    {
+      file: "0037_pincode_location.sql",
+      applied: () => hasTable(db, "pincodes"),
+    },
+    {
+      file: "0038_order_tier_snapshot.sql",
+      applied: () => hasColumn(db, "order_items", "dealer_tier_id"),
+    },
+    {
+      file: "0039_perf_indexes.sql",
+      applied: () => hasIndex(db, "idx_points_ledger_dealer"),
+    },
+    {
+      file: "0040_order_reminders_index.sql",
+      applied: () => hasIndex(db, "idx_order_reminders_order_type"),
+    },
+    {
+      file: "0041_announcements_master.sql",
+      applied: () => hasTable(db, "announcements"),
+    },
+  ];
+
+  for (const migration of laterStructural) {
+    if (!migration.applied()) {
+      applyMigrationFile(db, root, migration.file);
+    }
+  }
 }
 
 export function createD1DatabaseAdapter(db: Database.Database): D1Database {

@@ -6,6 +6,7 @@ export function getCampaignPrice(dealerPrice: number, discountPercent: number) {
 // Imported for use within this module and re-exported for existing importers (e.g. app.ts).
 import { calculateRewardPoints } from "../../shared/reward-points";
 export { calculateRewardPoints };
+import { resolveFreeItemsForWidth } from "../../shared/free-item-rules";
 
 export type RewardEligibility = "dealer" | "distributor" | "both";
 
@@ -29,7 +30,7 @@ import {
 export async function getActivePriceCampaign(
   db: D1Database,
   productId: string,
-  options?: { campaignId?: string; at?: Date },
+  options?: { campaignId?: string; at?: Date; distributorId?: string | null },
 ) {
   const row = await getActivePriceCampaignRow(db, productId, options);
   if (!row) return null;
@@ -55,6 +56,10 @@ export async function buildPriceQuote(
     campaignId?: string;
     lengthIn?: number;
     breadthIn?: number;
+    // The RAW ordered width (before pricing snaps to a standard size) used ONLY for width-based
+    // free-item rules, so e.g. 59.99" stays in the "< 60" category per spec even though pricing
+    // snaps it to a standard breadth. When omitted, falls back to breadthIn.
+    freeItemWidthIn?: number | null;
     // Pricing context: used to resolve the price list (tier) and its per-product margins.
     dealerId?: string | null;
     distributorId?: string | null;
@@ -159,8 +164,21 @@ export async function buildPriceQuote(
   // Distributor Price = Dealer Price / (1 + distributorMargin%/100), rounded half-up.
   const distributorPrice = calculateDistributorPrice(dealerPrice, distributorMarginPercent);
 
+  // Resolve the effective distributor for campaign scoping so a dealer/distributor only ever sees
+  // GLOBAL campaigns or ones targeted at their own distributor (no cross-bleed). When only a
+  // dealerId is supplied, look up that dealer's distributor_id.
+  let campaignDistributorId: string | null = input.distributorId ?? null;
+  if (!campaignDistributorId && input.dealerId) {
+    const dealerRow = await db
+      .prepare(`SELECT distributor_id FROM dealers WHERE id = ? AND deleted_at IS NULL`)
+      .bind(input.dealerId)
+      .first<{ distributor_id: string | null }>();
+    campaignDistributorId = dealerRow?.distributor_id ?? null;
+  }
+
   const matchedCampaign = await getActivePriceCampaign(db, input.productId, {
     campaignId: input.campaignId,
+    distributorId: campaignDistributorId,
   });
   const rawCampaignPrice = matchedCampaign
     ? getCampaignPrice(dealerPrice, matchedCampaign.discount_percent)
@@ -200,7 +218,17 @@ export async function buildPriceQuote(
     standardLengthIn: standardDims.lengthIn ?? null,
     standardBreadthIn: standardDims.breadthIn ?? null,
     rewardEligibility: (priceRow.reward_eligibility ?? "dealer") as RewardEligibility,
-    freeItems: priceRow.free_items_label,
+    // Width-based free items: evaluate the configured rules against the ORDERED width (the raw
+    // entered breadth, NOT the snapped standard size — so 59.99" stays in the "< 60" category per
+    // spec). Rows with no width condition always apply (legacy behavior). When no width is known
+    // (catalog "from" preview), resolveFreeItemsForWidth returns the full configured list unchanged.
+    // Length is intentionally ignored. See shared/free-item-rules.ts. Use the RAW ordered width
+    // (freeItemWidthIn) when provided so a value like 59.99" is NOT snapped up into the ">= 60"
+    // category; fall back to breadthIn for callers that don't pass a separate raw width.
+    freeItems: resolveFreeItemsForWidth(
+      priceRow.free_items_label,
+      input.freeItemWidthIn ?? input.breadthIn,
+    ),
     campaign: campaign
       ? {
           id: campaign.id,

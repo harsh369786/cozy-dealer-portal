@@ -58,8 +58,16 @@ export type AdminProduct = {
   layerGroup?: string;
   /** Editor-only: per-thickness MRP/dealer overrides. */
   thicknessPrices?: Array<{ thickness: string; mrp?: number; dealerPrice?: number }>;
-  /** Editor-only: structured free-item list. */
-  freeItemsList?: Array<{ label: string; quantity: number }>;
+  /**
+   * Editor-only: structured free-item list. Each row may optionally be gated by an ordered-width
+   * condition (see shared/free-item-rules.ts). Omitting the condition => the item is always given.
+   */
+  freeItemsList?: Array<{
+    label: string;
+    quantity: number;
+    widthCondition?: "WIDTH_LESS_THAN" | "WIDTH_GREATER_EQUAL" | null;
+    widthThreshold?: number | null;
+  }>;
   /** Per price-list (tier) margins for this product. */
   tierMargins?: Array<{
     tierId: string;

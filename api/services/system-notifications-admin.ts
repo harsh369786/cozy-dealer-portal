@@ -116,6 +116,26 @@ async function sendAnnouncementNow(
     sendAt: input.sendAt,
   };
 
+  // P2-3: write ONE master row per announcement first, then fan out the notification rows linked
+  // to it via announcement_id. This makes the admin list O(1) per announcement (paginated from the
+  // master table) with recipientCount derived from a COUNT, instead of reverse-scanning up to 500
+  // notification rows. The metadata JSON is still stored (for audience/popup/impression settings).
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO announcements (id, title, body, category, metadata, recipient_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      announcementId,
+      input.title,
+      input.body,
+      input.category,
+      JSON.stringify(metadata),
+      recipients.length,
+      nowIso(),
+    )
+    .run();
+
   await createNotificationsBatch(
     db,
     recipients.map(({ id: recipientUserId, role }) => ({
@@ -126,6 +146,7 @@ async function sendAnnouncementNow(
       body: input.body,
       link: announcementLinkForRole(role),
       metadata,
+      announcementId,
     })),
   );
 
@@ -244,60 +265,51 @@ export async function listAnnouncements(
   db: D1Database,
   opts: { search?: string; category?: string; active?: string; page?: number; pageSize?: number } = {},
 ) {
+  // P2-3: read from the dedicated `announcements` master table (one row per announcement) with the
+  // recipient count derived from a COUNT over notifications.announcement_id — instead of reverse-
+  // scanning up to 500 notification rows, which broke once a broadcast reached 200+ recipients.
   const { results } = await db
     .prepare(
-      `SELECT id, category, type, title, body, metadata, created_at
-       FROM notifications WHERE type = 'announcement' ORDER BY created_at DESC LIMIT 500`,
+      `SELECT a.id, a.title, a.body, a.category, a.metadata, a.created_at,
+              COALESCE(a.recipient_count, 0) AS stored_count,
+              (SELECT COUNT(*) FROM notifications n WHERE n.announcement_id = a.id) AS actual_count
+       FROM announcements a
+       ORDER BY a.created_at DESC
+       LIMIT 500`,
     )
-    .all<Record<string, unknown>>();
-
-  const byAnnouncement = new Map<
-    string,
-    {
+    .all<{
       id: string;
-      category: string;
       title: string;
       body: string;
-      metadata: AnnouncementMetadata;
-      createdAt: string;
-      recipientCount: number;
-    }
-  >();
+      category: string | null;
+      metadata: string | null;
+      created_at: string;
+      stored_count: number;
+      actual_count: number;
+    }>();
 
-  for (const row of results) {
-    const meta = parseMetadata(row['metadata']);
-    if (!meta) continue;
-    const existing = byAnnouncement.get(meta.announcementId);
-    if (existing) {
-      existing.recipientCount += 1;
-      continue;
-    }
-    byAnnouncement.set(meta.announcementId, {
-      id: meta.announcementId,
-      category: String(row['category'] ?? "system"),
-      title: String(row['title'] ?? ""),
-      body: String(row['body'] ?? ""),
-      metadata: meta,
-      createdAt: String(row['created_at'] ?? ""),
-      recipientCount: 1,
-    });
-  }
-
-  let items = [...byAnnouncement.values()].map((row) => mapAnnouncementRow(
-    row.id,
-    {
-      title: row.title,
-      body: row.body,
-      category: row.category,
-      audience: row.metadata.audience,
-      sendAt: row.metadata.sendAt,
-      popupEnabled: row.metadata.popupEnabled,
-      maxImpressions: row.metadata.maxImpressions,
-    },
-    row.recipientCount,
-    row.createdAt,
-    row.metadata,
-  ));
+  let items = results.map((row) => {
+    const meta = parseMetadata(row.metadata);
+    const audience = meta?.audience ?? "all_users";
+    // Prefer the live COUNT; fall back to the stored count (covers rows created before any
+    // notification fan-out completed).
+    const recipientCount = Number(row.actual_count) || Number(row.stored_count) || 0;
+    return mapAnnouncementRow(
+      row.id,
+      {
+        title: row.title,
+        body: row.body,
+        category: String(row.category ?? "system"),
+        audience,
+        sendAt: meta?.sendAt ?? "",
+        popupEnabled: meta?.popupEnabled ?? false,
+        maxImpressions: meta?.maxImpressions ?? 0,
+      },
+      recipientCount,
+      String(row.created_at ?? ""),
+      meta ?? undefined,
+    );
+  });
 
   // Merge in announcements that are SCHEDULED but not yet sent. These live in
   // scheduled_announcements (no notification rows exist yet), so without this they'd be invisible
@@ -384,7 +396,15 @@ export async function updateAnnouncement(
     .filter((r) => parseMetadata(r.metadata)?.announcementId === announcementId)
     .map((r) => r.id);
 
-  if (!targetIds.length) throw new Error("Announcement not found");
+  // The master row (announcements) may exist even when notification rows don't yet, and vice versa.
+  const masterRow = await db
+    .prepare(`SELECT metadata FROM announcements WHERE id = ?`)
+    .bind(announcementId)
+    .first<{ metadata: string | null }>();
+
+  if (!targetIds.length && !masterRow) throw new Error("Announcement not found");
+
+  let syncedMeta: AnnouncementMetadata | null = null;
 
   for (const rowId of targetIds) {
     const row = results.find((r) => r.id === rowId);
@@ -399,6 +419,7 @@ export async function updateAnnouncement(
       ...(patch.sendAt !== undefined ? { sendAt: patch.sendAt } : {}),
       ...(patch.active !== undefined ? { active: patch.active } : {}),
     };
+    syncedMeta = nextMeta;
 
     await db
       .prepare(
@@ -419,6 +440,38 @@ export async function updateAnnouncement(
       .run();
   }
 
+  // Keep the announcements master row in sync so the paginated admin list reflects the edit.
+  if (masterRow) {
+    const baseMeta = syncedMeta ?? parseMetadata(masterRow.metadata);
+    const nextMeta = baseMeta
+      ? {
+          ...baseMeta,
+          ...(patch.audience !== undefined ? { audience: patch.audience } : {}),
+          ...(patch.popupEnabled !== undefined ? { popupEnabled: patch.popupEnabled } : {}),
+          ...(patch.maxImpressions !== undefined ? { maxImpressions: patch.maxImpressions } : {}),
+          ...(patch.sendAt !== undefined ? { sendAt: patch.sendAt } : {}),
+          ...(patch.active !== undefined ? { active: patch.active } : {}),
+        }
+      : null;
+    await db
+      .prepare(
+        `UPDATE announcements SET
+          title = COALESCE(?, title),
+          body = COALESCE(?, body),
+          category = COALESCE(?, category),
+          metadata = COALESCE(?, metadata)
+         WHERE id = ?`,
+      )
+      .bind(
+        patch.title ?? null,
+        patch.body ?? null,
+        patch.category ?? null,
+        nextMeta ? JSON.stringify(nextMeta) : null,
+        announcementId,
+      )
+      .run();
+  }
+
   const listed = await listAnnouncements(db, { page: 1, pageSize: 500 });
   return listed.items.find((n) => n.id === announcementId) ?? null;
 }
@@ -432,7 +485,15 @@ export async function deleteAnnouncement(db: D1Database, announcementId: string)
     .filter((r) => parseMetadata(r.metadata)?.announcementId === announcementId)
     .map((r) => r.id);
 
-  if (!targetIds.length) throw new Error("Announcement not found");
+  // Also remove the master row (if present) so the announcement leaves the paginated list. Not all
+  // announcements have a master row (scheduled-only ones live in scheduled_announcements), so a
+  // missing row here is fine. Allow deleting a master row even when there are no notification rows.
+  await db.prepare(`DELETE FROM announcements WHERE id = ?`).bind(announcementId).run();
+
+  if (!targetIds.length) {
+    // Nothing fanned out yet (e.g. scheduled-only) — the master delete above is sufficient.
+    return;
+  }
 
   for (const rowId of targetIds) {
     await db.prepare(`DELETE FROM notifications WHERE id = ?`).bind(rowId).run();

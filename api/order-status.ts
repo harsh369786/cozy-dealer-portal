@@ -1,5 +1,16 @@
 import type { SessionUser, UserRole } from "./types";
 
+/**
+ * P0-6: thrown when a status change violates the state machine (invalid/skip-ahead transition).
+ * Route handlers map this to HTTP 422 (distinct from role/permission errors which stay 400/403).
+ */
+export class InvalidStatusTransitionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidStatusTransitionError";
+  }
+}
+
 export const ORDER_STATUSES = [
   "order_placed",
   "approved",
@@ -41,6 +52,20 @@ const VALID_TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
   cancelled: [],
 };
 
+/**
+ * P0-6: A master admin may CORRECT an order by stepping one status backward across the operational
+ * chain (existing product behavior), but must NEVER skip steps forward (e.g. order_placed →
+ * delivered, which would credit reward points without an approval/dispatch step). This is the
+ * single-step ADJACENCY of the state machine: a transition is allowed iff it's a valid forward step
+ * OR the exact reverse of one. It does NOT loosen the strict per-role rules below — it only bounds
+ * the master-admin override so the state machine still applies to every role with no skip-ahead.
+ */
+function isAdjacentTransition(from: OrderStatus, to: OrderStatus): boolean {
+  const forward = VALID_TRANSITIONS[from]?.includes(to) ?? false;
+  const backward = VALID_TRANSITIONS[to]?.includes(from) ?? false;
+  return forward || backward;
+}
+
 export function canRoleSetStatus(role: UserRole, status: OrderStatus): boolean {
   if (status === "rejected") return role === "distributor" || role === "master_admin";
   if (status === "order_placed") return false;
@@ -65,10 +90,20 @@ export function assertStatusUpdate(user: SessionUser, from: OrderStatus, to: Ord
     if (from === "cancelled" || from === "rejected" || from === "delivered") {
       throw new Error(`Cannot change status from ${ORDER_STATUS_LABELS[from]}`);
     }
+    // P0-6: even a master admin must move ONE step at a time along the state machine — no skipping
+    // steps forward (e.g. order_placed → delivered would credit rewards without approval/dispatch).
+    // A single backward correction step remains allowed (isAdjacentTransition accepts the reverse).
+    if (!isAdjacentTransition(from, to)) {
+      throw new InvalidStatusTransitionError(
+        `Invalid status transition from ${ORDER_STATUS_LABELS[from]} to ${ORDER_STATUS_LABELS[to]}.`,
+      );
+    }
     return;
   }
   if (!canTransition(from, to)) {
-    throw new Error(`Cannot change status from ${ORDER_STATUS_LABELS[from]} to ${ORDER_STATUS_LABELS[to]}`);
+    throw new InvalidStatusTransitionError(
+      `Cannot change status from ${ORDER_STATUS_LABELS[from]} to ${ORDER_STATUS_LABELS[to]}`,
+    );
   }
   if (!canRoleSetStatus(user.role, to)) {
     throw new Error(`Your role cannot set status to ${ORDER_STATUS_LABELS[to]}`);

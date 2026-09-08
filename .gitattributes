@@ -1,0 +1,34 @@
+# L-5: normalize line endings to LF in the repository and on checkout, so Windows CRLF checkouts
+# don't produce spurious prettier/prettier "Delete ␍" lint errors across the whole tree. Git stores
+# text with LF; `eol=lf` keeps the working copy LF too (matching the eslint linebreak-style rule).
+
+# Default: treat everything as text and store/checkout with LF.
+* text=auto eol=lf
+
+# Explicit LF for the source + config file types we lint/format.
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.mjs  text eol=lf
+*.cjs  text eol=lf
+*.json text eol=lf
+*.css  text eol=lf
+*.html text eol=lf
+*.md   text eol=lf
+*.sql  text eol=lf
+*.toml text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.svg  text eol=lf
+
+# Binary assets: never normalize (prevents corruption / spurious diffs).
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.woff  binary
+*.woff2 binary
+*.db   binary

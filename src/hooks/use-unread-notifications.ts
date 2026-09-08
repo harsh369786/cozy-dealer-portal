@@ -40,7 +40,9 @@ export function useUnreadNotificationCount(refreshIntervalMs = CACHE_TTL_MS) {
         const count = await fetchUnreadCount(force);
         if (!cancelled) setUnread(count);
       } catch {
-        if (!cancelled) setUnread(0);
+        // M-4: a failed refresh (network blip / transient 401 during PWA cold launch) must NOT wipe
+        // the badge to 0 — that flashes "no notifications" and then back. Keep the last known count;
+        // the next successful poll/refresh corrects it.
       }
     };
 
