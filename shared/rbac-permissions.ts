@@ -39,6 +39,11 @@ export const ROLE_PERMISSIONS = {
     "complaints:read",
     "complaints:update",
     "notifications:read",
+    // Operational admin needs reports/analytics: the admin dashboard's dealer/distributor/sales
+    // KPIs come from /api/v1/admin/analytics (gated on reports:read). Without this, admin_staff got
+    // a 403 there and the dashboard showed 0 dealers / 0 distributors / 0 sales even though the
+    // shared DB has the data. Granting it makes admin_staff's dashboard match master_admin's.
+    "reports:read",
     "users:read",
     "settings:read",
     "audit:read",

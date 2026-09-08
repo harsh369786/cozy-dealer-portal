@@ -102,6 +102,28 @@ export function defaultFromTo() {
   return { from, to };
 }
 
+/**
+ * Default from/to when the caller passes no explicit range — this is the "All time" default the
+ * reports open with. It must SPAN THE ACTUAL DATA, not a fixed now-anchored 18-month window, so a
+ * report opened without filters includes every month that has orders (including the edge months
+ * that the old window silently clipped to 0). Falls back to defaultFromTo() when there's no data.
+ */
+export async function resolveDefaultRange(db: D1Database): Promise<{ from: string; to: string }> {
+  const span = await db
+    .prepare(
+      `SELECT strftime('%Y-%m', MIN(placed_at)) AS minYm, strftime('%Y-%m', MAX(placed_at)) AS maxYm
+       FROM orders WHERE deleted_at IS NULL`,
+    )
+    .first<{ minYm: string | null; maxYm: string | null }>();
+  const fallback = defaultFromTo();
+  const now = new Date();
+  const nowYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const from = span?.minYm ?? fallback.from;
+  // Extend "to" to the later of the newest data month and now, so recent months are always covered.
+  const to = span?.maxYm && span.maxYm > nowYm ? span.maxYm : nowYm;
+  return { from, to };
+}
+
 export function monthBounds(fromYm: string, toYm: string) {
   const [fy, fm] = fromYm.split("-").map(Number);
   const [ty, tm] = toYm.split("-").map(Number);
@@ -305,11 +327,45 @@ export async function loadReportFilterOptions(db: D1Database) {
   const districts = [...new Set(dealers.map((d) => d.district).filter(Boolean))].sort() as string[];
   const areas = [...new Set(dealers.map((d) => d.area).filter(Boolean))].sort() as string[];
 
-  const monthValues: string[] = [];
+  // Month list for the From/To/Year filters. This MUST be derived from the actual data span, not a
+  // fixed now-anchored window: previously it was the last 24 calendar months, so any month with
+  // orders that fell outside that rolling window (e.g. when the server clock differs from the data)
+  // was missing from the dropdown — which meant "Year"/"All" (whose range is assembled from this
+  // list) silently excluded it and showed 0, even though picking that month directly worked.
+  // We take the full span from the OLDEST order month to the LATEST order month, and also extend to
+  // "now" so an empty current month still shows for placing new orders. Every month with data is
+  // therefore always selectable and always inside the Year/All range.
+  const span = await db
+    .prepare(
+      `SELECT strftime('%Y-%m', MIN(placed_at)) AS minYm, strftime('%Y-%m', MAX(placed_at)) AS maxYm
+       FROM orders WHERE deleted_at IS NULL`,
+    )
+    .first<{ minYm: string | null; maxYm: string | null }>();
+
   const now = new Date();
-  for (let i = 23; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    monthValues.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  const nowYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  // Bounds: earliest = oldest data month (fallback: 23 months before now); latest = max(data, now).
+  const defaultStart = new Date(now.getFullYear(), now.getMonth() - 23, 1);
+  const defaultStartYm = `${defaultStart.getFullYear()}-${String(defaultStart.getMonth() + 1).padStart(2, "0")}`;
+  const startYm = span?.minYm && span.minYm < defaultStartYm ? span.minYm : (span?.minYm ?? defaultStartYm);
+  const endYm = span?.maxYm && span.maxYm > nowYm ? span.maxYm : nowYm;
+
+  // Enumerate every month from startYm..endYm inclusive (UTC-safe, string-keyed).
+  const monthValues: string[] = [];
+  {
+    const [sy, sm] = startYm.split("-").map(Number);
+    const [ey, em] = endYm.split("-").map(Number);
+    let y = sy!;
+    let m = sm!;
+    // Guard against a bad span producing an unbounded loop.
+    for (let guard = 0; guard < 600 && (y < ey! || (y === ey! && m <= em!)); guard++) {
+      monthValues.push(`${y}-${String(m).padStart(2, "0")}`);
+      m += 1;
+      if (m > 12) {
+        m = 1;
+        y += 1;
+      }
+    }
   }
 
   // Pricing tiers (id + name) power both the tier filters and the "By pricing tier" breakdown.
@@ -663,7 +719,7 @@ export async function buildTierBreakdown(
 }
 
 export async function buildExecutiveSnapshot(db: D1Database, raw: ExecutiveReportFilters = {}) {
-  const defaults = defaultFromTo();
+  const defaults = await resolveDefaultRange(db);
   const filters = { ...raw, from: raw.from ?? defaults.from, to: raw.to ?? defaults.to };
   const range = monthBounds(filters.from!, filters.to!);
   const [kpis, monthly, territories, campaigns, tierBreakdown, filterOptions] = await Promise.all([
@@ -698,7 +754,7 @@ export async function buildMonthlyReport(db: D1Database, raw: ExecutiveReportFil
 }
 
 export async function buildAccountsReport(db: D1Database, raw: ExecutiveReportFilters = {}) {
-  const defaults = defaultFromTo();
+  const defaults = await resolveDefaultRange(db);
   const filters = { ...raw, from: raw.from ?? defaults.from, to: raw.to ?? defaults.to };
   const range = monthBounds(filters.from!, filters.to!);
   const [accounts, filterOptions, kpis] = await Promise.all([
@@ -724,7 +780,7 @@ export async function buildAccountsReport(db: D1Database, raw: ExecutiveReportFi
 }
 
 export async function buildProductsReport(db: D1Database, raw: ExecutiveReportFilters = {}) {
-  const defaults = defaultFromTo();
+  const defaults = await resolveDefaultRange(db);
   const filters = { ...raw, from: raw.from ?? defaults.from, to: raw.to ?? defaults.to };
   const range = monthBounds(filters.from!, filters.to!);
   const [products, kpis, filterOptions] = await Promise.all([
@@ -755,7 +811,7 @@ export async function drilldownOrders(
   db: D1Database,
   raw: ExecutiveReportFilters & { month?: string; page?: number; pageSize?: number },
 ) {
-  const defaults = defaultFromTo();
+  const defaults = await resolveDefaultRange(db);
   const filters: ExecutiveReportFilters = {
     ...raw,
     from: raw.month ?? raw.from ?? defaults.from,

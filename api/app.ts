@@ -1570,10 +1570,13 @@ app.get("/api/v1/reports/monthly-sales", requireAuth, requireActiveAccount, requ
   let sql = `SELECT strftime('%Y-%m', placed_at) as ym, SUM(total_value) as sales, COUNT(*) as orders FROM orders WHERE deleted_at IS NULL`;
   sql += appendUserDealerScopeSql(reportScope.user, "dealer_id", binds);
   sql += ` AND status NOT IN ('rejected', 'cancelled')`;
-  sql += ` GROUP BY ym ORDER BY ym ASC LIMIT 6`;
+  // Take the SIX MOST-RECENT months (was ORDER BY ym ASC LIMIT 6, which returned the six OLDEST and
+  // silently hid the latest months). Sort DESC to grab the newest, then reverse to chronological.
+  sql += ` GROUP BY ym ORDER BY ym DESC LIMIT 6`;
   const { results } = await db.prepare(sql).bind(...binds).all<{ ym: string; sales: number; orders: number }>();
+  const chronological = [...results].reverse();
   return c.json(
-    results.map((r) => ({
+    chronological.map((r) => ({
       month: formatYearMonthLabel(r.ym),
       ym: r.ym,
       sales: Number(r.sales) || 0,

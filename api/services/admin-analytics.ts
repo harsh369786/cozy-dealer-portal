@@ -27,26 +27,74 @@ function monthIndex(label: string): number {
   return idx >= 0 ? idx : new Date().getMonth();
 }
 
-function defaultAnalyticsMonths() {
+/**
+ * Parse a month filter value into { year, monthIndex0 }. Accepts a year-aware "YYYY-MM" (preferred)
+ * and, for legacy callers, a bare month name ("Aug") which is resolved against `fallbackYear`.
+ * Returns null when the value is empty/unparseable.
+ */
+function parseMonthValue(value: string | undefined, fallbackYear: number): { year: number; month0: number } | null {
+  if (!value) return null;
+  const ymMatch = /^(\d{4})-(\d{2})$/.exec(value.trim());
+  if (ymMatch) {
+    return { year: Number(ymMatch[1]), month0: Number(ymMatch[2]) - 1 };
+  }
+  const short = value.slice(0, 3);
+  const idx = MONTHS.findIndex((m) => m === short);
+  if (idx >= 0) return { year: fallbackYear, month0: idx };
+  return null;
+}
+
+/**
+ * Data-aware default range span. Previously the analytics reports defaulted to a fixed window of
+ * month NAMES anchored to the server clock's current year, so a month like "Aug" resolved to the
+ * wrong year and returned 0 even when 2026-08 had orders. We now clamp the default to the actual
+ * MIN/MAX(placed_at) span, so an unfiltered analytics view covers every month that has data.
+ */
+async function resolveDefaultAnalyticsSpan(
+  db: D1Database,
+): Promise<{ startIso: string; endIso: string; minYm: string | null; maxYm: string | null }> {
+  const span = await db
+    .prepare(
+      `SELECT MIN(placed_at) AS minAt, MAX(placed_at) AS maxAt,
+              strftime('%Y-%m', MIN(placed_at)) AS minYm, strftime('%Y-%m', MAX(placed_at)) AS maxYm
+       FROM orders WHERE deleted_at IS NULL`,
+    )
+    .first<{ minAt: string | null; maxAt: string | null; minYm: string | null; maxYm: string | null }>();
   const now = new Date();
+  // Fallbacks when there's no data: last 12 months to end of current month, UTC.
+  const fallbackStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1, 0, 0, 0));
+  const fallbackEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
   return {
-    from: MONTHS[(now.getMonth() + 8) % 12]!,
-    to: MONTHS[now.getMonth()]!,
+    startIso: span?.minAt ?? fallbackStart.toISOString(),
+    endIso: span?.maxAt ?? fallbackEnd.toISOString(),
+    minYm: span?.minYm ?? null,
+    maxYm: span?.maxYm ?? null,
   };
 }
 
-function monthRange(filters: AdminAnalyticsQuery) {
-  const defaults = defaultAnalyticsMonths();
+/**
+ * Convert the month filters into a UTC instant range. When explicit fromMonth/toMonth/month are
+ * given they win (year-aware); otherwise we use the data-span default. UTC-safe boundaries
+ * (Date.UTC) — no local-time construction that could shift/clip the edge month.
+ */
+function monthRange(
+  filters: AdminAnalyticsQuery,
+  defaultSpan: { startIso: string; endIso: string },
+): { startIso: string; endIso: string } {
   const now = new Date();
-  const from = filters.fromMonth ?? filters.month ?? defaults.from;
-  const to = filters.toMonth ?? filters.month ?? defaults.to;
-  const startMonth = monthIndex(from);
-  const endMonth = monthIndex(to);
-  const endYear = now.getFullYear();
-  let startYear = endYear;
-  if (startMonth > endMonth) startYear = endYear - 1;
-  const start = new Date(startYear, startMonth, 1);
-  const end = new Date(endYear, endMonth + 1, 0, 23, 59, 59, 999);
+  const fallbackYear = now.getUTCFullYear();
+  const fromParsed = parseMonthValue(filters.fromMonth ?? filters.month, fallbackYear);
+  const toParsed = parseMonthValue(filters.toMonth ?? filters.month, fallbackYear);
+
+  // No explicit month filters → span the actual data.
+  if (!fromParsed && !toParsed) return defaultSpan;
+
+  const start = fromParsed
+    ? new Date(Date.UTC(fromParsed.year, fromParsed.month0, 1, 0, 0, 0))
+    : new Date(defaultSpan.startIso);
+  const end = toParsed
+    ? new Date(Date.UTC(toParsed.year, toParsed.month0 + 1, 0, 23, 59, 59, 999))
+    : new Date(defaultSpan.endIso);
   return { startIso: start.toISOString(), endIso: end.toISOString() };
 }
 
@@ -277,14 +325,12 @@ async function fetchPrevRankingSales(
 }
 
 export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyticsQuery = {}) {
-  const defaults = defaultAnalyticsMonths();
-  const filters: AdminAnalyticsQuery = {
-    ...raw,
-    fromMonth: raw.fromMonth ?? defaults.from,
-    toMonth: raw.toMonth ?? defaults.to,
-    month: raw.month ?? raw.toMonth ?? defaults.to,
-  };
-  const range = monthRange(filters);
+  // Keep the caller's month filters as-is (do NOT inject now-anchored month-name defaults, which
+  // caused "Aug" to resolve to the wrong year and return 0). When no month filter is given,
+  // monthRange falls back to the actual data span so unfiltered analytics cover every data month.
+  const filters: AdminAnalyticsQuery = { ...raw };
+  const defaultSpan = await resolveDefaultAnalyticsSpan(db);
+  const range = monthRange(filters, defaultSpan);
   const filterOptions = await loadFilterOptions(db, filters);
   const scopeLevel = resolveScopeLevel(filters);
   const scopeLabel = await buildScopeLabel(db, filters);
@@ -303,9 +349,9 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
   const orderWhere = buildOrderWhere(filters, range, orderBinds);
 
   const prevStart = new Date(range.startIso);
-  prevStart.setMonth(prevStart.getMonth() - 1);
+  prevStart.setUTCMonth(prevStart.getUTCMonth() - 1);
   const prevEnd = new Date(range.endIso);
-  prevEnd.setMonth(prevEnd.getMonth() - 1);
+  prevEnd.setUTCMonth(prevEnd.getUTCMonth() - 1);
   const prevRange = { startIso: prevStart.toISOString(), endIso: prevEnd.toISOString() };
 
   const prevBinds: unknown[] = [];
@@ -348,10 +394,13 @@ export async function buildAdminAnalyticsFromDb(db: D1Database, raw: AdminAnalyt
   const trendBinds: unknown[] = [];
   let trendSql = `SELECT strftime('%Y-%m', o.placed_at) as ym, SUM(o.total_value) as sales, COUNT(*) as orders
     FROM orders o WHERE o.deleted_at IS NULL`;
-  const trendStart = new Date();
-  trendStart.setMonth(trendStart.getMonth() - 4, 1);
-  trendStart.setHours(0, 0, 0, 0);
-  trendSql += buildOrderWhere(filters, { startIso: trendStart.toISOString(), endIso: range.endIso }, trendBinds);
+  // Last 5 months of the SELECTED range end (UTC), not "now" — so the trend tracks the data/filter
+  // rather than the server clock. Clamp the start to the range start so we never look before it.
+  const trendEnd = new Date(range.endIso);
+  const trendStart = new Date(Date.UTC(trendEnd.getUTCFullYear(), trendEnd.getUTCMonth() - 4, 1, 0, 0, 0));
+  const rangeStart = new Date(range.startIso);
+  const trendStartIso = (trendStart < rangeStart ? rangeStart : trendStart).toISOString();
+  trendSql += buildOrderWhere(filters, { startIso: trendStartIso, endIso: range.endIso }, trendBinds);
   trendSql += ` GROUP BY ym ORDER BY ym ASC LIMIT 5`;
   const { results: trendRows } = await db.prepare(trendSql).bind(...trendBinds).all<{
     ym: string;
