@@ -93,7 +93,55 @@ export type ProductInput = {
   }>;
   /** Per-thickness MRP ₹/sqft rates to persist (mattresses). */
   sqftRates?: ProductSqftRate[];
+  /** Catalogue (warranty) layer to place this product under, e.g. "5 Years". Defaults to guarantee. */
+  layerGroup?: string | null;
 };
+
+/**
+ * Place a product in the correct catalogue layer (product_layer_items) based on its warranty group.
+ * The dealer/distributor catalog renders mattresses grouped by these layers, so a product with no
+ * layer row is invisible to them even when active + priced. Admin-created products previously never
+ * got a layer row (only the seed did), which hid every hand-created product — this fixes that.
+ *
+ * `group` is a guarantee string (e.g. "5 Years"). Layers are keyed by year number in their title
+ * (layer-1 "3 & 5 Years", layer-2 "7 Years", layer-3 "10 Years", layer-4 "12 Years"), so we match
+ * the guarantee's number against a layer title. The guarantee itself is stored as subgroup_label
+ * (mirrors the seed, where layer-1 splits into "3 Years"/"5 Years" subgroups). Replaces any existing
+ * layer row for the product. A null/blank/unmatched group clears the layer (warranty-less product).
+ */
+async function syncProductLayer(db: D1Database, productId: string, group?: string | null) {
+  await db.prepare(`DELETE FROM product_layer_items WHERE product_id = ?`).bind(productId).run();
+  const g = (group ?? "").trim();
+  if (!g) return;
+  const num = g.match(/\d+/)?.[0];
+  if (!num) return;
+
+  // Find the layer whose title contains this year number (e.g. "5" -> "3 & 5 Years Guarantee").
+  const layers = await db
+    .prepare(`SELECT id, title FROM product_layers ORDER BY sort_order`)
+    .all<{ id: string; title: string }>();
+  const match = layers.results.find((l) => l.title.match(/\d+/g)?.includes(num));
+  if (!match) return;
+
+  // A layer is rendered in subgroup-mode only when SOME of its items carry a subgroup_label; layers
+  // whose items all have NULL render as a flat list. To avoid flipping a flat layer into subgroup
+  // mode (which would hide its NULL-label siblings), only set subgroup_label on a layer that covers
+  // multiple guarantees (its title has more than one number, e.g. "3 & 5 Years"). Otherwise NULL.
+  const isMultiGuaranteeLayer = (match.title.match(/\d+/g)?.length ?? 0) > 1;
+  const subgroupLabel = isMultiGuaranteeLayer ? g : null;
+
+  const nextSort = await db
+    .prepare(`SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM product_layer_items WHERE layer_id = ?`)
+    .bind(match.id)
+    .first<{ n: number }>();
+
+  await db
+    .prepare(
+      `INSERT INTO product_layer_items (layer_id, product_id, subgroup_label, sort_order) VALUES (?, ?, ?, ?)`,
+    )
+    .bind(match.id, productId, subgroupLabel, nextSort?.n ?? 0)
+    .run();
+}
 
 async function loadProduct(db: D1Database, productId: string): Promise<AdminProductRow | null> {
   const product = await db
@@ -337,6 +385,11 @@ export async function createAdminProduct(db: D1Database, input: ProductInput, ac
     await saveProductTierMargins(db, productId, input.tierMargins);
   }
   await saveProductSqftRates(db, productId, input.sqftRates ?? [], input.thicknesses);
+  // Place mattresses in a catalogue layer so the dealer/distributor catalog (grouped by layer) shows
+  // them. Defaults to the product's guarantee when no explicit layerGroup is provided.
+  if (isMattressCategory(input.category)) {
+    await syncProductLayer(db, productId, input.layerGroup ?? input.guarantee);
+  }
 
   const created = await loadProduct(db, productId);
   await writeAuditLog(db, {
@@ -397,6 +450,12 @@ export async function updateAdminProduct(
       input.sqftRates,
       input.thicknesses ?? before.thicknesses,
     );
+  }
+  // Keep the catalogue layer in sync (mattresses only). Uses the explicit layerGroup when sent,
+  // else the (possibly updated) guarantee, else the product's existing guarantee.
+  const effectiveCategory = input.category ?? before.category;
+  if (isMattressCategory(effectiveCategory)) {
+    await syncProductLayer(db, productId, input.layerGroup ?? input.guarantee ?? before.guarantee);
   }
 
   const after = await loadProduct(db, productId);

@@ -36,6 +36,7 @@ function toApiInput(product: AdminProduct) {
     freeItems: product.freeItems ?? null,
     blurb: product.blurb,
     image: product.image,
+    layerGroup: product.layerGroup ?? null,
     tierMargins: (product.tierMargins ?? []).map((t) => ({
       tierId: t.tierId,
       dealerMarginPercent: t.dealerMarginPercent,
