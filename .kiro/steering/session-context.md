@@ -5,7 +5,25 @@ inclusion: always
 # Session Context — cross-laptop handoff
 
 This file is auto-written on "sync" so Kiro on the other laptop can resume instantly.
-Last updated: 2026-09-06 (session 8 — FIX: admin-created mattresses invisible to dealers; DEPLOYED).
+Last updated: 2026-09-06 (session 9 — freebies use snapped width + free-item labels always show qty; DEPLOYED).
+
+## SESSION 9 (this laptop) — committed (1658093), pushed, DEPLOYED (Version 1e4565ff, SW v44)
+Two small fixes, code-only (no migration):
+
+1. FREEBIES USE SNAPPED STANDARD WIDTH (was raw order width). Per new spec: once an order size maps to
+   a standard pricing size, that standard size is the SINGLE reference for BOTH pricing AND freebies.
+   e.g. 71×59 -> 72×60 -> freebies evaluated on width 60 (gets the >=60 rule). Raw order size still
+   stored/shown for manufacturing (sizeRequested unchanged).
+   - api/services/pricing.ts buildPriceQuote: freeItems = resolveFreeItemsForWidth(..., standardDims.breadthIn ?? input.breadthIn)
+     (was input.freeItemWidthIn ?? input.breadthIn). This REVERSES the earlier "59.99 stays <60 on RAW width" behavior.
+   - freeItemWidthIn input field now DEPRECATED/IGNORED (kept optional for back-compat callers).
+   - Verified with scratch test: 71×59 -> snapped 60 -> [2 Fiber Pillow, 1 Wedge Pillow]; 72×48 -> 1 Fiber Pillow.
+
+2. FREE-ITEM LABELS ALWAYS SHOW QTY. src/lib/free-items.ts formatFreeItemsDisplay: was
+   `qty>1 ? "N × label" : label` (single item showed just "Pillow"); now always `"${qty} × ${label}"`
+   so a single item shows "1 × Pillow". Single shared formatter used by product page + order detail +
+   admin editor preview. Server shared/free-item-rules.ts only resolves/serializes {label,quantity} JSON
+   (no display formatting) so nothing overrides it.
 
 ## SESSION 8 (this laptop) — committed (24d9164), pushed, DEPLOYED (Version fbc1d37f, SW v43)
 BUG REPORT: user deleted all seed products, created new mattresses from admin — they were INVISIBLE to
