@@ -56,9 +56,9 @@ export async function buildPriceQuote(
     campaignId?: string;
     lengthIn?: number;
     breadthIn?: number;
-    // The RAW ordered width (before pricing snaps to a standard size) used ONLY for width-based
-    // free-item rules, so e.g. 59.99" stays in the "< 60" category per spec even though pricing
-    // snaps it to a standard breadth. When omitted, falls back to breadthIn.
+    // DEPRECATED / IGNORED: previously the raw ordered width was used for width-based free-item
+    // rules. Per current spec, freebies are evaluated on the SNAPPED standard width (same as pricing),
+    // so this field no longer affects the result. Kept optional for backward-compatible callers.
     freeItemWidthIn?: number | null;
     // Pricing context: used to resolve the price list (tier) and its per-product margins.
     dealerId?: string | null;
@@ -218,16 +218,16 @@ export async function buildPriceQuote(
     standardLengthIn: standardDims.lengthIn ?? null,
     standardBreadthIn: standardDims.breadthIn ?? null,
     rewardEligibility: (priceRow.reward_eligibility ?? "dealer") as RewardEligibility,
-    // Width-based free items: evaluate the configured rules against the ORDERED width (the raw
-    // entered breadth, NOT the snapped standard size — so 59.99" stays in the "< 60" category per
-    // spec). Rows with no width condition always apply (legacy behavior). When no width is known
+    // Width-based free items: evaluate the configured rules against the SNAPPED STANDARD width — the
+    // same size used for pricing — NOT the raw entered order size. Per spec, once an order size is
+    // mapped to a standard pricing size, that standard size is the single reference for both pricing
+    // and freebies (e.g. 71×59 -> 72×60, so freebies use 60"). The raw order size is retained/shown
+    // only for manufacturing. Rows with no width condition always apply. When no width is known
     // (catalog "from" preview), resolveFreeItemsForWidth returns the full configured list unchanged.
-    // Length is intentionally ignored. See shared/free-item-rules.ts. Use the RAW ordered width
-    // (freeItemWidthIn) when provided so a value like 59.99" is NOT snapped up into the ">= 60"
-    // category; fall back to breadthIn for callers that don't pass a separate raw width.
+    // Length is intentionally ignored. See shared/free-item-rules.ts.
     freeItems: resolveFreeItemsForWidth(
       priceRow.free_items_label,
-      input.freeItemWidthIn ?? input.breadthIn,
+      standardDims.breadthIn ?? input.breadthIn,
     ),
     campaign: campaign
       ? {

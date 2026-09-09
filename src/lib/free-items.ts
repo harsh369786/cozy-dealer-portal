@@ -13,7 +13,8 @@ export function formatFreeItemsDisplay(value: unknown): string {
             const label = String(row.label ?? "").trim();
             if (!label) return "";
             const qty = Math.max(1, Number(row.quantity) || 1);
-            return qty > 1 ? `${qty} × ${label}` : label;
+            // Always show the quantity, incl. "1 × …", so dealers see a consistent format.
+            return `${qty} × ${label}`;
           }
           return "";
         })
