@@ -5,7 +5,35 @@ inclusion: always
 # Session Context — cross-laptop handoff
 
 This file is auto-written on "sync" so Kiro on the other laptop can resume instantly.
-Last updated: 2026-09-05 (session 7 — demo-login buttons via server flag, mattress MRP preview + no-manual-MRP; DEPLOYED to staging).
+Last updated: 2026-09-06 (session 8 — FIX: admin-created mattresses invisible to dealers; DEPLOYED).
+
+## SESSION 8 (this laptop) — committed (24d9164), pushed, DEPLOYED (Version fbc1d37f, SW v43)
+BUG REPORT: user deleted all seed products, created new mattresses from admin — they were INVISIBLE to
+dealers/distributors (but fine in admin). NOT a sqft-pricing bug — sqft rates were correct.
+
+ROOT CAUSE: the dealer/distributor catalog renders mattresses GROUPED BY catalogue layer
+(`mattressLayers`, built from `product_layer_items`). But products-admin.ts create/update NEVER wrote
+`product_layer_items` (and the client toApiInput never even sent `layerGroup`). Layer assignments only
+ever came from the SEED. So any hand-created mattress had 0 layer rows -> absent from mattressLayers ->
+invisible to dealers, even though active + priced + returned in the flat `products` array.
+
+FIX (api/services/products-admin.ts):
+- New syncProductLayer(db, productId, group): maps a guarantee string (e.g. "5 Years") to a
+  product_layers row by matching the YEAR NUMBER in the layer title (layer-1 "3 & 5 Years", layer-2
+  "7 Years", layer-3 "10 Years", layer-4 "12 Years"). Replaces the product's product_layer_items row.
+  subgroup_label = the guarantee ONLY for multi-guarantee layers (title has >1 number, e.g. layer-1);
+  NULL otherwise (so it doesn't flip a flat layer into subgroup-mode and hide siblings).
+- Called in createAdminProduct + updateAdminProduct for mattresses (isMattressCategory), using
+  input.layerGroup ?? input.guarantee (?? before.guarantee on update).
+- ProductInput += layerGroup?. Client src/services/admin/products.ts toApiInput now sends layerGroup.
+- LIMITATION: guarantee number must exist in a layer title (3/5/7/10/12). A guarantee with no matching
+  layer won't be placed (no layer exists for it). Extend layers/mapping if new guarantee values used.
+
+BACKFILL (already done on REMOTE prod D1): the user's 3 products got product_layer_items rows —
+Ortho Bond -> layer-1 subgroup "3 Years"; Ortho Max + Ortho Plush -> layer-1 subgroup "5 Years".
+They are LIVE/visible now (catalog reads layer rows at runtime; refresh dealer app for SW v43).
+
+## NOTE: "prod" URL is actually STAGING (demo mode ON). Deploys here are to that env.
 
 ## IMPORTANT: backrest-pwa.shahharsh143-hs.workers.dev is STAGING, not production.
 Demo mode there (MOCK_OTP=1, DEMO_LOGINS_ENABLED=1, OTP 123456, demo buttons) is appropriate. Still a real D1 DB (reset once) — migrations ADD-only.
