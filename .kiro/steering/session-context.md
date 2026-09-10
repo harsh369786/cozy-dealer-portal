@@ -5,7 +5,53 @@ inclusion: always
 # Session Context — cross-laptop handoff
 
 This file is auto-written on "sync" so Kiro on the other laptop can resume instantly.
-Last updated: 2026-09-06 (session 9 — freebies use snapped width + free-item labels always show qty; DEPLOYED).
+Last updated: 2026-09-09 (session 10 — Gupshup WhatsApp integration DEPLOYED; blocked on Gupshup account delivery).
+
+## SESSION 10 (this laptop) — Gupshup WhatsApp integration BUILT + DEPLOYED. BLOCKED on Gupshup-side delivery.
+Prod URL https://backrest-pwa.shahharsh143-hs.workers.dev. Last deploy Version `96b0b6ef-4959-418a-b228-a363e9a048f2`, SW v47.
+Commits: `7f4c349` (integration), `220849b` (OTP 2-param + persist vars). Migration `0043_whatsapp_outbox_gupshup.sql` APPLIED to REMOTE D1.
+
+### What was built (all 11 tasks done, build GREEN, client bundle CLEAN of secrets)
+- Real Gupshup sender on the EXISTING whatsapp_outbox + queue. 5 templates: OTP, order placed/rejected/delivered, campaign_live.
+- `api/services/gupshup.ts`: sendGupshupTemplate + isGupshupConfigured (needs GUPSHUP_API_KEY && GUPSHUP_SOURCE). Wire:
+  POST {base}/wa/api/v1/template/msg, form-encoded, header apikey, body channel=whatsapp&source&destination&src.name&template={"id","params"}.
+- `shared/whatsapp-templates.ts`: registry (key->UUID env + param builder in EXACT order) + formatGupshupPhone (10-digit->91..., +91..->digits, else null).
+- `api/services/whatsapp.ts`: processWhatsappOutbox (real send, marks sent/failed, leaves pending if unconfigured), listWhatsappOutbox (masked, no secrets), sendWhatsappTest (5 templates w/ TEST_PAYLOADS), dispatchPendingWhatsapp (cron sweep).
+- OTP via WhatsApp: otp.ts deliverOtp enqueues otp_for_login (never logs code). Orders: orders.ts enrich payloads + referenceId=orderId. Campaign: campaigns-admin.ts sendCampaignWhatsapp, per-recipient referenceId=`${campaignId}:${phone}`.
+- Admin page src/routes/admin/whatsapp/index.tsx (nav MessageCircle, gated settings:read; test buttons settings:write; log AdminDataTable). API admin.get('/whatsapp/outbox' settings:read), admin.post('/whatsapp/test' settings:write).
+- Dedup: partial UNIQUE (reference_id, template_key) + INSERT OR IGNORE.
+
+### CONFIG NOW LIVE on prod Worker (verified in `wrangler versions view`)
+- Secret GUPSHUP_API_KEY SET (via wrangler secret put / dashboard). GUPSHUP_SOURCE=918451945853. WHATSAPP_TEST_PHONE=919821650772.
+- Template UUIDs (from Gupshup list-templates): OTP=5b42fca5-fc75-4cfa-81b1-e76fd413ae6e (APPROVED),
+  ORDER_PLACED=0d3527f6-6946-4e4f-823c-b7f3e1e481dd (**PENDING** in Gupshup — won't send until approved),
+  ORDER_REJECTED=e9750510-577f-4ebf-a028-50769bd76c2b (APPROVED), ORDER_DELIVERED=fd7c47ad-3171-4184-a237-e5b619187ab7 (APPROVED),
+  CAMPAIGN_LIVE=6a6a2046-e73b-4f66-b480-b23ffde83ac6 (APPROVED).
+- GOTCHA/FIX: Nitro build does NOT copy [env.production.vars] from wrangler.toml into .output/server/wrangler.json,
+  so CLI deploy would ship EMPTY vars and WIPE dashboard values. FIXED `scripts/patch-wrangler-output.mjs` to read
+  [env.production.vars] from wrangler.toml and inject non-empty GUPSHUP_*/WHATSAPP_* into the generated wrangler.json.
+  So the source of truth for these vars is now wrangler.toml (values committed there). Secret survives deploys regardless.
+  (Another gotcha: never put `*/` inside a JS block comment — it closed the comment early and broke the script; reworded.)
+
+### OTP TEMPLATE PARAM FIX (session 10)
+- OTP body has TWO placeholders: {{1}}=code, {{2}}=purpose ("your OTP code for {{2}}"); copy-code button reuses {{1}}.
+  Code originally sent 1 param -> {{2}} empty. FIXED buildParams -> [otp, purpose] (purpose defaults "Login"). otp.ts + TEST_PAYLOADS pass purpose:"Login".
+- Order/delivered/rejection/campaign param counts VERIFIED against actual Gupshup template bodies (11/9/9/0) — all correct.
+
+### BLOCKER (NOT a code issue) — Gupshup account delivery
+- EVERY send (all 5 templates AND a plain session /wa/api/v1/msg) returns `{"status":"submitted","messageId":...}` but
+  NOTHING is delivered to 919821650772. Even inbound "hi" from that phone to business number 918451945853 was not received.
+  GET /wa/app/{appId}/msg/{id} returns {"status":"success"} (just request-accepted, not delivery).
+- Dashboard: WABA Backrest is LIVE, Account Active, Phone Connected, 918451945853, Customer Id 4000378352, onboarded on
+  **Optimized Marketing / MM Lite**. Events: "Partner Client Certification Needed" (Sep 8) + display-name change "Backrest Mattress" pending Meta.
+- SUSPECTS: (1) MM Lite — marketing templates may need the MM Lite / v3 send endpoint, NOT classic /template/msg
+  (docs: "Send MM Lite Messages v3" only supports marketing templates). (2) "Partner Client Certification Needed" may block sends.
+- ACTION: raised Gupshup support TICKET 273826 (drafted full reply w/ customer id, WABA details, the two messageIds
+  664d2e45-... and 97a8ed91-..., and Qs re MM Lite endpoint + certification block). Awaiting their reply (2 working days).
+- NEXT once Gupshup replies: if "use MM Lite/v3 for marketing" -> add MM Lite send path for marketing templates (keep classic
+  for OTP/utility). If certification/account block -> no code change; will just start delivering. Also: get ORDER_PLACED approved.
+
+
 
 ## SESSION 9 (this laptop) — committed (1658093), pushed, DEPLOYED (Version 1e4565ff, SW v44)
 Two small fixes, code-only (no migration):
