@@ -17,7 +17,7 @@
 //   wrangler d1 execute backrest-db --remote --config wrangler.toml --file scripts/dealer-codes.generated.sql
 
 import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -38,9 +38,21 @@ function sqlStr(s) {
   return `'${String(s).replace(/'/g, "''")}'`;
 }
 
+function resolveWranglerRunner() {
+  // `wrangler` is usually not on PATH in this project; it's run via a package manager.
+  // Prefer bun (this repo's manager), then npx, then a bare wrangler as a last resort.
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  const bunExe = home ? join(home, ".bun", "bin", process.platform === "win32" ? "bun.exe" : "bun") : "bun";
+  if (existsSync(bunExe)) return { cmd: bunExe, prefix: ["x", "wrangler"] };
+  const npx = process.platform === "win32" ? "npx.cmd" : "npx";
+  return { cmd: npx, prefix: ["wrangler"] };
+}
+
 function fetchDealers() {
   // wrangler prints JSON like: [ { results: [...] } ]
+  const { cmd, prefix } = resolveWranglerRunner();
   const args = [
+    ...prefix,
     "d1",
     "execute",
     "backrest-db",
@@ -51,7 +63,7 @@ function fetchDealers() {
     "--command",
     "SELECT id, store_name, pincode, code FROM dealers ORDER BY created_at",
   ];
-  const out = execFileSync("wrangler", args, { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  const out = execFileSync(cmd, args, { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
   // Strip any non-JSON preamble wrangler may print before the array.
   const start = out.indexOf("[");
   const parsed = JSON.parse(out.slice(start));
