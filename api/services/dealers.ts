@@ -353,3 +353,114 @@ export async function loadDealerRewards(db: D1Database, dealerId: string) {
     claims,
   };
 }
+
+/**
+ * Unified chronological activity feed for the Dealer Profile Overview: orders placed, reward points
+ * earned/redeemed, reward claims, and dealer visits — merged from their EXISTING tables (no new
+ * storage) and sorted newest-first. Each item carries the id needed to deep-link to its source
+ * record (order / reward-earned order / claim / visit). Length-capped so the Overview stays fast.
+ */
+export async function loadDealerActivity(db: D1Database, dealerId: string, limit = 25) {
+  type ActivityItem = {
+    kind: "order" | "points_earned" | "points_redeemed" | "reward_claim" | "visit";
+    at: string; // raw ISO for sorting
+    date: string; // display label
+    title: string;
+    detail?: string;
+    // Deep-link targets (whichever applies):
+    orderId?: string | null;
+    visitId?: string | null;
+  };
+  const items: ActivityItem[] = [];
+
+  // Orders placed.
+  const { results: orderRows } = await db
+    .prepare(
+      `SELECT id, placed_at, total_value, status FROM orders
+       WHERE dealer_id = ? AND deleted_at IS NULL
+       ORDER BY placed_at DESC LIMIT ?`,
+    )
+    .bind(dealerId, limit)
+    .all<{ id: string; placed_at: string; total_value: number; status: string }>();
+  for (const o of orderRows) {
+    items.push({
+      kind: "order",
+      at: o.placed_at,
+      date: formatInLabel(o.placed_at),
+      title: `Order ${o.id}`,
+      detail: String(o.status),
+      orderId: o.id,
+    });
+  }
+
+  // Points ledger (earned = positive with reference_type='order' -> link to that order).
+  const { results: ledgerRows } = await db
+    .prepare(
+      `SELECT delta, label, reference_type, reference_id, occurred_at FROM points_ledger
+       WHERE dealer_id = ? ORDER BY occurred_at DESC LIMIT ?`,
+    )
+    .bind(dealerId, limit)
+    .all<{
+      delta: number;
+      label: string;
+      reference_type: string | null;
+      reference_id: string | null;
+      occurred_at: string;
+    }>();
+  for (const l of ledgerRows) {
+    const delta = Number(l.delta) || 0;
+    items.push({
+      kind: delta >= 0 ? "points_earned" : "points_redeemed",
+      at: l.occurred_at,
+      date: formatInLabel(l.occurred_at),
+      title:
+        delta >= 0
+          ? `+${coerceRewardPoints(delta, 0)} points earned`
+          : `−${coerceRewardPoints(Math.abs(delta), 0)} points redeemed`,
+      detail: l.label,
+      orderId: l.reference_type === "order" ? l.reference_id : null,
+    });
+  }
+
+  // Reward claims.
+  const { results: claimRows } = await db
+    .prepare(
+      `SELECT name, emoji, status, claimed_at FROM reward_claims
+       WHERE dealer_id = ? ORDER BY claimed_at DESC LIMIT ?`,
+    )
+    .bind(dealerId, limit)
+    .all<{ name: string; emoji: string; status: string; claimed_at: string }>();
+  for (const cl of claimRows) {
+    items.push({
+      kind: "reward_claim",
+      at: cl.claimed_at,
+      date: formatInLabel(cl.claimed_at),
+      title: `Reward claimed: ${cl.emoji ?? ""} ${cl.name}`.trim(),
+      detail: String(cl.status),
+    });
+  }
+
+  // Dealer visits.
+  const { results: visitRows } = await db
+    .prepare(
+      `SELECT v.id, v.check_in_at, v.status, u.name AS se_name
+       FROM dealer_visits v LEFT JOIN users u ON u.id = v.sales_executive_user_id
+       WHERE v.dealer_id = ? ORDER BY v.check_in_at DESC LIMIT ?`,
+    )
+    .bind(dealerId, limit)
+    .all<{ id: string; check_in_at: string; status: string; se_name: string | null }>();
+  for (const v of visitRows) {
+    items.push({
+      kind: "visit",
+      at: v.check_in_at,
+      date: formatInLabel(v.check_in_at),
+      title: v.se_name ? `Visit by ${v.se_name}` : "Dealer visit",
+      detail: String(v.status),
+      visitId: v.id,
+    });
+  }
+
+  // Merge newest-first (string ISO compare is chronological) and cap.
+  items.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+  return { items: items.slice(0, limit) };
+}

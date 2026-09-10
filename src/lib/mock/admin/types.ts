@@ -101,8 +101,14 @@ export type AdminOrderDetail = DistributorOrder & {
 export type AdminCampaign = {
   id: string;
   name: string;
+  /** Legacy single-product display label (first product / "All products"). */
   product: string;
+  /** Legacy single product id (first product). */
   productId?: string;
+  /** Full targeted product set (multi-product campaigns). Empty => all products. */
+  products?: Array<{ id: string; name: string }>;
+  /** Convenience id list mirroring `products`. */
+  productIds?: string[];
   discountPercent?: number;
   specialPrice?: number;
   goal?: string;

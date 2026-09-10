@@ -136,7 +136,7 @@ import {
   getVisitSummary,
   listVisits,
 } from "./services/dealer-visits";
-import { mapDealerRow, mapDealerRows, loadDealerRewards } from "./services/dealers";
+import { mapDealerRow, mapDealerRows, loadDealerRewards, loadDealerActivity } from "./services/dealers";
 import { redeemRewardClaim } from "./services/reward-redemption";
 import { listAdditionalRewardsForDealer, redeemAdditionalReward } from "./services/additional-rewards";
 import {
@@ -478,12 +478,24 @@ app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission(
        ),
        ranked_campaigns AS (
          SELECT p.id AS join_product_id, ac.*,
-           ROW_NUMBER() OVER (
-             PARTITION BY p.id
-             ORDER BY (ac.product_id IS NULL) ASC, ac.start_at DESC, ac.id DESC
-           ) AS rn
+           -- A campaign is "specific" to this product when it targets it via the legacy product_id
+           -- OR the multi-product join table; those outrank an all-products (NULL) campaign.
+           CASE WHEN ac.product_id = p.id OR ac.id IN (
+             SELECT campaign_id FROM price_campaign_products WHERE product_id = p.id
+           ) THEN 0 ELSE 1 END AS is_all_products
          FROM products p
-         JOIN active_campaigns ac ON (ac.product_id = p.id OR ac.product_id IS NULL)
+         JOIN active_campaigns ac ON (
+           ac.product_id = p.id OR ac.product_id IS NULL
+           OR ac.id IN (SELECT campaign_id FROM price_campaign_products WHERE product_id = p.id)
+         )
+       ),
+       ranked_campaigns_final AS (
+         SELECT rc.*,
+           ROW_NUMBER() OVER (
+             PARTITION BY rc.join_product_id
+             ORDER BY rc.is_all_products ASC, rc.start_at DESC, rc.id DESC
+           ) AS rn
+         FROM ranked_campaigns rc
        )
        SELECT
          p.*,
@@ -504,7 +516,7 @@ app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission(
        FROM products p
        LEFT JOIN ranked_prices pp ON pp.product_id = p.id AND pp.rn = 1
        LEFT JOIN ranked_thicknesses pt ON pt.product_id = p.id AND pt.rn = 1
-       LEFT JOIN ranked_campaigns pc ON pc.join_product_id = p.id AND pc.rn = 1
+       LEFT JOIN ranked_campaigns_final pc ON pc.join_product_id = p.id AND pc.rn = 1
        WHERE p.deleted_at IS NULL AND p.active = 1
        ORDER BY p.sort_order`,
     )
@@ -930,6 +942,15 @@ app.get("/api/v1/dealers/:id/rewards", requireAuth, requireActiveAccount, requir
   const dealerId = c.req.param("id");
   if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
   return c.json(await loadDealerRewards(db, dealerId));
+});
+
+// Unified chronological activity feed (orders + points + claims + visits) for the profile Overview.
+// Reuses existing tables. Gated dealers:read + canAccessDealer.
+app.get("/api/v1/dealers/:id/activity", requireAuth, requireActiveAccount, requirePermission("dealers:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const dealerId = c.req.param("id");
+  if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
+  return c.json(await loadDealerActivity(db, dealerId));
 });
 
 // Campaigns

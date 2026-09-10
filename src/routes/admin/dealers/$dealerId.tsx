@@ -11,7 +11,12 @@ import { useAsyncData } from "@/hooks/use-async-data";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
 import { useFormat } from "@/hooks/use-format";
 import { getDealerById, getDealerPerformance } from "@/services/dealers";
-import { getDealerOrders, getDealerRewards } from "@/services/admin/dealer-profile";
+import {
+  getDealerOrders,
+  getDealerRewards,
+  getDealerActivity,
+  type DealerActivityItem,
+} from "@/services/admin/dealer-profile";
 import { listAdminVisits } from "@/services/admin/visits";
 import type { DistributorDealer, DistributorOrder } from "@/lib/mock/distributor/types";
 
@@ -189,38 +194,111 @@ function OverviewTab({
   const { formatCurrency } = useFormat();
   // 6-month sales trend (reuses the existing per-dealer performance endpoint).
   const { data: perf } = useAsyncData(() => getDealerPerformance(dealerId), [dealerId]);
+  // Unified activity feed (orders + points + claims + visits), merged server-side.
+  const { data: activity } = useAsyncData(() => getDealerActivity(dealerId), [dealerId]);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Section title={t("admin.dealerProfile.tabs.personal")}>
-        <DetailRow label={t("admin.dealerProfile.storeName")} value={dealer.name} />
-        <DetailRow label={t("admin.dealerProfile.contact")} value={dealer.contactName || "—"} />
-        <DetailRow label={t("admin.dealerProfile.mobile")} value={dealer.phone} />
-        <DetailRow label={t("admin.dealerProfile.gst")} value={dealer.gstNumber || "—"} />
-        <ViewAll onClick={() => onOpenTab("personal")} />
-      </Section>
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Section title={t("admin.dealerProfile.tabs.personal")}>
+          <DetailRow label={t("admin.dealerProfile.storeName")} value={dealer.name} />
+          <DetailRow label={t("admin.dealerProfile.contact")} value={dealer.contactName || "—"} />
+          <DetailRow label={t("admin.dealerProfile.mobile")} value={dealer.phone} />
+          <DetailRow label={t("admin.dealerProfile.gst")} value={dealer.gstNumber || "—"} />
+          <ViewAll onClick={() => onOpenTab("personal")} />
+        </Section>
 
-      <Section title={t("admin.dealerProfile.salesSummary")}>
-        {(perf ?? []).length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("admin.dealerProfile.noSales")}</p>
-        ) : (
-          <ul className="space-y-1.5">
-            {(perf ?? []).slice(0, 6).map((row) => (
-              <li key={row.month} className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">{row.month}</span>
-                <span className="font-semibold">
-                  {formatCurrency(row.orderValue)} · {row.orders}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        <ViewAll
-          label={t("admin.dealerProfile.viewReports")}
-          asLink={{ to: "/admin/reports", search: { view: "snapshot", dealerId } }}
-        />
+        <Section title={t("admin.dealerProfile.salesSummary")}>
+          {(perf ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("admin.dealerProfile.noSales")}</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {(perf ?? []).slice(0, 6).map((row) => (
+                <li key={row.month} className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">{row.month}</span>
+                  <span className="font-semibold">
+                    {formatCurrency(row.orderValue)} · {row.orders}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <ViewAll
+            label={t("admin.dealerProfile.viewReports")}
+            asLink={{ to: "/admin/reports", search: { view: "snapshot", dealerId } }}
+          />
+        </Section>
+      </div>
+
+      <Section title={t("admin.dealerProfile.activity")}>
+        <ActivityTimeline items={activity?.items ?? []} />
       </Section>
     </div>
+  );
+}
+
+/* ------------------------------- Timeline ------------------------------- */
+
+const ACTIVITY_DOT: Record<DealerActivityItem["kind"], string> = {
+  order: "bg-primary",
+  points_earned: "bg-emerald-500",
+  points_redeemed: "bg-rose-500",
+  reward_claim: "bg-amber-500",
+  visit: "bg-sky-500",
+};
+
+function ActivityTimeline({ items }: { items: DealerActivityItem[] }) {
+  const { t } = useTranslation();
+  const { can } = useAdminPermissions();
+  if (items.length === 0) {
+    return <p className="text-sm text-muted-foreground">{t("admin.dealerProfile.noActivity")}</p>;
+  }
+  return (
+    <ol className="space-y-3">
+      {items.map((item, i) => {
+        // Each item links to its source record when one is resolvable + permitted.
+        const orderLink = item.orderId && can("orders:read");
+        const visitLink = item.visitId && can("visits:read");
+        const body = (
+          <>
+            <p className="truncate text-sm font-semibold">{item.title}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {item.date}
+              {item.detail ? ` · ${item.detail}` : ""}
+            </p>
+          </>
+        );
+        return (
+          <li key={`${item.at}-${i}`} className="flex gap-3">
+            <span
+              className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${ACTIVITY_DOT[item.kind]}`}
+              aria-hidden
+            />
+            <div className="min-w-0 flex-1">
+              {orderLink ? (
+                <Link
+                  to="/admin/orders/$orderId"
+                  params={{ orderId: item.orderId! }}
+                  className="block rounded-lg px-1 hover:bg-secondary/50"
+                >
+                  {body}
+                </Link>
+              ) : visitLink ? (
+                <Link
+                  to="/admin/visits/$visitId"
+                  params={{ visitId: item.visitId! }}
+                  className="block rounded-lg px-1 hover:bg-secondary/50"
+                >
+                  {body}
+                </Link>
+              ) : (
+                <div className="px-1">{body}</div>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

@@ -58,3 +58,19 @@ export async function getDealerOrders(dealerId: string): Promise<DistributorOrde
 export async function getDealerRewards(dealerId: string): Promise<DealerRewardsView> {
   return api.get<DealerRewardsView>(`/api/v1/dealers/${dealerId}/rewards`);
 }
+
+/** A single item in the unified activity timeline. */
+export type DealerActivityItem = {
+  kind: "order" | "points_earned" | "points_redeemed" | "reward_claim" | "visit";
+  at: string;
+  date: string;
+  title: string;
+  detail?: string;
+  orderId?: string | null;
+  visitId?: string | null;
+};
+
+/** Merged chronological activity (orders + points + claims + visits), newest first. */
+export async function getDealerActivity(dealerId: string): Promise<{ items: DealerActivityItem[] }> {
+  return api.get<{ items: DealerActivityItem[] }>(`/api/v1/dealers/${dealerId}/activity`);
+}

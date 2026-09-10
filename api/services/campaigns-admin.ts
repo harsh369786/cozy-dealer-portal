@@ -13,8 +13,14 @@ import {
 export type AdminCampaignRow = {
   id: string;
   name: string;
+  /** Legacy single-product display name (first targeted product, or "All products"). Kept for back-compat. */
   product: string;
+  /** Legacy single product id (first targeted product, or undefined for all-products). Kept for back-compat. */
   productId?: string;
+  /** Full set of targeted products (multi-product campaigns). Empty => all-products. */
+  products?: Array<{ id: string; name: string }>;
+  /** Convenience id list mirroring `products`. */
+  productIds?: string[];
   discountPercent?: number;
   goal?: string;
   reward?: string;
@@ -47,6 +53,9 @@ export type CampaignInput = {
   name: string;
   productId?: string;
   product?: string;
+  /** Multi-product target list. When provided, ALL are saved to the join table; the first also
+   *  becomes the legacy price_campaigns.product_id for back-compat. Empty/omitted => all-products. */
+  productIds?: string[];
   discountPercent?: number;
   description?: string;
   terms?: string;
@@ -78,18 +87,35 @@ async function sendCampaignNotifications(db: D1Database, campaign: AdminCampaign
   });
 }
 
-function mapCampaign(r: Record<string, unknown>): AdminCampaignRow {
+function mapCampaign(
+  r: Record<string, unknown>,
+  products?: Array<{ id: string; name: string }>,
+): AdminCampaignRow {
   const storedStatus = r.status as string;
   const startDate = readCampaignDate(r.start_at);
   const endDate = readCampaignDate(r.end_at);
   const status = getEffectiveCampaignStatus(storedStatus, startDate, endDate);
   const productName = (r.product_name as string) ?? undefined;
   const productId = (r.product_id as string) ?? undefined;
+  // Multi-product: prefer the join-table product set. Fall back to the legacy single product_id so
+  // campaigns created before this feature still display their single product.
+  const targetProducts =
+    products && products.length
+      ? products
+      : productId
+        ? [{ id: productId, name: productName ?? productId }]
+        : [];
+  const productLabel =
+    targetProducts.length > 0
+      ? targetProducts.map((p) => p.name).join(", ")
+      : "All products";
   return {
     id: r.id as string,
     name: r.name as string,
-    product: productName ?? productId ?? "All products",
-    productId,
+    product: productLabel,
+    productId: targetProducts[0]?.id ?? productId,
+    products: targetProducts,
+    productIds: targetProducts.map((p) => p.id),
     discountPercent: Number(r.discount_percent ?? 0) || undefined,
     target: (r.target_count as number) ?? undefined,
     done: (r.done_count as number) ?? undefined,
@@ -119,7 +145,9 @@ async function loadCampaign(db: D1Database, campaignId: string): Promise<AdminCa
     )
     .bind(campaignId)
     .first<Record<string, unknown>>();
-  return row ? mapCampaign(row) : null;
+  if (!row) return null;
+  const productsMap = await loadCampaignProductsBatch(db, [campaignId]);
+  return mapCampaign(row, productsMap.get(campaignId));
 }
 
 export async function listAdminCampaigns(db: D1Database, filters: CampaignFilters = {}) {
@@ -177,8 +205,14 @@ export async function listAdminCampaigns(db: D1Database, filters: CampaignFilter
     .bind(...commonBinds, pageSize, offset)
     .all();
 
+  const productsMap = await loadCampaignProductsBatch(
+    db,
+    results.map((r) => (r as Record<string, unknown>).id as string),
+  );
   return {
-    items: results.map(mapCampaign),
+    items: results.map((r) =>
+      mapCampaign(r as Record<string, unknown>, productsMap.get((r as Record<string, unknown>).id as string)),
+    ),
     page,
     pageSize,
     total,
@@ -188,6 +222,79 @@ export async function listAdminCampaigns(db: D1Database, filters: CampaignFilter
 
 export async function getAdminCampaign(db: D1Database, campaignId: string) {
   return loadCampaign(db, campaignId);
+}
+
+/**
+ * Resolve the campaign's full target product-id set from the input. Prefers the explicit
+ * productIds[] list (multi-product); falls back to the single productId/product name (legacy).
+ * Returns a de-duplicated, order-preserving list. An empty list means "all products".
+ */
+async function resolveProductIds(
+  db: D1Database,
+  input: CampaignInput,
+  fallback?: string[],
+): Promise<string[]> {
+  let ids: string[] = [];
+  if (Array.isArray(input.productIds)) {
+    ids = input.productIds.filter((x) => typeof x === "string" && x.trim());
+  } else if (input.productId) {
+    ids = [input.productId];
+  } else if (fallback && fallback.length) {
+    ids = [...fallback];
+  } else {
+    const single = await resolveProductId(db, input);
+    if (single) ids = [single];
+  }
+  // De-dupe, preserve order.
+  return Array.from(new Set(ids));
+}
+
+/** Replace a campaign's join rows with the given product set (delete-then-insert, atomic batch). */
+async function saveCampaignProducts(db: D1Database, campaignId: string, productIds: string[]) {
+  const statements = [
+    db.prepare(`DELETE FROM price_campaign_products WHERE campaign_id = ?`).bind(campaignId),
+  ];
+  for (const productId of productIds) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO price_campaign_products (campaign_id, product_id) VALUES (?, ?)`,
+        )
+        .bind(campaignId, productId),
+    );
+  }
+  await db.batch(statements);
+}
+
+/** Batch-load the targeted products (id + name) for a set of campaigns. Never throws if the table
+ *  doesn't exist yet (pre-migration) — returns an empty map so callers fall back to product_id. */
+async function loadCampaignProductsBatch(
+  db: D1Database,
+  campaignIds: string[],
+): Promise<Map<string, Array<{ id: string; name: string }>>> {
+  const map = new Map<string, Array<{ id: string; name: string }>>();
+  if (!campaignIds.length) return map;
+  try {
+    const placeholders = campaignIds.map(() => "?").join(",");
+    const { results } = await db
+      .prepare(
+        `SELECT pcp.campaign_id, pcp.product_id, p.name AS product_name
+         FROM price_campaign_products pcp
+         LEFT JOIN products p ON p.id = pcp.product_id
+         WHERE pcp.campaign_id IN (${placeholders})
+         ORDER BY pcp.campaign_id, p.name`,
+      )
+      .bind(...campaignIds)
+      .all<{ campaign_id: string; product_id: string; product_name: string | null }>();
+    for (const r of results) {
+      const list = map.get(r.campaign_id) ?? [];
+      list.push({ id: r.product_id, name: r.product_name ?? r.product_id });
+      map.set(r.campaign_id, list);
+    }
+  } catch {
+    // Join table not present yet (migration not applied) — fall back to legacy product_id.
+  }
+  return map;
 }
 
 async function resolveProductId(
@@ -216,7 +323,8 @@ async function validateCampaignInput(
   db: D1Database,
   args: {
     campaignId: string;
-    productId: string | null;
+    /** Full target set. Empty => all-products (NULL scope). */
+    productIds: string[];
     discountPercent: number;
     startDate: string;
     endDate: string;
@@ -236,36 +344,51 @@ async function validateCampaignInput(
   // Only enforce overlap when the campaign is (or will be) live, not for expired ones.
   if (args.status === "expired") return;
 
-  // Same product scope = same product_id value, and all-products (NULL) overlaps all-products.
-  const conflict = await db
-    .prepare(
-      `SELECT id FROM price_campaigns
-       WHERE deleted_at IS NULL
-         AND id != ?
-         AND ((product_id = ?) OR (product_id IS NULL AND ? IS NULL))
-         AND IFNULL(status, 'active') != 'expired'
-         AND date(substr(start_at, 1, 10)) <= date(?)
-         AND date(substr(end_at, 1, 10)) >= date(?)
-       LIMIT 1`,
-    )
-    .bind(args.campaignId, args.productId, args.productId, args.endDate, args.startDate)
-    .first<{ id: string }>();
-  if (conflict) {
-    throw new Error("An overlapping campaign already exists for this product during these dates.");
+  // Check overlap PER targeted product (all-products = the NULL scope). A candidate conflicts if it
+  // shares ANY product scope during overlapping dates. A campaign now targets products via both the
+  // legacy price_campaigns.product_id AND the price_campaign_products join table, so an existing
+  // campaign is considered to target product X if either matches. This preserves the original
+  // single-product / all-products behavior while covering the multi-product case.
+  const scopes: Array<string | null> = args.productIds.length ? args.productIds : [null];
+  for (const scope of scopes) {
+    const conflict = await db
+      .prepare(
+        `SELECT pc.id FROM price_campaigns pc
+         WHERE pc.deleted_at IS NULL
+           AND pc.id != ?
+           AND (
+             (pc.product_id = ?) OR (pc.product_id IS NULL AND ? IS NULL)
+             OR (? IS NOT NULL AND pc.id IN (
+               SELECT campaign_id FROM price_campaign_products WHERE product_id = ?
+             ))
+           )
+           AND IFNULL(pc.status, 'active') != 'expired'
+           AND date(substr(pc.start_at, 1, 10)) <= date(?)
+           AND date(substr(pc.end_at, 1, 10)) >= date(?)
+         LIMIT 1`,
+      )
+      .bind(args.campaignId, scope, scope, scope, scope, args.endDate, args.startDate)
+      .first<{ id: string }>();
+    if (conflict) {
+      throw new Error("An overlapping campaign already exists for this product during these dates.");
+    }
   }
 }
 
 export async function createCampaign(db: D1Database, input: CampaignInput, actorUserId: string) {
   if (!input.name?.trim()) throw new Error("Campaign name is required");
 
-  const productId = await resolveProductId(db, input);
+  // Full target set (multi-product). The legacy product_id column holds the FIRST product (or NULL
+  // for all-products) so every existing single-product query keeps working.
+  const productIds = await resolveProductIds(db, input);
+  const productId = productIds[0] ?? null;
   const campaignId = input.id ?? id("pc");
   const status = input.status ?? "active";
   const startDate = normalizeCampaignDate(input.startDate);
   const endDate = normalizeCampaignDate(input.endDate);
   await validateCampaignInput(db, {
     campaignId,
-    productId,
+    productIds,
     discountPercent: input.discountPercent ?? 0,
     startDate,
     endDate,
@@ -293,6 +416,7 @@ export async function createCampaign(db: D1Database, input: CampaignInput, actor
       resolveCampaignImageUrl(input),
     )
     .run();
+  await saveCampaignProducts(db, campaignId, productIds);
 
   const created = await loadCampaign(db, campaignId);
   await writeAuditLog(db, {
@@ -321,12 +445,15 @@ export async function updateCampaign(
   const before = await loadCampaign(db, campaignId);
   if (!before) throw new Error("Campaign not found");
 
-  const productId = await resolveProductId(db, input, before.productId);
+  // Full target set. When the input omits productIds entirely, fall back to the campaign's existing
+  // product set so an unrelated edit (e.g. changing the discount) doesn't wipe the products.
+  const productIds = await resolveProductIds(db, input, before.productIds ?? []);
+  const productId = productIds[0] ?? null;
   const startDate = normalizeCampaignDate(input.startDate);
   const endDate = normalizeCampaignDate(input.endDate);
   await validateCampaignInput(db, {
     campaignId,
-    productId,
+    productIds,
     discountPercent: input.discountPercent ?? before.discountPercent ?? 0,
     startDate,
     endDate,
@@ -357,6 +484,7 @@ export async function updateCampaign(
       campaignId,
     )
     .run();
+  await saveCampaignProducts(db, campaignId, productIds);
 
   const after = await loadCampaign(db, campaignId);
   await writeAuditLog(db, {

@@ -994,7 +994,11 @@
       "createTitle": "Create campaign",
       "campaignDetails": "Campaign details",
       "deactivateTitle": "Deactivate campaign?",
-      "deactivateDescription": "This campaign will no longer be visible to dealers or distributors."
+      "deactivateDescription": "This campaign will no longer be visible to dealers or distributors.",
+      "delete": "Delete",
+      "deleteTitle": "Delete campaign?",
+      "deleteDescription": "Are you sure you want to delete this campaign? The products in it are not affected — only the campaign is removed.",
+      "deleted": "Campaign deleted"
     },
     "rewards": {
       "title": "Rewards",
@@ -1089,6 +1093,8 @@
       "basicInfo": "Basic Information",
       "businessInfo": "Business Information",
       "salesSummary": "Sales Summary (6 months)",
+      "activity": "Recent Activity",
+      "noActivity": "No recent activity.",
       "noSales": "No sales yet.",
       "noOrders": "No orders yet.",
       "tabs": {

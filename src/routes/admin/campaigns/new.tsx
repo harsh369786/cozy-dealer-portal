@@ -6,7 +6,7 @@ import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-pa
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
 import { AdminSection } from "@/components/admin/admin-section";
 import { CampaignImageUpload } from "@/components/admin/campaign-image-upload";
-import { CampaignProductPicker } from "@/components/admin/campaign-product-picker";
+import { CampaignMultiProductPicker } from "@/components/admin/campaign-multi-product-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -117,12 +117,21 @@ export function CampaignForm({
             className="mt-1 rounded-2xl"
           />
         </div>
-        <CampaignProductPicker
-          productId={campaign.productId}
-          productName={campaign.product}
+        <CampaignMultiProductPicker
+          selected={
+            campaign.products ??
+            (campaign.productId ? [{ id: campaign.productId, name: campaign.product }] : [])
+          }
           disabled={readOnly}
-          allowAllProducts
-          onChange={({ productId, product }) => patch({ productId, product })}
+          onChange={(products) =>
+            patch({
+              products,
+              productIds: products.map((p) => p.id),
+              // Keep the legacy single fields in sync (first product / all-products label).
+              productId: products[0]?.id,
+              product: products.length ? products.map((p) => p.name).join(", ") : "All products",
+            })
+          }
         />
         <div>
           <Label>Discount %</Label>

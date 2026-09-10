@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { ConfirmActionDialog } from "@/components/shared/dialogs";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
-import { activateCampaign, deactivateCampaign, getCampaign, saveCampaign } from "@/services/admin/campaigns";
+import { useNavigate } from "@tanstack/react-router";
+import { activateCampaign, deactivateCampaign, deleteCampaign, getCampaign, saveCampaign } from "@/services/admin/campaigns";
 import { CampaignForm } from "./new";
 
 export const Route = createFileRoute("/admin/campaigns/$campaignId")({
@@ -19,10 +20,13 @@ export const Route = createFileRoute("/admin/campaigns/$campaignId")({
 function EditCampaignPage() {
   const { t } = useTranslation();
   const { campaignId } = Route.useParams();  const { can } = useAdminPermissions();
+  const navigate = useNavigate();
   const [local, setLocal] = useState<Awaited<ReturnType<typeof getCampaign>>>(null);
   const [saving, setSaving] = useState(false);
   const [deactivateOpen, setDeactivateOpen] = useState(false);
   const [toggleLoading, setToggleLoading] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const { loading, error, retry } = useAsyncData(async () => {
     const c = await getCampaign(campaignId);
@@ -63,6 +67,22 @@ function EditCampaignPage() {
     }
   };
 
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      // Soft-delete (reuses the existing archive mechanism): removes the campaign from all listings
+      // by setting deleted_at. It NEVER touches the associated products or other campaigns.
+      await deleteCampaign(campaignId);
+      toast.success(t("admin.campaigns.deleted"));
+      setDeleteOpen(false);
+      navigate({ to: "/admin/campaigns" });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (loading) return <PageSkeleton rows={3} />;
   if (error || !local) return <ErrorState message={error ?? t("errors.notFound")} onRetry={retry} />;
   return (
@@ -86,6 +106,16 @@ function EditCampaignPage() {
                 {local.active ? t("common.deactivate") : t("common.activate")}
               </Button>
             )}
+            {!readOnly && (
+              <Button
+                variant="outline"
+                className="rounded-2xl font-bold"
+                onClick={() => setDeleteOpen(true)}
+                disabled={deleting}
+              >
+                {t("admin.campaigns.delete")}
+              </Button>
+            )}
             <Link to="/admin/campaigns">
               <Button variant="outline" className="rounded-2xl font-bold">{t("common.backToHome")}</Button>            </Link>
           </>
@@ -105,6 +135,16 @@ function EditCampaignPage() {
         description={t("admin.campaigns.deactivateDescription")}
         confirmLabel={t("common.deactivate")}        onConfirm={handleToggleActive}
         loading={toggleLoading}
+        variant="destructive"
+      />
+      <ConfirmActionDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={t("admin.campaigns.deleteTitle")}
+        description={t("admin.campaigns.deleteDescription")}
+        confirmLabel={t("admin.campaigns.delete")}
+        onConfirm={handleDelete}
+        loading={deleting}
         variant="destructive"
       />
     </div>

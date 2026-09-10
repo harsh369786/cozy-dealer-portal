@@ -21,11 +21,15 @@ function qs(filters: CampaignFilters) {
 }
 
 function toApiInput(campaign: AdminCampaign) {
+  // Multi-product: send the full productIds list. Keep single productId/product (first) for
+  // back-compat with the legacy price_campaigns.product_id column.
+  const productIds = campaign.products?.map((p) => p.id) ?? campaign.productIds;
   return {
     id: campaign.id,
     name: campaign.name,
-    productId: campaign.productId,
+    productId: productIds?.[0] ?? campaign.productId,
     product: campaign.product,
+    productIds,
     discountPercent: campaign.discountPercent,
     description: campaign.description,
     badgeLabel: campaign.badgeLabel,

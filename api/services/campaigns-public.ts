@@ -145,13 +145,21 @@ export async function getActivePriceCampaignRow(
     : ` AND pc.distributor_id IS NULL`;
 
   if (options?.campaignId) {
-    const binds: unknown[] = [options.campaignId, productId];
+    // Match the product via the legacy single product_id, the all-products sentinel (NULL), OR the
+    // multi-product join table (price_campaign_products). Legacy single-product campaigns have no
+    // join rows, so the product_id branch still matches them.
+    const binds: unknown[] = [options.campaignId, productId, productId];
     if (options.distributorId) binds.push(options.distributorId);
     const row = await db
       .prepare(
         `SELECT pc.*, p.name as product_name FROM price_campaigns pc
          LEFT JOIN products p ON p.id = pc.product_id
-         WHERE pc.id = ? AND (pc.product_id = ? OR pc.product_id IS NULL) AND pc.deleted_at IS NULL${distributorClause}`,
+         WHERE pc.id = ?
+           AND (
+             pc.product_id = ? OR pc.product_id IS NULL
+             OR pc.id IN (SELECT campaign_id FROM price_campaign_products WHERE product_id = ?)
+           )
+           AND pc.deleted_at IS NULL${distributorClause}`,
       )
       .bind(...binds)
       .first<Record<string, unknown>>();
@@ -163,20 +171,29 @@ export async function getActivePriceCampaignRow(
     return row;
   }
 
-  // Match product-specific OR all-products (product_id IS NULL) campaigns.
-  // A product-specific campaign wins over an all-products one (product_id IS NULL sorts last).
-  const binds: unknown[] = [productId];
+  // Match product-specific (legacy product_id OR the multi-product join table) OR all-products
+  // (product_id IS NULL) campaigns. A product-specific campaign wins over an all-products one.
+  // `is_all_products` is 1 only when the campaign has no specific target for THIS product (neither
+  // product_id nor a join row), so those sort last.
+  const binds: unknown[] = [productId, productId, productId, productId];
   if (options?.distributorId) binds.push(options.distributorId);
   binds.push(today, today);
   return db
     .prepare(
-      `SELECT pc.*, p.name as product_name FROM price_campaigns pc
+      `SELECT pc.*, p.name as product_name,
+         CASE WHEN pc.product_id = ? OR pc.id IN (
+           SELECT campaign_id FROM price_campaign_products WHERE product_id = ?
+         ) THEN 0 ELSE 1 END AS is_all_products
+       FROM price_campaigns pc
        LEFT JOIN products p ON p.id = pc.product_id
-       WHERE (pc.product_id = ? OR pc.product_id IS NULL) AND pc.deleted_at IS NULL${distributorClause}
+       WHERE (
+           pc.product_id = ? OR pc.product_id IS NULL
+           OR pc.id IN (SELECT campaign_id FROM price_campaign_products WHERE product_id = ?)
+         ) AND pc.deleted_at IS NULL${distributorClause}
          AND pc.status = 'active'
          AND date(pc.start_at) <= date(?)
          AND date(pc.end_at) >= date(?)
-       ORDER BY (pc.product_id IS NULL) ASC, pc.start_at DESC LIMIT 1`,
+       ORDER BY is_all_products ASC, pc.start_at DESC LIMIT 1`,
     )
     .bind(...binds)
     .first<Record<string, unknown>>();

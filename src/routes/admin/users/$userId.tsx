@@ -284,7 +284,18 @@ function UserDetailPage() {
           {user.dealerName && (
             <p className="text-sm">
               <span className="text-muted-foreground">Dealer:</span>{" "}
-              <span className="font-bold">{user.dealerName}</span>
+              {user.dealerId && can("dealers:read") ? (
+                <Link
+                  to="/admin/dealers/$dealerId"
+                  params={{ dealerId: user.dealerId }}
+                  search={{ tab: "overview" }}
+                  className="font-bold text-primary hover:underline"
+                >
+                  {user.dealerName}
+                </Link>
+              ) : (
+                <span className="font-bold">{user.dealerName}</span>
+              )}
             </p>
           )}
           {user.distributorName && (
