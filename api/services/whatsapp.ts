@@ -174,7 +174,7 @@ function maskPhone(phone: string | null | undefined): string {
 
 /** Sample payloads for the test endpoint — mirror the Gupshup-approved template samples exactly. */
 const TEST_PAYLOADS: Record<string, Record<string, unknown>> = {
-  otp_for_login: { otp: "123456" },
+  otp_for_login: { otp: "123456", purpose: "Login" },
   mattress_order_placed: {
     name: "Rajesh",
     model: "AquaFresh",

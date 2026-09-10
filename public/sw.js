@@ -1,4 +1,4 @@
-const CACHE = "backrest-static-v46";
+const CACHE = "backrest-static-v47";
 const PRECACHE = [
   "/",
   "/manifest.webmanifest",

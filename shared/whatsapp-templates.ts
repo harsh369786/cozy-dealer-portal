@@ -48,7 +48,7 @@ function str(v: unknown): string {
 /**
  * The five approved templates. Param orders match the Gupshup-approved bodies exactly:
  *
- * otp_for_login          [otp]
+ * otp_for_login          [otp, purpose]   (body has {{1}}=code, {{2}}=purpose e.g. "Login")
  * mattress_order_placed  [name, model, orderNo, length, width, thickness, farma, quantity,
  *                         freeScheme, rewardPoints, placedBy]
  * mattress_order_rejection [name, orderNo, model, reason, length, width, thickness, quantity, placedBy]
@@ -59,7 +59,9 @@ export const WHATSAPP_TEMPLATES: Record<WhatsappTemplateKey, TemplateDef> = {
   otp_for_login: {
     businessEvent: "LOGIN_OTP",
     resolveTemplateId: (env) => env.GUPSHUP_TEMPLATE_ID_OTP ?? "",
-    buildParams: (p) => [str(p.otp)],
+    // Body has two placeholders: {{1}} = the code, {{2}} = the purpose/label ("your OTP code for {{2}}").
+    // The copy-code button reuses {{1}}. Sending only the code left {{2}} empty and Meta dropped the message.
+    buildParams: (p) => [str(p.otp), str(p.purpose ?? "Login")],
   },
   mattress_order_placed: {
     businessEvent: "ORDER_PLACED",

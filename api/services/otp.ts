@@ -15,7 +15,7 @@ async function deliverOtp(db: D1Database, env: ApiEnv | undefined, phone: string
   await enqueueWhatsapp(db, env ?? {}, {
     toPhone: phone,
     templateKey: "otp_for_login",
-    payload: { otp: code },
+    payload: { otp: code, purpose: "Login" },
   });
 }
 
