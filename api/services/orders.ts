@@ -682,11 +682,24 @@ export async function getOrderById(db: D1Database, orderId: string) {
     .bind(orderId)
     .all<Record<string, unknown>>();
 
+  // Resolve the timeline "updated by" name from the ACTOR'S ROLE, not just their personal name:
+  //  - dealer      -> their store name (e.g. "Sharma Furnishing")
+  //  - distributor -> the distributor org name (e.g. "ABC Distributors")
+  //  - everyone else (master_admin, admin_staff, sales_executive) -> the person's own name
+  // Each falls back to the personal user name when the business link is missing, so nothing renders
+  // blank. Works for historical events too since actor_user_id was always stored.
   const timeline = await db
     .prepare(
-      `SELECT t.label, t.status_key, t.occurred_at, t.note, u.name as actor_name
+      `SELECT t.label, t.status_key, t.occurred_at, t.note,
+              CASE
+                WHEN u.role = 'dealer' THEN COALESCE(NULLIF(TRIM(ad.store_name), ''), u.name)
+                WHEN u.role = 'distributor' THEN COALESCE(NULLIF(TRIM(adist.name), ''), u.name)
+                ELSE u.name
+              END AS actor_name
        FROM order_timeline_events t
        LEFT JOIN users u ON u.id = t.actor_user_id
+       LEFT JOIN dealers ad ON ad.id = u.dealer_id
+       LEFT JOIN distributors adist ON adist.id = u.distributor_id
        WHERE t.order_id = ? ORDER BY t.occurred_at`,
     )
     .bind(orderId)
@@ -727,6 +740,7 @@ export async function getOrderById(db: D1Database, orderId: string) {
     customerName: order.customer_name,
     customerPhone: order.customer_phone,
     customerAddress: order.customer_address,
+    customerEmail: order.customer_email,
     deliveryDate,
     totalItems: order.total_items,
     totalValue: order.total_value,

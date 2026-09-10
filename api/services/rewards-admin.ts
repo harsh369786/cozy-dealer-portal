@@ -1,5 +1,6 @@
 import { id, nowIso, formatInLabel } from "../utils";
 import { normalizeStoredImageUrl } from "./image-data-url";
+import { hasRewardKindColumn, normalizeRewardKind, type RewardKind } from "../db/reward-schema";
 import { writeAuditLog } from "./audit";
 import { notifyDealerUsers, withNotificationI18n } from "./notification-events";
 
@@ -8,6 +9,8 @@ export type RewardCatalogRow = {
   name: string;
   emoji: string;
   pointsRequired: number;
+  /** 'standard' = Normal Reward (spends balance); 'milestone' = Target Based Reward (cumulative earned). */
+  kind: RewardKind;
   active: boolean;
   imageUrl?: string;
   description?: string;
@@ -32,6 +35,7 @@ function mapCatalog(row: Record<string, unknown>): RewardCatalogRow {
     name: row.name as string,
     emoji: row.emoji as string,
     pointsRequired: Number(row.points_required),
+    kind: normalizeRewardKind(row.kind),
     active: Boolean(row.active),
     imageUrl: (row.image_url as string) ?? undefined,
   };
@@ -74,6 +78,8 @@ export async function saveRewardCatalogItem(
     name: string;
     emoji: string;
     pointsRequired: number;
+    /** Reward type. 'standard' = Normal Reward, 'milestone' = Target Based Reward. */
+    kind?: string;
     active?: boolean;
     imageUrl?: string | null;
   },
@@ -81,53 +87,59 @@ export async function saveRewardCatalogItem(
 ) {
   const imageUrl = normalizeStoredImageUrl(input.imageUrl);
   const rewardId = input.id ?? id("rw");
+  const kind = normalizeRewardKind(input.kind);
+  // Only touch the kind column when it exists (migration 0027+); otherwise fall back to the
+  // pre-kind columns so older databases still work.
+  const hasKind = await hasRewardKindColumn(db);
   const existing = input.id
     ? await db.prepare(`SELECT id FROM reward_catalog WHERE id = ?`).bind(input.id).first()
     : null;
 
   if (existing) {
-    await db
-      .prepare(
-        `UPDATE reward_catalog SET name = ?, emoji = ?, points_required = ?, active = ?, image_r2_key = ?, image_url = ? WHERE id = ?`,
-      )
-      .bind(
-        input.name,
-        input.emoji,
-        input.pointsRequired,
-        input.active === false ? 0 : 1,
-        null,
-        imageUrl,
-        rewardId,
-      )
-      .run();
+    if (hasKind) {
+      await db
+        .prepare(
+          `UPDATE reward_catalog SET name = ?, emoji = ?, points_required = ?, kind = ?, active = ?, image_r2_key = ?, image_url = ? WHERE id = ?`,
+        )
+        .bind(input.name, input.emoji, input.pointsRequired, kind, input.active === false ? 0 : 1, null, imageUrl, rewardId)
+        .run();
+    } else {
+      await db
+        .prepare(
+          `UPDATE reward_catalog SET name = ?, emoji = ?, points_required = ?, active = ?, image_r2_key = ?, image_url = ? WHERE id = ?`,
+        )
+        .bind(input.name, input.emoji, input.pointsRequired, input.active === false ? 0 : 1, null, imageUrl, rewardId)
+        .run();
+    }
     await writeAuditLog(db, {
       actorUserId: actorId,
       action: "reward_catalog.update",
       entityType: "reward",
       entityId: rewardId,
-      after: { name: input.name, pointsRequired: input.pointsRequired, active: input.active !== false },
+      after: { name: input.name, pointsRequired: input.pointsRequired, kind, active: input.active !== false },
     });
   } else {
-    await db
-      .prepare(
-        `INSERT INTO reward_catalog (id, name, emoji, points_required, active, image_r2_key, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(
-        rewardId,
-        input.name,
-        input.emoji,
-        input.pointsRequired,
-        input.active === false ? 0 : 1,
-        null,
-        imageUrl,
-      )
-      .run();
+    if (hasKind) {
+      await db
+        .prepare(
+          `INSERT INTO reward_catalog (id, name, emoji, points_required, kind, active, image_r2_key, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(rewardId, input.name, input.emoji, input.pointsRequired, kind, input.active === false ? 0 : 1, null, imageUrl)
+        .run();
+    } else {
+      await db
+        .prepare(
+          `INSERT INTO reward_catalog (id, name, emoji, points_required, active, image_r2_key, image_url) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(rewardId, input.name, input.emoji, input.pointsRequired, input.active === false ? 0 : 1, null, imageUrl)
+        .run();
+    }
     await writeAuditLog(db, {
       actorUserId: actorId,
       action: "reward_catalog.create",
       entityType: "reward",
       entityId: rewardId,
-      after: { name: input.name, pointsRequired: input.pointsRequired },
+      after: { name: input.name, pointsRequired: input.pointsRequired, kind },
     });
   }
 

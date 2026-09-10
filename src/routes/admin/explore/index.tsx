@@ -9,7 +9,6 @@ import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useFormat } from "@/hooks/use-format";
 import type { OrderStatus } from "@/lib/mock/distributor/types";
 import { exploreAdminData, type ExploreLevel } from "@/services/admin/reports";
@@ -30,8 +29,8 @@ function AdminExplorePage() {
   const { formatCurrency, formatNumber } = useFormat();
   const { metric, level: searchLevel, distributorId, dealerId } = Route.useSearch();
   const navigate = useNavigate();
-  const [searchInput, setSearchInput] = useState("");
-  const search = useDebouncedValue(searchInput, 350);
+  // AdminFiltersBar debounces search internally (350ms) with a focus-stable input.
+  const [search, setSearch] = useState("");
 
   const level: ExploreLevel = dealerId
     ? "orders"
@@ -110,8 +109,8 @@ function AdminExplorePage() {
         </nav>
 
         <AdminFiltersBar
-          search={searchInput}
-          onSearchChange={setSearchInput}
+          search={search}
+          onSearchChange={setSearch}
           searchPlaceholder={
             level === "orders"
               ? "Search order ID…"

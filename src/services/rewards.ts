@@ -35,17 +35,29 @@ export async function getRewardLedger() {
   return api.get<Array<{ label: string; value: number; date: string }>>("/api/v1/rewards/ledger");
 }
 
-export async function getRewardClaims() {
-  return api.get<
-    Array<{
-      id: string;
-      name: string;
-      emoji: string;
-      claimed: string;
-      status: "Delivered" | "Pending";
-      delivered?: string;
-    }>
-  >("/api/v1/rewards/claims");
+import { listRewardClaims as listRewardClaimsWorkflow } from "@/services/reward-claims";
+import type { RewardClaimStatus } from "../../shared/reward-claim-status";
+
+export type DealerRewardClaim = {
+  id: string;
+  name: string;
+  emoji: string;
+  claimed?: string;
+  status: RewardClaimStatus;
+  rejectionReason?: string;
+};
+
+/** A dealer's own reward claims, with the full workflow status (pending_approval -> delivered). */
+export async function getRewardClaims(): Promise<DealerRewardClaim[]> {
+  const res = await listRewardClaimsWorkflow({ pageSize: 50 });
+  return res.items.map((c) => ({
+    id: c.id,
+    name: c.rewardName,
+    emoji: c.emoji,
+    claimed: c.claimedAt,
+    status: c.status,
+    rejectionReason: c.rejectionReason,
+  }));
 }
 
 export async function redeemReward(rewardId: string) {

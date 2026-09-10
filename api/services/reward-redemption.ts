@@ -4,6 +4,7 @@ export async function redeemRewardClaim(
   db: D1Database,
   dealerId: string,
   reward: { id: string; name: string; emoji: string; points_required: number },
+  distributorId?: string | null,
 ) {
   const claimId = id("rc");
   const claimedAt = nowIso();
@@ -13,9 +14,12 @@ export async function redeemRewardClaim(
   const [claimResult, ledgerResult] = await db.batch([
     db
       .prepare(
+        // New claims enter the workflow at 'pending_approval' (awaiting distributor). The legacy
+        // `status` column stays 'pending' for back-compat with older reads; workflow_status is the
+        // authoritative lifecycle field. distributor_id is captured from the dealer at claim time.
         `INSERT INTO reward_claims
-           (id, dealer_id, reward_catalog_id, name, emoji, points_spent, status, claimed_at, kind)
-         SELECT ?, ?, ?, ?, ?, ?, 'pending', ?, 'standard'
+           (id, dealer_id, distributor_id, reward_catalog_id, name, emoji, points_spent, status, workflow_status, claimed_at, kind)
+         SELECT ?, ?, ?, ?, ?, ?, ?, 'pending', 'pending_approval', ?, 'standard'
          WHERE (
            SELECT COALESCE(SUM(delta), 0)
            FROM points_ledger
@@ -25,6 +29,7 @@ export async function redeemRewardClaim(
       .bind(
         claimId,
         dealerId,
+        distributorId ?? null,
         reward.id,
         reward.name,
         reward.emoji,

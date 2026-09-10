@@ -74,6 +74,10 @@
     "status": "Status",
     "customer": "Customer",
     "customerPhone": "Customer phone",
+    "customerDetails": "Customer Details",
+    "customerDetailsNotProvided": "Customer details not provided.",
+    "customerAddress": "Customer address",
+    "customerEmail": "Customer email",
     "deliveryAddress": "Delivery address",
     "deliveryDate": "Delivery date",
     "placedOn": "Placed on",
@@ -112,6 +116,16 @@
     "totalRewardPoints": "Total reward points",
     "orderTimeline": "Order Timeline",
     "rejectionReason": "Rejection reason",
+    "back": "Back",
+    "reward": "Reward",
+    "markDelivered": "Mark delivered",
+    "statusUpdated": "Status updated",
+    "claimHistory": "Claim history",
+    "claimDetails": "Claim details",
+    "rewardsInProgress": "In progress",
+    "rewardsCompleted": "Completed",
+    "noRewardsInProgress": "No claims in progress.",
+    "noCompletedRewards": "No completed claims yet.",
     "updatedBy": "Updated by {{name}}",
     "placed": "Placed",
     "orderNumber": "Order Number",
@@ -294,17 +308,17 @@
     "monthlyPerformance": "Your monthly order performance",
     "monthlyTotalsPlaceholder": "Monthly order totals will appear here once you have completed orders.",
     "rewardPointsBalance": "{{count}} reward points",
-    "additionalRewards": "Additional rewards",
-    "additionalRewardsHint": "Pick one bonus gift from lifetime points — it does not spend your regular points.",
-    "lifetimePointsChip": "{{count}} lifetime pts",
-    "lifetimePointsEarned": "{{count}} lifetime points earned",
+    "additionalRewards": "Target Based Rewards",
+    "additionalRewardsHint": "Reach a points target to unlock one bonus gift — it uses your total points earned and does not spend your regular balance.",
+    "lifetimePointsChip": "{{count}} total points earned",
+    "lifetimePointsEarned": "{{count}} total points earned",
     "additionalRewardChosen": "You chose {{emoji}} {{name}}",
     "additionalRewardsOr": "or",
     "chooseThisReward": "Choose this",
     "additionalRewardYourPick": "Your pick",
     "additionalRewardLockedChoice": "Not available — you already chose one",
-    "chooseAdditionalTitle": "Choose this additional reward?",
-    "chooseAdditionalDescription": "{{emoji}} {{name}} — {{points}} lifetime points. This does not deduct from your spendable balance.",
+    "chooseAdditionalTitle": "Choose this Target Based Reward?",
+    "chooseAdditionalDescription": "{{emoji}} {{name}} — {{points}} points target. This does not deduct from your spendable balance.",
     "yesChooseIt": "Yes, choose it",
     "helpTrackComplaints": "Track complaints & support",
     "noCampaignsSearch": "No campaigns match your search.",
@@ -459,11 +473,20 @@
     "orderPlaced": "Order Placed",
     "approved": "Approved",
     "inMaking": "In Making",
-    "outForDelivery": "Out for Delivery",
+    "outForDelivery": "Dispatched from Factory",
     "delivered": "Delivered",
     "rejected": "Rejected",
     "cancelled": "Cancelled",
     "pending": "Pending"
+  },
+  "rewardClaimStatus": {
+    "pendingApproval": "Pending Approval",
+    "approved": "Approved",
+    "processing": "Processing",
+    "dispatchedFromFactory": "Dispatched from Factory",
+    "delivered": "Delivered",
+    "rejected": "Rejected",
+    "cancelled": "Cancelled"
   },
   "complaintStatus": {
     "pending": "Pending",
@@ -533,9 +556,9 @@
       "bodyDistributor": "Order {{orderId}} for {{storeName}} is now in production"
     },
     "orderOutForDelivery": {
-      "title": "Order out for delivery",
-      "body": "Order {{orderId}} is on the way to {{storeName}}",
-      "bodyDistributor": "Order {{orderId}} for {{storeName}} is out for delivery"
+      "title": "Order Dispatched from Factory",
+      "body": "📦 Your order {{orderId}} has been dispatched from the factory and is now on its way.",
+      "bodyDistributor": "📦 Order {{orderId}} for {{storeName}} has been dispatched from the factory and is now on its way."
     },
     "orderDelivered": {
       "title": "Order delivered",
@@ -607,6 +630,12 @@
       "bodyDealer": "Your claim for {{rewardName}} has been submitted",
       "bodyStaff": "{{dealerName}} claimed {{rewardName}} ({{pointsRequired}} points)"
     },
+    "rewardClaimStatus": {
+      "title": "Reward claim {{status}}",
+      "bodyDealer": "Your claim for {{rewardName}} is now {{status}}",
+      "bodyDealerRejected": "Your claim for {{rewardName}} was rejected: {{reason}}",
+      "bodyStaff": "Claim for {{rewardName}} is now {{status}}"
+    },
     "complaintNew": {
       "title": "New complaint",
       "body": "{{dealerName}} reported an issue on order {{orderId}}"
@@ -673,7 +702,7 @@
         "pending": "Pending",
         "approved": "Approved",
         "inMaking": "In Making",
-        "outForDelivery": "Out for Delivery",
+        "outForDelivery": "Dispatched from Factory",
         "delivered": "Delivered",
         "rejected": "Rejected",
         "cancelled": "Cancelled",
@@ -861,6 +890,21 @@
       "noDealers": "No dealers",
       "noDealersDesc": "Dealers in your territory will appear here."
     },
+    "rewardClaims": {
+      "title": "Reward Claims",
+      "moreDesc": "Approve, process and deliver dealer reward claims",
+      "description": "Reward claims from your dealers — approve, then confirm delivery.",
+      "detailTitle": "Reward Claim",
+      "empty": "No reward claims",
+      "emptyDesc": "Claims from your dealers will appear here.",
+      "approveTitle": "Approve this claim?",
+      "approveDescription": "Approve the claim for {{name}} and send it to admin staff for processing.",
+      "approved": "Claim approved",
+      "deliverTitle": "Mark as delivered?",
+      "deliverDescription": "Confirm you delivered {{name}} to the dealer.",
+      "delivered": "Claim delivered",
+      "rejected": "Claim rejected"
+    },
     "complaints": {
       "title": "Complaints",
       "searchPlaceholder": "Search by ID, dealer, order or category…",
@@ -1004,8 +1048,27 @@
     "rewards": {
       "title": "Rewards",
       "description": "Manage the reward catalogue and delivery claims.",
-      "addReward": "Add reward",
-      "claims": "Claims"
+      "addReward": "Add Normal Reward",
+      "claims": "Claims",
+      "additionalRewards": "Target Based Rewards",
+      "additionalRewardsDescription": "Rewards unlocked by reaching a cumulative points target. Eligibility uses the dealer's total points earned till date and does not spend their balance.",
+      "addAdditionalReward": "Add Target Based Reward",
+      "milestoneNote": "A dealer qualifies for a Target Based Reward once their total points earned (never reduced by normal redemptions) reaches the target. Choosing one does not deduct spendable points.",
+      "typeNormal": "Normal Reward",
+      "typeTargetBased": "Target Based Reward",
+      "typeNormalHint": "Redeemed against the dealer's available balance; the required points are deducted on claim.",
+      "typeTargetBasedHint": "Unlocked by reaching a cumulative points target (total earned till date); claiming does not spend the balance.",
+      "pointsRequired": "Points required",
+      "pointsRequiredHint": "Points deducted from the dealer's available balance when they claim.",
+      "targetPoints": "Target points",
+      "targetPointsHint": "Cumulative total points the dealer must have earned to qualify (not reduced by earlier redemptions).",
+      "claimsDescription": "Reward claims across the network — approval, processing, dispatch and delivery.",
+      "distributor": "Distributor",
+      "markProcessing": "Mark processing",
+      "markProcessingDesc": "Move this approved claim into processing.",
+      "markDispatched": "Mark dispatched from factory",
+      "markDispatchedDesc": "Confirm this claim has been dispatched from the factory.",
+      "confirmTransition": "Update the status of the claim for {{name}}?"
     },
     "complaints": {
       "title": "Complaints"

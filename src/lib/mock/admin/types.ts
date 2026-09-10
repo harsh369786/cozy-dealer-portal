@@ -134,6 +134,8 @@ export type AdminRewardCatalogItem = {
   emoji: string;
   name: string;
   pointsRequired: number;
+  /** 'standard' = Normal Reward (available balance); 'milestone' = Target Based Reward (cumulative earned). */
+  kind: "standard" | "milestone";
   active: boolean;
   imageUrl?: string;
 };

@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Bell, ChevronRight, MapPin, Megaphone, MessageSquareWarning, User } from "lucide-react";
+import { BarChart3, Bell, ChevronRight, Gift, MapPin, Megaphone, MessageSquareWarning, User } from "lucide-react";
 import { DistributorShell } from "@/components/distributor-shell";
 import { PushNotificationToggle } from "@/components/shared/push-notification-toggle";
 import { useSession } from "@/hooks/use-session";
@@ -16,6 +16,12 @@ function MorePage() {
 
   const links = useMemo(() => {
     const baseLinks = [
+      {
+        to: "/distributor/reward-claims" as const,
+        label: t("distributor.rewardClaims.title"),
+        icon: Gift,
+        desc: t("distributor.rewardClaims.moreDesc"),
+      },
       {
         to: "/distributor/complaints" as const,
         label: t("nav.distributor.complaints"),

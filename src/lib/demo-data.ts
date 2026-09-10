@@ -463,7 +463,7 @@ export const orderSteps = [
   "Order Placed",
   "Approved",
   "In Making",
-  "Out for Delivery",
+  "Dispatched from Factory",
   "Delivered",
 ];
 

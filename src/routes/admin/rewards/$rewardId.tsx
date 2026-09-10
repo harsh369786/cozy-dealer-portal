@@ -97,6 +97,7 @@ function EditRewardPage() {
         onSave={handleSave}
         saving={saving}
         readOnly={readOnly}
+        lockKind
       />
 
       {!readOnly && (

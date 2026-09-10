@@ -24,7 +24,7 @@ const COPY: Record<
   first_order: {
     title: "Your order is placed — get live updates",
     description:
-      "Turn on notifications to know instantly when your order is approved, in production, out for delivery, and delivered — even when this app is closed.",
+      "Turn on notifications to know instantly when your order is approved, in production, dispatched from factory, and delivered — even when this app is closed.",
     cta: "Turn on notifications",
     icon: PackageCheck,
   },

@@ -2,11 +2,13 @@ import type { AdminRewardCatalogItem, AdminRewardClaim, ListFilters, PaginatedRe
 import { api } from "@/lib/api-client";
 
 function mapCatalog(row: Record<string, unknown>): AdminRewardCatalogItem {
+  const kind = (row.kind as string) === "milestone" ? "milestone" : "standard";
   return {
     id: row.id as string,
     emoji: row.emoji as string,
     name: row.name as string,
     pointsRequired: Number(row.pointsRequired ?? row.points_required ?? 0),
+    kind,
     active: Boolean(row.active),
     imageUrl: (row.imageUrl ?? row.image_url) as string | undefined,
   };
@@ -27,12 +29,16 @@ function mapClaim(row: Record<string, unknown>): AdminRewardClaim {
 }
 
 export async function listRewardCatalog(
-  filters: ListFilters = {},
+  filters: ListFilters & { kind?: "standard" | "milestone" } = {},
 ): Promise<PaginatedResult<AdminRewardCatalogItem>> {
   const res = await api.get<{ items: Record<string, unknown>[]; total: number; page: number; pageSize: number; totalPages: number }>(
     "/api/v1/admin/rewards",
   );
   let items = res.items.map(mapCatalog);
+  // Split Normal (standard) vs Target Based (milestone) rewards for the two admin sections.
+  if (filters.kind) {
+    items = items.filter((r) => r.kind === filters.kind);
+  }
   if (filters.search) {
     const q = filters.search.toLowerCase();
     items = items.filter((r) => r.name.toLowerCase().includes(q));
@@ -90,6 +96,7 @@ export async function saveRewardItem(item: AdminRewardCatalogItem): Promise<Admi
     name: item.name,
     emoji: item.emoji,
     pointsRequired: item.pointsRequired,
+    kind: item.kind ?? "standard",
     active: item.active,
     imageUrl: item.imageUrl ?? null,
   };

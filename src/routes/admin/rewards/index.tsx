@@ -28,8 +28,9 @@ function AdminRewardsPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
 
+  // Main catalogue lists Normal (standard) rewards. Target Based rewards live on /admin/rewards/additional.
   const { data, loading, error, retry } = useAsyncData(
-    () => listRewardCatalog({ search, page, pageSize: 10 }),
+    () => listRewardCatalog({ search, page, pageSize: 10, kind: "standard" }),
     [search, page],
   );
 
@@ -57,6 +58,11 @@ function AdminRewardsPage() {
         description={t("admin.rewards.description")}
         actions={
           <div className="flex flex-wrap gap-2">
+            <Link to="/admin/rewards/additional">
+              <Button variant="outline" className="rounded-2xl font-bold">
+                {t("admin.rewards.additionalRewards")}
+              </Button>
+            </Link>
             <Link to="/admin/rewards/claims">
               <Button variant="outline" className="rounded-2xl font-bold">
                 {t("admin.rewards.claims")}

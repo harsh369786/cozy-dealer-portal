@@ -6,6 +6,7 @@ import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
 import { AdminSection } from "@/components/admin/admin-section";
 import { ConfirmActionDialog, RejectOrderDialog } from "@/components/shared/dialogs";
+import { CustomerDetailsSection } from "@/components/shared/customer-details-section";
 import { OrderNotesPanel } from "@/components/shared/order-notes-panel";
 import { ORDER_STATUS_LABELS, OrderTimeline } from "@/components/shared/order-timeline";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -240,6 +241,8 @@ function AdminOrderDetailPage() {
           )}
         </div>
       </AdminSection>
+
+      <CustomerDetailsSection order={order} />
 
       <AdminSection title={t("distributor.orderDetail.itemsLabel")}>
         <div className="space-y-2">

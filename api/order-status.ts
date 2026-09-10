@@ -27,7 +27,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   order_placed: "Order Placed",
   approved: "Approved",
   in_making: "In Making",
-  out_for_delivery: "Out for Delivery",
+  out_for_delivery: "Dispatched from Factory",
   delivered: "Delivered",
   rejected: "Rejected",
   cancelled: "Cancelled",
@@ -109,7 +109,7 @@ export function assertStatusUpdate(user: SessionUser, from: OrderStatus, to: Ord
     throw new Error(`Your role cannot set status to ${ORDER_STATUS_LABELS[to]}`);
   }
   if (user.role === "distributor" && to === "delivered" && from !== "out_for_delivery") {
-    throw new Error("Distributors can only mark delivered when the order is out for delivery");
+    throw new Error("Distributors can only mark delivered when the order is dispatched from factory");
   }
 }
 

@@ -81,9 +81,12 @@ import { Route as DistributorDealersIndexRouteImport } from './routes/distributo
 import { Route as DistributorDealersDealerIdRouteImport } from './routes/distributor/dealers/$dealerId'
 import { Route as DistributorOrdersIndexRouteImport } from './routes/distributor/orders/index'
 import { Route as DistributorOrdersOrderIdRouteImport } from './routes/distributor/orders/$orderId'
+import { Route as DistributorRewardClaimsIndexRouteImport } from './routes/distributor/reward-claims/index'
+import { Route as DistributorRewardClaimsClaimIdRouteImport } from './routes/distributor/reward-claims/$claimId'
 import { Route as DistributorVisitsIndexRouteImport } from './routes/distributor/visits/index'
 import { Route as DistributorVisitsHistoryRouteImport } from './routes/distributor/visits/history'
 import { Route as AdminOrdersOrderIdPrintRouteImport } from './routes/admin/orders/$orderId/print'
+import { Route as AdminRewardsClaimsClaimIdRouteImport } from './routes/admin/rewards/claims.$claimId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -456,6 +459,18 @@ const DistributorOrdersOrderIdRoute =
     path: '/orders/$orderId',
     getParentRoute: () => DistributorRouteRoute,
   } as any)
+const DistributorRewardClaimsIndexRoute =
+  DistributorRewardClaimsIndexRouteImport.update({
+    id: '/reward-claims/',
+    path: '/reward-claims/',
+    getParentRoute: () => DistributorRouteRoute,
+  } as any)
+const DistributorRewardClaimsClaimIdRoute =
+  DistributorRewardClaimsClaimIdRouteImport.update({
+    id: '/reward-claims/$claimId',
+    path: '/reward-claims/$claimId',
+    getParentRoute: () => DistributorRouteRoute,
+  } as any)
 const DistributorVisitsIndexRoute = DistributorVisitsIndexRouteImport.update({
   id: '/visits/',
   path: '/visits/',
@@ -472,6 +487,12 @@ const AdminOrdersOrderIdPrintRoute = AdminOrdersOrderIdPrintRouteImport.update({
   path: '/print',
   getParentRoute: () => AdminOrdersOrderIdRoute,
 } as any)
+const AdminRewardsClaimsClaimIdRoute =
+  AdminRewardsClaimsClaimIdRouteImport.update({
+    id: '/$claimId',
+    path: '/$claimId',
+    getParentRoute: () => AdminRewardsClaimsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -515,7 +536,7 @@ export interface FileRoutesByFullPath {
   '/admin/products/new': typeof AdminProductsNewRoute
   '/admin/rewards/$rewardId': typeof AdminRewardsRewardIdRoute
   '/admin/rewards/additional': typeof AdminRewardsAdditionalRoute
-  '/admin/rewards/claims': typeof AdminRewardsClaimsRoute
+  '/admin/rewards/claims': typeof AdminRewardsClaimsRouteWithChildren
   '/admin/rewards/new': typeof AdminRewardsNewRoute
   '/admin/sales-executives/$seId': typeof AdminSalesExecutivesSeIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
@@ -525,6 +546,7 @@ export interface FileRoutesByFullPath {
   '/distributor/complaints/$complaintId': typeof DistributorComplaintsComplaintIdRoute
   '/distributor/dealers/$dealerId': typeof DistributorDealersDealerIdRoute
   '/distributor/orders/$orderId': typeof DistributorOrdersOrderIdRoute
+  '/distributor/reward-claims/$claimId': typeof DistributorRewardClaimsClaimIdRoute
   '/distributor/visits/history': typeof DistributorVisitsHistoryRoute
   '/admin/assignments/': typeof AdminAssignmentsIndexRoute
   '/admin/audit-logs/': typeof AdminAuditLogsIndexRoute
@@ -546,8 +568,10 @@ export interface FileRoutesByFullPath {
   '/distributor/dealer-visits/': typeof DistributorDealerVisitsIndexRoute
   '/distributor/dealers/': typeof DistributorDealersIndexRoute
   '/distributor/orders/': typeof DistributorOrdersIndexRoute
+  '/distributor/reward-claims/': typeof DistributorRewardClaimsIndexRoute
   '/distributor/visits/': typeof DistributorVisitsIndexRoute
   '/admin/orders/$orderId/print': typeof AdminOrdersOrderIdPrintRoute
+  '/admin/rewards/claims/$claimId': typeof AdminRewardsClaimsClaimIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -582,7 +606,7 @@ export interface FileRoutesByTo {
   '/admin/products/new': typeof AdminProductsNewRoute
   '/admin/rewards/$rewardId': typeof AdminRewardsRewardIdRoute
   '/admin/rewards/additional': typeof AdminRewardsAdditionalRoute
-  '/admin/rewards/claims': typeof AdminRewardsClaimsRoute
+  '/admin/rewards/claims': typeof AdminRewardsClaimsRouteWithChildren
   '/admin/rewards/new': typeof AdminRewardsNewRoute
   '/admin/sales-executives/$seId': typeof AdminSalesExecutivesSeIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
@@ -592,6 +616,7 @@ export interface FileRoutesByTo {
   '/distributor/complaints/$complaintId': typeof DistributorComplaintsComplaintIdRoute
   '/distributor/dealers/$dealerId': typeof DistributorDealersDealerIdRoute
   '/distributor/orders/$orderId': typeof DistributorOrdersOrderIdRoute
+  '/distributor/reward-claims/$claimId': typeof DistributorRewardClaimsClaimIdRoute
   '/distributor/visits/history': typeof DistributorVisitsHistoryRoute
   '/admin/assignments': typeof AdminAssignmentsIndexRoute
   '/admin/audit-logs': typeof AdminAuditLogsIndexRoute
@@ -613,8 +638,10 @@ export interface FileRoutesByTo {
   '/distributor/dealer-visits': typeof DistributorDealerVisitsIndexRoute
   '/distributor/dealers': typeof DistributorDealersIndexRoute
   '/distributor/orders': typeof DistributorOrdersIndexRoute
+  '/distributor/reward-claims': typeof DistributorRewardClaimsIndexRoute
   '/distributor/visits': typeof DistributorVisitsIndexRoute
   '/admin/orders/$orderId/print': typeof AdminOrdersOrderIdPrintRoute
+  '/admin/rewards/claims/$claimId': typeof AdminRewardsClaimsClaimIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -660,7 +687,7 @@ export interface FileRoutesById {
   '/admin/products/new': typeof AdminProductsNewRoute
   '/admin/rewards/$rewardId': typeof AdminRewardsRewardIdRoute
   '/admin/rewards/additional': typeof AdminRewardsAdditionalRoute
-  '/admin/rewards/claims': typeof AdminRewardsClaimsRoute
+  '/admin/rewards/claims': typeof AdminRewardsClaimsRouteWithChildren
   '/admin/rewards/new': typeof AdminRewardsNewRoute
   '/admin/sales-executives/$seId': typeof AdminSalesExecutivesSeIdRoute
   '/admin/users/$userId': typeof AdminUsersUserIdRoute
@@ -670,6 +697,7 @@ export interface FileRoutesById {
   '/distributor/complaints/$complaintId': typeof DistributorComplaintsComplaintIdRoute
   '/distributor/dealers/$dealerId': typeof DistributorDealersDealerIdRoute
   '/distributor/orders/$orderId': typeof DistributorOrdersOrderIdRoute
+  '/distributor/reward-claims/$claimId': typeof DistributorRewardClaimsClaimIdRoute
   '/distributor/visits/history': typeof DistributorVisitsHistoryRoute
   '/admin/assignments/': typeof AdminAssignmentsIndexRoute
   '/admin/audit-logs/': typeof AdminAuditLogsIndexRoute
@@ -691,8 +719,10 @@ export interface FileRoutesById {
   '/distributor/dealer-visits/': typeof DistributorDealerVisitsIndexRoute
   '/distributor/dealers/': typeof DistributorDealersIndexRoute
   '/distributor/orders/': typeof DistributorOrdersIndexRoute
+  '/distributor/reward-claims/': typeof DistributorRewardClaimsIndexRoute
   '/distributor/visits/': typeof DistributorVisitsIndexRoute
   '/admin/orders/$orderId/print': typeof AdminOrdersOrderIdPrintRoute
+  '/admin/rewards/claims/$claimId': typeof AdminRewardsClaimsClaimIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -748,6 +778,7 @@ export interface FileRouteTypes {
     | '/distributor/complaints/$complaintId'
     | '/distributor/dealers/$dealerId'
     | '/distributor/orders/$orderId'
+    | '/distributor/reward-claims/$claimId'
     | '/distributor/visits/history'
     | '/admin/assignments/'
     | '/admin/audit-logs/'
@@ -769,8 +800,10 @@ export interface FileRouteTypes {
     | '/distributor/dealer-visits/'
     | '/distributor/dealers/'
     | '/distributor/orders/'
+    | '/distributor/reward-claims/'
     | '/distributor/visits/'
     | '/admin/orders/$orderId/print'
+    | '/admin/rewards/claims/$claimId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -815,6 +848,7 @@ export interface FileRouteTypes {
     | '/distributor/complaints/$complaintId'
     | '/distributor/dealers/$dealerId'
     | '/distributor/orders/$orderId'
+    | '/distributor/reward-claims/$claimId'
     | '/distributor/visits/history'
     | '/admin/assignments'
     | '/admin/audit-logs'
@@ -836,8 +870,10 @@ export interface FileRouteTypes {
     | '/distributor/dealer-visits'
     | '/distributor/dealers'
     | '/distributor/orders'
+    | '/distributor/reward-claims'
     | '/distributor/visits'
     | '/admin/orders/$orderId/print'
+    | '/admin/rewards/claims/$claimId'
   id:
     | '__root__'
     | '/'
@@ -892,6 +928,7 @@ export interface FileRouteTypes {
     | '/distributor/complaints/$complaintId'
     | '/distributor/dealers/$dealerId'
     | '/distributor/orders/$orderId'
+    | '/distributor/reward-claims/$claimId'
     | '/distributor/visits/history'
     | '/admin/assignments/'
     | '/admin/audit-logs/'
@@ -913,8 +950,10 @@ export interface FileRouteTypes {
     | '/distributor/dealer-visits/'
     | '/distributor/dealers/'
     | '/distributor/orders/'
+    | '/distributor/reward-claims/'
     | '/distributor/visits/'
     | '/admin/orders/$orderId/print'
+    | '/admin/rewards/claims/$claimId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1440,6 +1479,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DistributorOrdersOrderIdRouteImport
       parentRoute: typeof DistributorRouteRoute
     }
+    '/distributor/reward-claims/': {
+      id: '/distributor/reward-claims/'
+      path: '/reward-claims'
+      fullPath: '/distributor/reward-claims/'
+      preLoaderRoute: typeof DistributorRewardClaimsIndexRouteImport
+      parentRoute: typeof DistributorRouteRoute
+    }
+    '/distributor/reward-claims/$claimId': {
+      id: '/distributor/reward-claims/$claimId'
+      path: '/reward-claims/$claimId'
+      fullPath: '/distributor/reward-claims/$claimId'
+      preLoaderRoute: typeof DistributorRewardClaimsClaimIdRouteImport
+      parentRoute: typeof DistributorRouteRoute
+    }
     '/distributor/visits/': {
       id: '/distributor/visits/'
       path: '/visits'
@@ -1460,6 +1513,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/orders/$orderId/print'
       preLoaderRoute: typeof AdminOrdersOrderIdPrintRouteImport
       parentRoute: typeof AdminOrdersOrderIdRoute
+    }
+    '/admin/rewards/claims/$claimId': {
+      id: '/admin/rewards/claims/$claimId'
+      path: '/$claimId'
+      fullPath: '/admin/rewards/claims/$claimId'
+      preLoaderRoute: typeof AdminRewardsClaimsClaimIdRouteImport
+      parentRoute: typeof AdminRewardsClaimsRoute
     }
   }
 }
@@ -1508,10 +1568,21 @@ const AdminProductsRouteWithChildren = AdminProductsRoute._addFileChildren(
   AdminProductsRouteChildren,
 )
 
+interface AdminRewardsClaimsRouteChildren {
+  AdminRewardsClaimsClaimIdRoute: typeof AdminRewardsClaimsClaimIdRoute
+}
+
+const AdminRewardsClaimsRouteChildren: AdminRewardsClaimsRouteChildren = {
+  AdminRewardsClaimsClaimIdRoute: AdminRewardsClaimsClaimIdRoute,
+}
+
+const AdminRewardsClaimsRouteWithChildren =
+  AdminRewardsClaimsRoute._addFileChildren(AdminRewardsClaimsRouteChildren)
+
 interface AdminRewardsRouteChildren {
   AdminRewardsRewardIdRoute: typeof AdminRewardsRewardIdRoute
   AdminRewardsAdditionalRoute: typeof AdminRewardsAdditionalRoute
-  AdminRewardsClaimsRoute: typeof AdminRewardsClaimsRoute
+  AdminRewardsClaimsRoute: typeof AdminRewardsClaimsRouteWithChildren
   AdminRewardsNewRoute: typeof AdminRewardsNewRoute
   AdminRewardsIndexRoute: typeof AdminRewardsIndexRoute
 }
@@ -1519,7 +1590,7 @@ interface AdminRewardsRouteChildren {
 const AdminRewardsRouteChildren: AdminRewardsRouteChildren = {
   AdminRewardsRewardIdRoute: AdminRewardsRewardIdRoute,
   AdminRewardsAdditionalRoute: AdminRewardsAdditionalRoute,
-  AdminRewardsClaimsRoute: AdminRewardsClaimsRoute,
+  AdminRewardsClaimsRoute: AdminRewardsClaimsRouteWithChildren,
   AdminRewardsNewRoute: AdminRewardsNewRoute,
   AdminRewardsIndexRoute: AdminRewardsIndexRoute,
 }
@@ -1622,12 +1693,14 @@ interface DistributorRouteRouteChildren {
   DistributorComplaintsComplaintIdRoute: typeof DistributorComplaintsComplaintIdRoute
   DistributorDealersDealerIdRoute: typeof DistributorDealersDealerIdRoute
   DistributorOrdersOrderIdRoute: typeof DistributorOrdersOrderIdRoute
+  DistributorRewardClaimsClaimIdRoute: typeof DistributorRewardClaimsClaimIdRoute
   DistributorVisitsHistoryRoute: typeof DistributorVisitsHistoryRoute
   DistributorCampaignsIndexRoute: typeof DistributorCampaignsIndexRoute
   DistributorComplaintsIndexRoute: typeof DistributorComplaintsIndexRoute
   DistributorDealerVisitsIndexRoute: typeof DistributorDealerVisitsIndexRoute
   DistributorDealersIndexRoute: typeof DistributorDealersIndexRoute
   DistributorOrdersIndexRoute: typeof DistributorOrdersIndexRoute
+  DistributorRewardClaimsIndexRoute: typeof DistributorRewardClaimsIndexRoute
   DistributorVisitsIndexRoute: typeof DistributorVisitsIndexRoute
 }
 
@@ -1644,12 +1717,14 @@ const DistributorRouteRouteChildren: DistributorRouteRouteChildren = {
   DistributorComplaintsComplaintIdRoute: DistributorComplaintsComplaintIdRoute,
   DistributorDealersDealerIdRoute: DistributorDealersDealerIdRoute,
   DistributorOrdersOrderIdRoute: DistributorOrdersOrderIdRoute,
+  DistributorRewardClaimsClaimIdRoute: DistributorRewardClaimsClaimIdRoute,
   DistributorVisitsHistoryRoute: DistributorVisitsHistoryRoute,
   DistributorCampaignsIndexRoute: DistributorCampaignsIndexRoute,
   DistributorComplaintsIndexRoute: DistributorComplaintsIndexRoute,
   DistributorDealerVisitsIndexRoute: DistributorDealerVisitsIndexRoute,
   DistributorDealersIndexRoute: DistributorDealersIndexRoute,
   DistributorOrdersIndexRoute: DistributorOrdersIndexRoute,
+  DistributorRewardClaimsIndexRoute: DistributorRewardClaimsIndexRoute,
   DistributorVisitsIndexRoute: DistributorVisitsIndexRoute,
 }
 

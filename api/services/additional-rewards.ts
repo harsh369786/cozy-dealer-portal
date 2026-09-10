@@ -69,6 +69,7 @@ export async function redeemAdditionalReward(
   db: D1Database,
   dealerId: string,
   reward: { id: string; name: string; emoji: string; points_required: number },
+  distributorId?: string | null,
 ) {
   const hasKind = await hasRewardKindColumn(db);
   if (!hasKind) throw new Error("Additional rewards are not available");
@@ -99,10 +100,10 @@ export async function redeemAdditionalReward(
     await db
       .prepare(
         `INSERT INTO reward_claims
-           (id, dealer_id, reward_catalog_id, name, emoji, points_spent, status, claimed_at, kind)
-         VALUES (?, ?, ?, ?, ?, 0, 'pending', ?, 'milestone')`,
+           (id, dealer_id, distributor_id, reward_catalog_id, name, emoji, points_spent, status, workflow_status, claimed_at, kind)
+         VALUES (?, ?, ?, ?, ?, ?, 0, 'pending', 'pending_approval', ?, 'milestone')`,
       )
-      .bind(claimId, dealerId, reward.id, reward.name, reward.emoji, claimedAt)
+      .bind(claimId, dealerId, distributorId ?? null, reward.id, reward.name, reward.emoji, claimedAt)
       .run();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

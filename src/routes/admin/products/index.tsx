@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useFormat } from "@/hooks/use-format";
 import { listProducts } from "@/services/admin/products";
 
@@ -23,8 +22,8 @@ function AdminProductsPage() {
   const { formatCurrency } = useFormat();
   const navigate = useNavigate();
   const { can } = useAdminPermissions();
-  const [searchInput, setSearchInput] = useState("");
-  const search = useDebouncedValue(searchInput, 350);
+  // AdminFiltersBar debounces search internally (350ms) with a focus-stable input.
+  const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
 
@@ -69,9 +68,9 @@ function AdminProductsPage() {
       />
 
       <AdminFiltersBar
-        search={searchInput}
+        search={search}
         onSearchChange={(v) => {
-          setSearchInput(v);
+          setSearch(v);
           setPage(1);
         }}
         searchPlaceholder={t("admin.products.searchPlaceholder")}

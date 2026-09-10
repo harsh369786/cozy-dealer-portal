@@ -6,12 +6,20 @@ export function AdminFiltersBar({
   search,
   onSearchChange,
   searchPlaceholder = "Search…",
+  searchDebounceMs = 350,
   children,
   className,
 }: {
   search?: string;
   onSearchChange?: (value: string) => void;
   searchPlaceholder?: string;
+  /**
+   * Debounce (ms) before onSearchChange fires. Defaults to 350ms so EVERY admin search field
+   * reports its value only after the user pauses typing — one API request per pause, not one per
+   * keystroke. The input itself updates instantly (SearchBar holds local state), so it never loses
+   * focus mid-typing. Pass 0 to report every keystroke immediately.
+   */
+  searchDebounceMs?: number;
   children?: ReactNode;
   className?: string;
 }) {
@@ -19,7 +27,12 @@ export function AdminFiltersBar({
     <div className={cn("mb-4 flex flex-col gap-3 lg:flex-row lg:items-center", className)}>
       {onSearchChange !== undefined && (
         <div className="min-w-0 flex-1 lg:max-w-sm">
-          <SearchBar value={search ?? ""} onChange={onSearchChange} placeholder={searchPlaceholder} />
+          <SearchBar
+            value={search ?? ""}
+            onChange={onSearchChange}
+            placeholder={searchPlaceholder}
+            debounceMs={searchDebounceMs}
+          />
         </div>
       )}
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}

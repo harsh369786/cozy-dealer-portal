@@ -14,15 +14,19 @@ import type { AdminRewardCatalogItem } from "@/lib/mock/admin/types";
 import { saveRewardItem } from "@/services/admin/rewards";
 
 export const Route = createFileRoute("/admin/rewards/new")({
+  validateSearch: (s: Record<string, unknown>) => ({
+    kind: s.kind === "milestone" ? ("milestone" as const) : ("standard" as const),
+  }),
   component: NewRewardPage,
 });
 
-function emptyReward(): AdminRewardCatalogItem {
+function emptyReward(kind: AdminRewardCatalogItem["kind"] = "standard"): AdminRewardCatalogItem {
   return {
     id: `rw-${Date.now()}`,
-    emoji: "🎁",
+    emoji: kind === "milestone" ? "🏆" : "🎁",
     name: "",
-    pointsRequired: 1000,
+    pointsRequired: kind === "milestone" ? 50000 : 1000,
+    kind,
     active: true,
   };
 }
@@ -33,18 +37,54 @@ export function RewardEditor({
   onSave,
   saving,
   readOnly,
+  lockKind,
 }: {
   reward: AdminRewardCatalogItem;
   onChange: (r: AdminRewardCatalogItem) => void;
   onSave: () => void;
   saving?: boolean;
   readOnly?: boolean;
+  /** When true, the reward type can't be switched (editing an existing reward keeps its type). */
+  lockKind?: boolean;
 }) {
+  const { t } = useTranslation();
   const patch = (p: Partial<AdminRewardCatalogItem>) => onChange({ ...reward, ...p });
+  const isTargetBased = reward.kind === "milestone";
 
   return (
     <AdminSection title="Reward details">
       <div className="grid max-w-lg gap-4">
+        <div>
+          <Label>Reward type</Label>
+          <div className="mt-1 flex gap-2">
+            {(
+              [
+                { value: "standard" as const, label: t("admin.rewards.typeNormal") },
+                { value: "milestone" as const, label: t("admin.rewards.typeTargetBased") },
+              ]
+            ).map((opt) => {
+              const active = reward.kind === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  disabled={readOnly || lockKind}
+                  onClick={() => patch({ kind: opt.value })}
+                  className={`rounded-xl border px-3 py-2 text-sm font-bold transition-colors ${
+                    active
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-card text-foreground hover:bg-secondary"
+                  } ${readOnly || lockKind ? "opacity-60" : ""}`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {isTargetBased ? t("admin.rewards.typeTargetBasedHint") : t("admin.rewards.typeNormalHint")}
+          </p>
+        </div>
         <div>
           <Label>Emoji</Label>
           <Input
@@ -71,7 +111,7 @@ export function RewardEditor({
           onChange={(next) => patch(next)}
         />
         <div>
-          <Label>Points required</Label>
+          <Label>{isTargetBased ? t("admin.rewards.targetPoints") : t("admin.rewards.pointsRequired")}</Label>
           <Input
             type="number"
             min={1}
@@ -80,6 +120,11 @@ export function RewardEditor({
             onChange={(e) => patch({ pointsRequired: Number(e.target.value) || 0 })}
             className="mt-1 rounded-2xl"
           />
+          <p className="mt-1 text-xs text-muted-foreground">
+            {isTargetBased
+              ? t("admin.rewards.targetPointsHint")
+              : t("admin.rewards.pointsRequiredHint")}
+          </p>
         </div>
         <div className="flex items-center justify-between rounded-2xl border border-border bg-secondary/30 px-4 py-3">
           <div>
@@ -105,7 +150,8 @@ export function RewardEditor({
 function NewRewardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const [reward, setReward] = useState(emptyReward);
+  const { kind } = Route.useSearch();
+  const [reward, setReward] = useState(() => emptyReward(kind));
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {

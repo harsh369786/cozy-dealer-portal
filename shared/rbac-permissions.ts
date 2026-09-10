@@ -13,6 +13,10 @@ export const ROLE_PERMISSIONS = {
     "campaigns:read",
     "campaigns:write",
     "rewards:read",
+    // Reward-claim workflow (separate from orders). master_admin can do any stage.
+    "rewards:approve",
+    "rewards:process",
+    "rewards:deliver",
     "complaints:read",
     "complaints:update",
     "notifications:read",
@@ -36,6 +40,8 @@ export const ROLE_PERMISSIONS = {
     "campaigns:read",
     "campaigns:write",
     "rewards:read",
+    // Admin staff processes approved claims: Approved -> Processing -> Dispatched from Factory.
+    "rewards:process",
     "complaints:read",
     "complaints:update",
     "notifications:read",
@@ -72,6 +78,9 @@ export const ROLE_PERMISSIONS = {
     "catalog:read",
     "campaigns:read",
     "rewards:read",
+    // Reward-claim workflow: distributor approves/rejects claimed rewards and confirms delivery.
+    "rewards:approve",
+    "rewards:deliver",
     "complaints:read",
     "notifications:read",
     "reports:read",

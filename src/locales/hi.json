@@ -74,6 +74,10 @@
     "status": "स्थिति",
     "customer": "ग्राहक",
     "customerPhone": "ग्राहक का फ़ोन",
+    "customerDetails": "ग्राहक विवरण",
+    "customerDetailsNotProvided": "ग्राहक विवरण उपलब्ध नहीं है।",
+    "customerAddress": "ग्राहक का पता",
+    "customerEmail": "ग्राहक का ईमेल",
     "deliveryAddress": "डिलीवरी पता",
     "deliveryDate": "डिलीवरी तिथि",
     "placedOn": "ऑर्डर दिनांक",
@@ -112,6 +116,16 @@
     "totalRewardPoints": "कुल रिवॉर्ड अंक",
     "orderTimeline": "ऑर्डर टाइमलाइन",
     "rejectionReason": "अस्वीकृति का कारण",
+    "back": "वापस",
+    "reward": "रिवॉर्ड",
+    "markDelivered": "डिलीवर के रूप में चिह्नित करें",
+    "statusUpdated": "स्थिति अपडेट हुई",
+    "claimHistory": "दावा इतिहास",
+    "claimDetails": "दावा विवरण",
+    "rewardsInProgress": "प्रगति में",
+    "rewardsCompleted": "पूर्ण",
+    "noRewardsInProgress": "कोई दावा प्रगति में नहीं।",
+    "noCompletedRewards": "अभी तक कोई पूर्ण दावा नहीं।",
     "updatedBy": "{{name}} द्वारा अपडेट किया गया",
     "placed": "दिया गया",
     "orderNumber": "ऑर्डर नंबर",
@@ -294,17 +308,17 @@
     "monthlyPerformance": "आपका मासिक ऑर्डर प्रदर्शन",
     "monthlyTotalsPlaceholder": "पूर्ण ऑर्डर होने पर मासिक ऑर्डर कुल यहाँ दिखाई देंगे।",
     "rewardPointsBalance": "{{count}} रिवॉर्ड अंक",
-    "additionalRewards": "अतिरिक्त रिवॉर्ड",
-    "additionalRewardsHint": "आजीवन अंकों से एक बोनस उपहार चुनें — नियमित अंक नहीं कटते।",
-    "lifetimePointsChip": "{{count}} आजीवन अंक",
-    "lifetimePointsEarned": "{{count}} आजीवन अंक अर्जित",
+    "additionalRewards": "टारगेट आधारित रिवॉर्ड",
+    "additionalRewardsHint": "एक अंक लक्ष्य तक पहुँचकर एक बोनस उपहार अनलॉक करें — यह आपके कुल अर्जित अंकों पर आधारित है और आपका नियमित बैलेंस नहीं कटता।",
+    "lifetimePointsChip": "{{count}} कुल अर्जित अंक",
+    "lifetimePointsEarned": "{{count}} कुल अर्जित अंक",
     "additionalRewardChosen": "आपने चुना {{emoji}} {{name}}",
     "additionalRewardsOr": "या",
     "chooseThisReward": "यह चुनें",
     "additionalRewardYourPick": "आपकी पसंद",
     "additionalRewardLockedChoice": "उपलब्ध नहीं — आप पहले ही एक चुन चुके हैं",
-    "chooseAdditionalTitle": "यह अतिरिक्त रिवॉर्ड चुनें?",
-    "chooseAdditionalDescription": "{{emoji}} {{name}} — {{points}} आजीवन अंक। खर्च योग्य बैलेंस से कटौती नहीं होगी।",
+    "chooseAdditionalTitle": "यह टारगेट आधारित रिवॉर्ड चुनें?",
+    "chooseAdditionalDescription": "{{emoji}} {{name}} — {{points}} अंक लक्ष्य। खर्च योग्य बैलेंस से कटौती नहीं होगी।",
     "yesChooseIt": "हाँ, चुनें",
     "helpTrackComplaints": "शिकायतें और सहायता ट्रैक करें",
     "noCampaignsSearch": "आपकी खोज से कोई अभियान मेल नहीं खाता।",
@@ -459,11 +473,20 @@
     "orderPlaced": "ऑर्डर दिया गया",
     "approved": "स्वीकृत",
     "inMaking": "निर्माण में",
-    "outForDelivery": "डिलीवरी के लिए निकला",
+    "outForDelivery": "फ़ैक्टरी से रवाना",
     "delivered": "डिलीवर हो गया",
     "rejected": "अस्वीकृत",
     "cancelled": "रद्द",
     "pending": "लंबित"
+  },
+  "rewardClaimStatus": {
+    "pendingApproval": "अनुमोदन लंबित",
+    "approved": "स्वीकृत",
+    "processing": "प्रोसेसिंग",
+    "dispatchedFromFactory": "फ़ैक्टरी से रवाना",
+    "delivered": "डिलीवर हो गया",
+    "rejected": "अस्वीकृत",
+    "cancelled": "रद्द"
   },
   "complaintStatus": {
     "pending": "लंबित",
@@ -533,9 +556,9 @@
       "bodyDistributor": "{{storeName}} का ऑर्डर {{orderId}} अब उत्पादन में है"
     },
     "orderOutForDelivery": {
-      "title": "ऑर्डर डिलीवरी के लिए निकला",
-      "body": "ऑर्डर {{orderId}} {{storeName}} की ओर जा रहा है",
-      "bodyDistributor": "{{storeName}} का ऑर्डर {{orderId}} डिलीवरी के लिए निकला"
+      "title": "ऑर्डर फ़ैक्टरी से रवाना",
+      "body": "📦 आपका ऑर्डर {{orderId}} फ़ैक्टरी से रवाना हो चुका है और अब रास्ते में है।",
+      "bodyDistributor": "📦 {{storeName}} का ऑर्डर {{orderId}} फ़ैक्टरी से रवाना हो चुका है और अब रास्ते में है।"
     },
     "orderDelivered": {
       "title": "ऑर्डर डिलीवर",
@@ -607,6 +630,12 @@
       "bodyDealer": "आपका {{rewardName}} क्लेम जमा हो गया",
       "bodyStaff": "{{dealerName}} ने {{rewardName}} क्लेम किया ({{pointsRequired}} अंक)"
     },
+    "rewardClaimStatus": {
+      "title": "रिवॉर्ड क्लेम {{status}}",
+      "bodyDealer": "आपका {{rewardName}} क्लेम अब {{status}} है",
+      "bodyDealerRejected": "आपका {{rewardName}} क्लेम अस्वीकृत: {{reason}}",
+      "bodyStaff": "{{rewardName}} का क्लेम अब {{status}} है"
+    },
     "complaintNew": {
       "title": "नई शिकायत",
       "body": "{{dealerName}} ने ऑर्डर {{orderId}} पर समस्या दर्ज की"
@@ -673,7 +702,7 @@
         "pending": "लंबित",
         "approved": "स्वीकृत",
         "inMaking": "निर्माण में",
-        "outForDelivery": "डिलीवरी के लिए निकला",
+        "outForDelivery": "फ़ैक्टरी से रवाना",
         "delivered": "डिलीवर",
         "rejected": "अस्वीकृत",
         "cancelled": "रद्द",
@@ -861,6 +890,21 @@
       "noDealers": "कोई डीलर नहीं",
       "noDealersDesc": "आपके क्षेत्र के डीलर यहाँ दिखाई देंगे।"
     },
+    "rewardClaims": {
+      "title": "रिवॉर्ड दावे",
+      "moreDesc": "डीलर रिवॉर्ड दावों को स्वीकृत, प्रोसेस और डिलीवर करें",
+      "description": "आपके डीलरों के रिवॉर्ड दावे — स्वीकृत करें, फिर डिलीवरी की पुष्टि करें।",
+      "detailTitle": "रिवॉर्ड दावा",
+      "empty": "कोई रिवॉर्ड दावा नहीं",
+      "emptyDesc": "आपके डीलरों के दावे यहाँ दिखाई देंगे।",
+      "approveTitle": "इस दावे को स्वीकृत करें?",
+      "approveDescription": "{{name}} के दावे को स्वीकृत करें और प्रोसेसिंग के लिए व्यवस्थापक स्टाफ को भेजें।",
+      "approved": "दावा स्वीकृत",
+      "deliverTitle": "डिलीवर के रूप में चिह्नित करें?",
+      "deliverDescription": "पुष्टि करें कि आपने {{name}} डीलर को डिलीवर कर दिया।",
+      "delivered": "दावा डिलीवर",
+      "rejected": "दावा अस्वीकृत"
+    },
     "complaints": {
       "title": "शिकायतें",
       "searchPlaceholder": "ID, डीलर, ऑर्डर या श्रेणी से खोजें…",
@@ -1004,8 +1048,27 @@
     "rewards": {
       "title": "रिवॉर्ड",
       "description": "रिवॉर्ड कैटलॉग और डिलीवरी दावे प्रबंधित करें।",
-      "addReward": "रिवॉर्ड जोड़ें",
-      "claims": "दावे"
+      "addReward": "सामान्य रिवॉर्ड जोड़ें",
+      "claims": "दावे",
+      "additionalRewards": "टारगेट आधारित रिवॉर्ड",
+      "additionalRewardsDescription": "संचयी अंक लक्ष्य तक पहुँचकर अनलॉक होने वाले रिवॉर्ड। पात्रता डीलर के अब तक के कुल अर्जित अंकों पर आधारित है और उनका बैलेंस नहीं कटता।",
+      "addAdditionalReward": "टारगेट आधारित रिवॉर्ड जोड़ें",
+      "milestoneNote": "डीलर तब टारगेट आधारित रिवॉर्ड के लिए योग्य होता है जब उसके कुल अर्जित अंक (सामान्य रिडेम्पशन से कभी कम नहीं होते) लक्ष्य तक पहुँच जाते हैं। इसे चुनने से खर्च योग्य अंक नहीं कटते।",
+      "typeNormal": "सामान्य रिवॉर्ड",
+      "typeTargetBased": "टारगेट आधारित रिवॉर्ड",
+      "typeNormalHint": "डीलर के उपलब्ध बैलेंस से रिडीम होता है; दावे पर आवश्यक अंक काट लिए जाते हैं।",
+      "typeTargetBasedHint": "संचयी अंक लक्ष्य (अब तक अर्जित कुल) तक पहुँचकर अनलॉक होता है; दावा करने पर बैलेंस नहीं कटता।",
+      "pointsRequired": "आवश्यक अंक",
+      "pointsRequiredHint": "दावा करने पर डीलर के उपलब्ध बैलेंस से काटे जाने वाले अंक।",
+      "targetPoints": "लक्ष्य अंक",
+      "targetPointsHint": "योग्य होने के लिए डीलर द्वारा अर्जित संचयी कुल अंक (पहले के रिडेम्पशन से कम नहीं होते)।",
+      "claimsDescription": "नेटवर्क भर के रिवॉर्ड दावे — अनुमोदन, प्रोसेसिंग, डिस्पैच और डिलीवरी।",
+      "distributor": "डिस्ट्रीब्यूटर",
+      "markProcessing": "प्रोसेसिंग के रूप में चिह्नित करें",
+      "markProcessingDesc": "इस स्वीकृत दावे को प्रोसेसिंग में ले जाएँ।",
+      "markDispatched": "फ़ैक्टरी से रवाना चिह्नित करें",
+      "markDispatchedDesc": "पुष्टि करें कि यह दावा फ़ैक्टरी से रवाना हो गया है।",
+      "confirmTransition": "{{name}} के दावे की स्थिति अपडेट करें?"
     },
     "complaints": {
       "title": "शिकायतें"

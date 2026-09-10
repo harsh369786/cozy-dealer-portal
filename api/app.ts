@@ -36,7 +36,6 @@ import {
   archiveRewardCatalogItem,
   getRewardCatalogItem,
   listRewardCatalogAdmin,
-  listRewardClaimsAdmin,
   saveRewardCatalogItem,
   undoRewardClaim,
   updateRewardClaimStatus,
@@ -75,7 +74,6 @@ import {
   getPushSubscriptionStatus,
   getVapidPublicKeyFromEnv,
   savePushSubscription,
-  PushSubscriptionConflictError,
 } from "./services/push-notifications";
 import { setPushEnv, resolveExecutionContext } from "./push-env";
 import {
@@ -144,6 +142,16 @@ import {
 import { mapDealerRow, mapDealerRows, loadDealerRewards, loadDealerActivity } from "./services/dealers";
 import { redeemRewardClaim } from "./services/reward-redemption";
 import { listAdditionalRewardsForDealer, redeemAdditionalReward } from "./services/additional-rewards";
+import {
+  advanceRewardClaimStatus,
+  getRewardClaimDetail,
+  listRewardClaimsScoped,
+} from "./services/reward-claims";
+import {
+  normalizeRewardClaimStatus,
+  REWARD_CLAIM_STATUSES,
+  type RewardClaimStatus,
+} from "../shared/reward-claim-status";
 import {
   coerceRewardPoints,
   getDealerPointsBalance,
@@ -1137,14 +1145,16 @@ app.post("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePer
   if (!reward) return c.json({ error: "Reward not found" }, 404);
 
   try {
-    const isMilestone = String(reward.kind ?? "standard") === "milestone";
-    const { claimId } = isMilestone
-      ? await redeemAdditionalReward(db, user.dealerId, reward)
-      : await redeemRewardClaim(db, user.dealerId, reward);
     const dealer = await db
       .prepare(`SELECT store_name, distributor_id FROM dealers WHERE id = ?`)
       .bind(user.dealerId)
       .first<{ store_name: string; distributor_id: string }>();
+    const distributorId = dealer?.distributor_id ?? null;
+
+    const isMilestone = String(reward.kind ?? "standard") === "milestone";
+    const { claimId } = isMilestone
+      ? await redeemAdditionalReward(db, user.dealerId, reward, distributorId)
+      : await redeemRewardClaim(db, user.dealerId, reward, distributorId);
 
     await notifyRewardClaim(db, {
       claimId,
@@ -1155,13 +1165,80 @@ app.post("/api/v1/rewards/claims", requireAuth, requireActiveAccount, requirePer
       pointsRequired: reward.points_required,
     });
 
-    return c.json({ id: claimId, status: "pending" }, 201);
+    return c.json({ id: claimId, status: "pending_approval" }, 201);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Redemption failed";
     if (message.includes("Insufficient") || message.includes("lifetime") || message.includes("already chose")) {
       return c.json({ error: message }, 400);
     }
     throw err;
+  }
+});
+
+// ── Reward Claim workflow (separate from Orders) ─────────────────────────────────────────────
+// One unified, role-scoped surface used by dealer / distributor / sales exec / admin / admin staff.
+// Read is gated on rewards:read (every relevant role has it); the list/detail are scoped per role
+// inside the service (dealer -> own, distributor/sales-exec -> their dealers, full-access -> all).
+// Transitions are authorized per-role inside advanceRewardClaimStatus using the shared transition
+// table, so a single endpoint safely serves distributor approve/reject/deliver and admin-staff
+// process/dispatch.
+
+app.get("/api/v1/reward-claims", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  return c.json(
+    await listRewardClaimsScoped(db, user, {
+      status: c.req.query("status"),
+      search: c.req.query("search"),
+      page: Number(c.req.query("page") ?? 1),
+      pageSize: Number(c.req.query("pageSize") ?? 20),
+    }),
+  );
+});
+
+app.get("/api/v1/reward-claims/:id", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  const detail = await getRewardClaimDetail(db, c.req.param("id"));
+  if (!detail) return c.json({ error: "Claim not found" }, 404);
+  // Authorize read by scope: dealer -> own, distributor/sales-exec -> their dealer, full-access -> any.
+  if (user.role === "dealer" && detail.dealerId !== user.dealerId) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
+  if (
+    (user.role === "distributor" || user.role === "sales_executive") &&
+    !(await canAccessDealer(db, user, detail.dealerId))
+  ) {
+    return c.json({ error: "Forbidden" }, 403);
+  }
+  return c.json(detail);
+});
+
+app.post("/api/v1/reward-claims/:id/transition", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const user = c.get("user");
+  const body = await c.req.json<{ toStatus: string; reason?: string }>();
+  const toStatus = String(body.toStatus ?? "");
+  if (!(REWARD_CLAIM_STATUSES as readonly string[]).includes(toStatus)) {
+    return c.json({ error: "Invalid target status" }, 400);
+  }
+  try {
+    const result = await advanceRewardClaimStatus(
+      db,
+      c.req.param("id"),
+      toStatus as RewardClaimStatus,
+      user,
+      { reason: body.reason },
+    );
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Transition failed";
+    // Business/validation errors -> 400; not-found -> 404; authorization -> 403.
+    if (message.includes("not found")) return c.json({ error: message }, 404);
+    if (message.includes("not allowed") || message.includes("not in your network")) {
+      return c.json({ error: message }, 403);
+    }
+    return c.json({ error: message }, 400);
   }
 });
 
@@ -1481,16 +1558,11 @@ app.post("/api/v1/notifications/push-subscribe", requireAuth, requireActiveAccou
   if (!body.endpoint || !body.keys?.p256dh || !body.keys?.auth) {
     return c.json({ error: "Invalid subscription" }, 400);
   }
-  try {
-    const row = await savePushSubscription(db, c.get("user").id, body);
-    return c.json(row, 201);
-  } catch (error) {
-    // P0-7: endpoint already owned by another account -> 403 (do not reassign it to the caller).
-    if (error instanceof PushSubscriptionConflictError) {
-      return c.json({ error: error.message }, 403);
-    }
-    throw error;
-  }
+  // Take-over upsert: the endpoint is always (re)assigned to the current user, whether it is new,
+  // already owned by this user (idempotent success), or was previously owned by another account on
+  // this same browser. No "registered to another account" rejection.
+  const row = await savePushSubscription(db, c.get("user").id, body);
+  return c.json(row, 201);
 });
 
 app.delete("/api/v1/notifications/push-subscribe", requireAuth, requireActiveAccount, requirePermission("notifications:read"), async (c) => {
@@ -2411,6 +2483,7 @@ admin.post("/rewards", requirePermission("catalog:write"), async (c) => {
     name: string;
     emoji: string;
     pointsRequired: number;
+    kind?: string;
     active?: boolean;
     imageUrl?: string | null;
   }>();
@@ -2428,6 +2501,7 @@ admin.patch("/rewards/:id", requirePermission("catalog:write"), async (c) => {
     name: string;
     emoji: string;
     pointsRequired: number;
+    kind?: string;
     active?: boolean;
     imageUrl?: string | null;
   }>();
@@ -2461,8 +2535,10 @@ admin.post("/rewards/upload-image", requirePermission("catalog:write"), async (c
 
 admin.get("/reward-claims", requirePermission("rewards:read"), async (c) => {
   const db = await getRequestDb(c);
+  // Use the role-scoped workflow list so the admin/staff claims screen reflects the full lifecycle
+  // (pending_approval -> ... -> delivered) rather than the legacy pending/delivered view.
   return c.json(
-    await listRewardClaimsAdmin(db, {
+    await listRewardClaimsScoped(db, c.get("user"), {
       status: c.req.query("status"),
       search: c.req.query("search"),
       page: Number(c.req.query("page") ?? 1),

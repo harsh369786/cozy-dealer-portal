@@ -126,6 +126,7 @@ export type DistributorOrder = {
   customerName?: string;
   customerPhone?: string;
   customerAddress?: string;
+  customerEmail?: string;
   deliveryDate?: string;
   totalItems: number;
   totalValue: number;

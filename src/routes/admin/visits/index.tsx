@@ -36,6 +36,7 @@ function AdminVisitsPage() {
   const { t } = useTranslation();
   const { formatTimestamp } = useFormat();
   const navigate = useNavigate();
+  // AdminFiltersBar debounces search internally (350ms) with a focus-stable input.
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<"all" | "active" | "completed">("all");
   const [salesExecutiveId, setSalesExecutiveId] = useState("all");
@@ -71,14 +72,17 @@ function AdminVisitsPage() {
     [search, status, salesExecutiveId, fromDate, toDate, page],
   );
 
-  const loading = listQuery.loading || summaryQuery.loading;
   const error = listQuery.error || summaryQuery.error;
   const data = listQuery.data;
   const summary = summaryQuery.data;
   const salesExecutives = optionsQuery.data?.salesExecutives ?? [];
 
-  if (loading && !data) return <PageSkeleton rows={4} />;
-  if (error || !data) {
+  // Only block the whole page on the FIRST load (no data yet). Once we have data, keep the page —
+  // including the search input — mounted while filtered results refetch, so typing never unmounts
+  // the input (which was causing focus loss and the "page refresh" feel).
+  const initialLoading = (listQuery.loading || summaryQuery.loading) && !data && !summary;
+  if (initialLoading) return <PageSkeleton rows={4} />;
+  if (error && !data) {
     return (
       <ErrorState
         message={error ?? t("errors.failedToLoadVisits")}
@@ -175,7 +179,7 @@ function AdminVisitsPage() {
       </AdminFiltersBar>
 
       <AdminDataTable
-        data={data.items}
+        data={data?.items ?? []}
         keyFn={(v) => v.id}
         onRowClick={(v) => navigate({ to: "/admin/visits/$visitId", params: { visitId: v.id } })}
         emptyTitle={t("common.noMatchingResults")}
@@ -207,7 +211,9 @@ function AdminVisitsPage() {
         ]}
       />
 
-      <AdminPagination page={data.page} totalPages={data.totalPages} onPageChange={setPage} />
+      {data && (
+        <AdminPagination page={data.page} totalPages={data.totalPages} onPageChange={setPage} />
+      )}
     </div>
   );
 }

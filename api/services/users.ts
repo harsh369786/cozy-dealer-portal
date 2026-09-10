@@ -1,5 +1,6 @@
 import { formatInLabel, id, normalizePhone, nowIso } from "../utils";
 import { writeAuditLog } from "./audit";
+import { generateDealerCode } from "./dealer-code";
 import { notifyUser, withNotificationI18n } from "./notification-events";
 import { enqueueWhatsapp } from "./whatsapp";
 import { assignPricingTier, DEFAULT_PRICING_TIER_ID } from "./pricing-tiers";
@@ -201,23 +202,6 @@ function validateRoleLinks(role: string, dealerId: string | null, distributorId:
   }
 }
 
-function slugCode(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 12);
-}
-
-async function uniqueDealerCode(db: D1Database, storeName: string) {
-  const base = slugCode(storeName) || "dealer";
-  const suffix = Date.now().toString(36).slice(-5);
-  const code = `${base}-${suffix}`;
-  const existing = await db.prepare(`SELECT id FROM dealers WHERE code = ?`).bind(code).first();
-  if (!existing) return code;
-  return `${base}-${id("d").slice(-8)}`;
-}
-
 async function createDealerStore(
   db: D1Database,
   input: {
@@ -225,11 +209,15 @@ async function createDealerStore(
     storeName: string;
     contactName: string;
     phone: string;
+    pincode?: string | null;
     ts: string;
   },
 ) {
   const dealerId = id("dlr");
-  const code = await uniqueDealerCode(db, input.storeName);
+  // Standardized dealer code: FIRST4-PINCODE (+ sequential suffix on duplicate). The admin create
+  // form does not capture a pincode today, so it falls back to the "000000" placeholder inside
+  // generateDealerCode; pass one here if/when the form starts collecting it.
+  const code = await generateDealerCode(db, input.storeName, input.pincode ?? null);
   await db
     .prepare(
       `INSERT INTO dealers (

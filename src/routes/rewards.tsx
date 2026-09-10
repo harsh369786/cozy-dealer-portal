@@ -19,7 +19,10 @@ import {
   getRewardClaims,
   getRewardLedger,
   redeemReward,
+  type DealerRewardClaim,
 } from "@/services/rewards";
+import { useRewardClaimStatusLabel, REWARD_CLAIM_STATUS_STYLES } from "@/lib/i18n-labels";
+import { normalizeRewardClaimStatus } from "../../shared/reward-claim-status";
 import i18n from "@/lib/i18n";
 
 export const Route = createFileRoute("/rewards")({
@@ -50,10 +53,8 @@ function Rewards() {
   const [celebrateReward, setCelebrateReward] = useState<{ name: string; emoji: string } | null>(null);
   const [confirmReward, setConfirmReward] = useState<{ id: string; name: string; emoji: string; points: number } | null>(null);
   const [claimLoading, setClaimLoading] = useState(false);
-  const [historyTab, setHistoryTab] = useState<"pending" | "delivered">("pending");
-  const [rewardHistory, setRewardHistory] = useState<
-    Array<{ id: string; name: string; emoji: string; claimed: string; status: string; delivered?: string }>
-  >([]);
+  const [historyTab, setHistoryTab] = useState<"active" | "completed">("active");
+  const [rewardHistory, setRewardHistory] = useState<DealerRewardClaim[]>([]);
   const [pointsHistory, setPointsHistory] = useState<Array<{ label: string; value: number; date: string }>>([]);
 
   useEffect(() => {
@@ -79,15 +80,22 @@ function Rewards() {
   const pct = summary?.pct ?? 0;
   const rewards = summary?.catalog ?? [];
 
-  const pendingRewards = useMemo(
-    () => rewardHistory.filter((c) => c.status === "pending"),
+  // "Active" = still moving through the workflow; "Completed" = delivered/rejected/cancelled.
+  const activeRewards = useMemo(
+    () =>
+      rewardHistory.filter(
+        (c) => c.status !== "delivered" && c.status !== "rejected" && c.status !== "cancelled",
+      ),
     [rewardHistory],
   );
-  const deliveredRewards = useMemo(
-    () => rewardHistory.filter((c) => c.status === "delivered"),
+  const completedRewards = useMemo(
+    () =>
+      rewardHistory.filter(
+        (c) => c.status === "delivered" || c.status === "rejected" || c.status === "cancelled",
+      ),
     [rewardHistory],
   );
-  const historyItems = historyTab === "pending" ? pendingRewards : deliveredRewards;
+  const historyItems = historyTab === "active" ? activeRewards : completedRewards;
 
   if (loading && !summary) {
     return (
@@ -244,7 +252,7 @@ function Rewards() {
 
       <Section title={t("common.rewardHistory")}>
         <div className="mb-3 flex gap-2 rounded-2xl bg-secondary p-1">
-          {(["pending", "delivered"] as const).map((tab) => (
+          {(["active", "completed"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setHistoryTab(tab)}
@@ -253,50 +261,19 @@ function Rewards() {
                 historyTab === tab ? "bg-card shadow-soft" : "text-muted-foreground",
               )}
             >
-              {tab === "pending" ? t("common.pendingRewards") : t("common.deliveredRewards")}
+              {tab === "active" ? t("common.rewardsInProgress") : t("common.rewardsCompleted")}
             </button>
           ))}
         </div>
 
         {historyItems.length === 0 ? (
           <p className="rounded-2xl border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-            {historyTab === "pending" ? t("common.noPendingRewards") : t("common.noDeliveredRewards")}
+            {historyTab === "active" ? t("common.noRewardsInProgress") : t("common.noCompletedRewards")}
           </p>
         ) : (
           <div className="space-y-3">
             {historyItems.map((claim) => (
-              <div
-                key={claim.id}
-                className="rounded-3xl border border-border bg-card p-4 shadow-soft"
-              >
-                <div className="flex items-start gap-3">
-                  <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-secondary text-xl">
-                    {claim.emoji}
-                  </span>
-                  <div className="flex-1">
-                    <p className="text-base font-bold">{claim.name}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {t("common.claimed")}: {claim.claimed}
-                    </p>
-                    <p
-                      className={cn(
-                        "mt-2 text-sm font-bold",
-                        claim.status === "delivered" ? "text-success" : "text-amber-700",
-                      )}
-                    >
-                      {t("common.status")}:{" "}
-                      {claim.status === "delivered"
-                        ? t("common.statusDelivered")
-                        : t("common.statusPendingReward")}
-                    </p>
-                    {claim.status === "delivered" && claim.delivered && (
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {t("common.deliveryDateLabel")}: {claim.delivered}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <DealerClaimCard key={claim.id} claim={claim} />
             ))}
           </div>
         )}
@@ -339,5 +316,43 @@ function Rewards() {
         }}
       />
     </AppShell>
+  );
+}
+
+function DealerClaimCard({ claim }: { claim: DealerRewardClaim }) {
+  const { t } = useTranslation();
+  const status = normalizeRewardClaimStatus(claim.status);
+  const label = useRewardClaimStatusLabel(status);
+  return (
+    <div className="rounded-3xl border border-border bg-card p-4 shadow-soft">
+      <div className="flex items-start gap-3">
+        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-secondary text-xl">
+          {claim.emoji}
+        </span>
+        <div className="flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-base font-bold">{claim.name}</p>
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide",
+                REWARD_CLAIM_STATUS_STYLES[status],
+              )}
+            >
+              {label}
+            </span>
+          </div>
+          {claim.claimed && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("common.claimed")}: {claim.claimed}
+            </p>
+          )}
+          {status === "rejected" && claim.rejectionReason && (
+            <p className="mt-2 text-sm font-semibold text-destructive">
+              {t("common.rejectionReason")}: {claim.rejectionReason}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

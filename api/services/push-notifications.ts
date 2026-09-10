@@ -7,19 +7,6 @@ export type PushSubscriptionInput = {
   keys: { p256dh: string; auth: string };
 };
 
-/**
- * P0-7: thrown when a user tries to (re)subscribe with a push endpoint that is already owned by a
- * DIFFERENT user. Route handlers map this to HTTP 403. Previously the upsert reassigned the endpoint
- * to the caller (`user_id = excluded.user_id`), letting any authenticated user hijack another user's
- * subscription row and receive their push notifications.
- */
-export class PushSubscriptionConflictError extends Error {
-  constructor(message = "This push endpoint is registered to another account.") {
-    super(message);
-    this.name = "PushSubscriptionConflictError";
-  }
-}
-
 type PushEnv = ApiEnv & {
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
@@ -89,33 +76,43 @@ export async function savePushSubscription(
   const ts = nowIso();
   const subId = id("psub");
 
-  // P0-7: an endpoint is globally unique to one browser/device. If it already exists under a
-  // DIFFERENT user, refuse (403) rather than silently reassigning it to the caller — otherwise any
-  // authenticated user could claim someone else's endpoint and start receiving their pushes.
-  const existing = await db
-    .prepare(`SELECT user_id FROM push_subscriptions WHERE endpoint = ?`)
-    .bind(input.endpoint)
-    .first<{ user_id: string }>();
-  if (existing && existing.user_id !== userId) {
-    throw new PushSubscriptionConflictError();
-  }
-
-  // Upsert keyed on the unique endpoint. The endpoint is either new or already owned by THIS user
-  // (guaranteed by the check above + the guarded ON CONFLICT), so re-subscribing only refreshes the
-  // encryption keys / timestamp — ownership (user_id) is never reassigned to a different account.
+  // A push endpoint is globally unique to ONE browser/device install (the browser mints it and it
+  // is only ever known to that browser). So an endpoint arriving under a new authenticated user
+  // means the same physical browser is now being used by a different account (e.g. Distributor A
+  // logged out and Distributor B logged in on the shared machine). The correct behaviour is a
+  // TAKE-OVER: reassign the endpoint to the current user rather than rejecting it.
+  //
+  // Reassignment is safe because a caller cannot obtain someone else's endpoint token without
+  // physical access to that browser — there is nothing to "steal" remotely. Ownership is a 1:1
+  // (endpoint -> current user) mapping enforced by the UNIQUE(endpoint) constraint: the ON CONFLICT
+  // update always sets user_id = excluded.user_id, so the previous owner is detached automatically.
+  //
+  // One user CAN own many endpoints (multiple devices/browsers) — those have different endpoints,
+  // so they each get their own row and are never collapsed by this upsert.
   const row = await db
     .prepare(
       `INSERT INTO push_subscriptions (id, user_id, endpoint, p256dh, auth, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(endpoint) DO UPDATE SET
+         user_id = excluded.user_id,
          p256dh = excluded.p256dh,
          auth = excluded.auth,
          updated_at = excluded.updated_at
-       WHERE push_subscriptions.user_id = excluded.user_id
        RETURNING id`,
     )
     .bind(subId, userId, input.endpoint, input.keys.p256dh, input.keys.auth, ts, ts)
     .first<{ id: string }>();
+
+  // When the endpoint was reassigned to this user, any stale delivery-health counters from the
+  // previous owner would be misleading, so reset them for a clean state on the new account.
+  await db
+    .prepare(
+      `UPDATE push_subscriptions SET last_attempt_at = NULL, last_status = NULL, failure_count = 0
+       WHERE endpoint = ? AND updated_at = ? AND created_at <> ?`,
+    )
+    .bind(input.endpoint, ts, ts)
+    .run();
+
   return { id: row?.id ?? subId };
 }
 
@@ -363,4 +360,71 @@ function pushEndpointHost(endpoint: string): string {
   } catch {
     return "unknown";
   }
+}
+
+/**
+ * Cron safety-net: re-attempt push for recently-created UNREAD notifications that were likely not
+ * delivered. The primary path sends push in the background the instant createNotification runs, but
+ * a Worker can occasionally be torn down before the background waitUntil finishes, or a transient
+ * 429/5xx/network error can drop a delivery. This sweep re-sends those so a real event always
+ * reaches the device without the app being opened (requirement: server-driven delivery + retry).
+ *
+ * Scope is deliberately tight to avoid spam / re-notifying already-delivered devices:
+ *  - only notifications created in the last `windowMinutes` (default 30),
+ *  - only recipients who currently have at least one push subscription whose last SUCCESSFUL
+ *    delivery is missing or older than the notification (i.e. this notification hasn't demonstrably
+ *    landed on that device yet),
+ *  - bounded to `limit` notifications per run.
+ * sendPushForNotifications itself prunes dead endpoints and records status, so invalid tokens are
+ * cleaned up here too. The SW keys the OS notification on notificationId, so a re-send that a device
+ * already showed collapses onto the same tag rather than duplicating.
+ */
+export async function retryRecentPushNotifications(
+  env: PushEnv,
+  windowMinutes = 30,
+  limit = 100,
+): Promise<PushSendResult> {
+  const privateJwk = getPrivateJwk(env);
+  if (!privateJwk) return { attempted: 0, succeeded: 0, statuses: [], skipped: "no VAPID key" };
+
+  const db = env.DB;
+  const { results } = await db
+    .prepare(
+      `SELECT n.id, n.recipient_user_id, n.category, n.type, n.title, n.body, n.link
+       FROM notifications n
+       WHERE n.read = 0
+         AND n.created_at >= datetime('now', ?)
+         AND EXISTS (
+           SELECT 1 FROM push_subscriptions s
+           WHERE s.user_id = n.recipient_user_id
+             AND (s.last_attempt_at IS NULL OR s.last_attempt_at < n.created_at OR s.last_status IS NULL OR s.last_status < 200 OR s.last_status >= 300)
+         )
+       ORDER BY n.created_at DESC
+       LIMIT ?`,
+    )
+    .bind(`-${Math.max(1, Math.round(windowMinutes))} minutes`, Math.max(1, Math.min(500, limit)))
+    .all<{
+      id: string;
+      recipient_user_id: string;
+      category: string;
+      type: string;
+      title: string;
+      body: string;
+      link: string | null;
+    }>();
+
+  if (!results.length) return { attempted: 0, succeeded: 0, statuses: [] };
+
+  const notifications: CreatedNotification[] = results.map((r) => ({
+    id: r.id,
+    recipientUserId: r.recipient_user_id,
+    category: r.category,
+    type: r.type,
+    title: r.title,
+    body: r.body,
+    link: r.link ?? undefined,
+  }));
+
+  console.log(`[push] retry sweep: re-attempting ${notifications.length} recent unread notification(s)`);
+  return sendPushForNotifications(env, notifications);
 }

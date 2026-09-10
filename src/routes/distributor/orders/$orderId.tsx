@@ -5,6 +5,7 @@ import { CheckCircle2, MapPin, PackageCheck, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { DistributorShell } from "@/components/distributor-shell";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { CustomerDetailsSection } from "@/components/shared/customer-details-section";
 import { OrderNotesPanel } from "@/components/shared/order-notes-panel";
 import { OrderTimeline } from "@/components/shared/order-timeline";
 import { ConfirmActionDialog, RejectOrderDialog } from "@/components/shared/dialogs";
@@ -180,14 +181,10 @@ function OrderDetailPage() {
                 </a>
               </div>
             )}
-            {order.customerName && (
-              <div className="col-span-2">
-                <p className="text-muted-foreground">{t("common.customer")}</p>
-                <p className="font-semibold">{order.customerName}</p>
-              </div>
-            )}
           </div>
         </div>
+
+        <CustomerDetailsSection order={order} />
 
         <OrderNotesPanel orderNotes={order.notes} items={order.items} />
 

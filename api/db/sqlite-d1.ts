@@ -228,6 +228,18 @@ export function applyPendingDevMigrations(db: Database.Database, root: string) {
       file: "0042_campaign_products.sql",
       applied: () => hasTable(db, "price_campaign_products"),
     },
+    {
+      file: "0043_whatsapp_outbox_gupshup.sql",
+      applied: () => hasColumn(db, "whatsapp_outbox", "reference_id"),
+    },
+    {
+      file: "0044_dealer_code_legacy.sql",
+      applied: () => hasColumn(db, "dealers", "legacy_code"),
+    },
+    {
+      file: "0045_reward_claim_workflow.sql",
+      applied: () => hasColumn(db, "reward_claims", "workflow_status"),
+    },
   ];
 
   for (const migration of laterStructural) {

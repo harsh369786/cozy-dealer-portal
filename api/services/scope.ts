@@ -86,7 +86,12 @@ export type ReportScope =
   | { allowed: false };
 
 export async function resolveReportScope(_db: D1Database, user: SessionUser): Promise<ReportScope> {
-  if (user.role === "admin_staff") return { allowed: false };
+  // Every role that reaches here has already passed the reports:read permission gate. Scoping is
+  // then applied per-role by appendUserDealerScopeSql (full-access roles -> no filter; distributor/
+  // sales_executive/dealer -> their own dealers). admin_staff is a full-access role
+  // (isFullAccessRole), so it must be allowed here just like master_admin / sales_head — otherwise
+  // the report endpoints 403 and the admin_staff dashboard shows ₹0 sales even though the data
+  // exists and the SUM(total_value) query would return the correct network-wide total.
   return { allowed: true, user };
 }
 

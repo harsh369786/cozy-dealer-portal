@@ -335,8 +335,8 @@ export async function notifyOrderStatusChange(
       dealer: {
         category: "orders",
         type: "order_out_for_delivery",
-        title: "Order out for delivery",
-        body: `Order ${orderId} is on the way to ${store}`,
+        title: "Order Dispatched from Factory",
+        body: `📦 Your order ${orderId} has been dispatched from the factory and is now on its way.`,
         link: dealerLink,
         ...withNotificationI18n(
           "notifications.orderOutForDelivery.title",
@@ -347,8 +347,8 @@ export async function notifyOrderStatusChange(
       distributor: {
         category: "orders",
         type: "order_out_for_delivery",
-        title: "Order out for delivery",
-        body: `Order ${orderId} for ${store} is out for delivery`,
+        title: "Order Dispatched from Factory",
+        body: `📦 Order ${orderId} for ${store} has been dispatched from the factory and is now on its way.`,
         link: distLink,
         ...withNotificationI18n(
           "notifications.orderOutForDelivery.title",
@@ -583,6 +583,96 @@ export async function notifyRewardClaim(
       },
     ),
   });
+}
+
+/**
+ * Notify all concerned parties when a reward CLAIM changes workflow status. Mirrors the order
+ * status-change pattern: dealer always; distributor when relevant; operational admins for stages
+ * they act on. Rejection includes the mandatory reason. Reward claims are independent of orders.
+ */
+export async function notifyRewardClaimStatusChange(
+  db: D1Database,
+  input: {
+    claimId: string;
+    dealerId: string;
+    distributorId?: string | null;
+    rewardName: string;
+    toStatus: string;
+    statusLabel: string;
+    reason?: string;
+    actorUserId?: string;
+  },
+) {
+  const { claimId, dealerId, distributorId, rewardName, toStatus, statusLabel, reason, actorUserId } = input;
+  const dealerLink = "/rewards";
+  const distLink = `/distributor/reward-claims/${claimId}`;
+  const adminLink = `/admin/rewards/claims/${claimId}`;
+  const reasonSuffix = reason ? `: ${reason}` : "";
+
+  // Dealer always hears about their claim's progress.
+  await notifyDealerUsers(
+    db,
+    dealerId,
+    {
+      category: "system",
+      type: "reward_claim_status",
+      title: `Reward claim ${statusLabel}`,
+      body:
+        toStatus === "rejected"
+          ? `Your claim for ${rewardName} was rejected${reasonSuffix}`
+          : `Your claim for ${rewardName} is now ${statusLabel}`,
+      link: dealerLink,
+      ...withNotificationI18n(
+        "notifications.rewardClaimStatus.title",
+        toStatus === "rejected"
+          ? "notifications.rewardClaimStatus.bodyDealerRejected"
+          : "notifications.rewardClaimStatus.bodyDealer",
+        { rewardName, status: statusLabel, ...(reason ? { reason } : {}) },
+      ),
+    },
+    actorUserId,
+  );
+
+  // Distributor: relevant when they need to approve (pending_approval already notified at creation),
+  // when admin dispatches (they then deliver), and on the outcomes they didn't perform.
+  if (distributorId) {
+    await notifyDistributorsForOrg(
+      db,
+      distributorId,
+      {
+        category: "system",
+        type: "reward_claim_status",
+        title: `Reward claim ${statusLabel}`,
+        body: `Claim for ${rewardName} is now ${statusLabel}${reasonSuffix}`,
+        link: distLink,
+        ...withNotificationI18n(
+          "notifications.rewardClaimStatus.title",
+          "notifications.rewardClaimStatus.bodyStaff",
+          { rewardName, status: statusLabel, ...(reason ? { reason } : {}) },
+        ),
+      },
+      actorUserId,
+    );
+  }
+
+  // Operational admins / admin staff track the whole pipeline (esp. approved -> process/dispatch).
+  await notifyOperationalAdmins(
+    db,
+    "rewards:read",
+    {
+      category: "system",
+      type: "reward_claim_status",
+      title: `Reward claim ${statusLabel}`,
+      body: `Claim for ${rewardName} is now ${statusLabel}${reasonSuffix}`,
+      link: adminLink,
+      ...withNotificationI18n(
+        "notifications.rewardClaimStatus.title",
+        "notifications.rewardClaimStatus.bodyStaff",
+        { rewardName, status: statusLabel, ...(reason ? { reason } : {}) },
+      ),
+    },
+    actorUserId,
+  );
 }
 
 export async function notifyComplaintCreated(

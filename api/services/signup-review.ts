@@ -1,6 +1,7 @@
 import { formatInLabel, id, nowIso } from "../utils";
 import type { SessionUser } from "../types";
 import { writeAuditLog } from "./audit";
+import { generateDealerCode } from "./dealer-code";
 import { notifySalesExecutive, notifySignupRejected, notifyUser, withNotificationI18n } from "./notification-events";
 import { displayLocation } from "./pincodes";
 
@@ -61,23 +62,6 @@ async function validateSalesExecutiveId(db: D1Database, userId: string | null | 
     .bind(userId)
     .first();
   if (!row) throw new Error("Sales executive not found");
-}
-
-function slugCode(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 12);
-}
-
-async function uniqueDealerCode(db: D1Database, storeName: string) {
-  const base = slugCode(storeName) || "dealer";
-  const suffix = Date.now().toString(36).slice(-5);
-  let code = `${base}-${suffix}`;
-  const existing = await db.prepare(`SELECT id FROM dealers WHERE code = ?`).bind(code).first();
-  if (!existing) return code;
-  return `${base}-${id("d").slice(-8)}`;
 }
 
 function locationFromAddress(address: string) {
@@ -213,7 +197,6 @@ export async function reviewSignupApplication(
       await validateSalesExecutiveId(db, input.salesExecutiveUserId ?? null);
 
       dealerId = id("dlr");
-      const code = await uniqueDealerCode(db, app.store_name as string);
       // Structured location captured at signup (pincode master). Fall back to the legacy
       // address-derived string for the free-text `location` when a structured area is absent
       // (e.g. applications created before pincode capture existed), so display never breaks.
@@ -222,6 +205,9 @@ export async function reviewSignupApplication(
       const district = (app.district as string) ?? null;
       const area = (app.area as string) ?? null;
       const location = displayLocation({ area, district, state }) || locationFromAddress(app.address as string);
+      // Standardized dealer code: FIRST4-PINCODE (+ sequential suffix on duplicate). Uses the
+      // dealer's actual pincode captured at signup.
+      const code = await generateDealerCode(db, app.store_name as string, pincode);
 
       stmts.push(
         db

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Gift, HelpCircle, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app-shell";
+import { CustomerDetailsSection } from "@/components/shared/customer-details-section";
 import { OrderNotesPanel } from "@/components/shared/order-notes-panel";
 import { OrderTimeline } from "@/components/shared/order-timeline";
 import { StatusBadge } from "@/components/shared/status-badge";
@@ -335,14 +336,8 @@ function DealerOrderDetail() {
           </div>
         )}
 
-        {order.customerName && (
-          <div className="rounded-2xl border border-border bg-card p-4 text-sm">
-            <p className="font-semibold text-muted-foreground">{t("common.customer")}</p>
-            <p className="mt-1 font-bold">{order.customerName}</p>
-            {order.customerPhone && (
-              <p className="text-muted-foreground">{order.customerPhone}</p>
-            )}
-          </div>
+        {(order.customerName || order.customerPhone || order.customerAddress || order.customerEmail) && (
+          <CustomerDetailsSection order={order} />
         )}
 
         <div>

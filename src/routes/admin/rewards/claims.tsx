@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -23,13 +23,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
-import {
-  listRewardClaims,
-  markClaimDelivered,
-  markClaimPending,
-  undoRewardClaim,
-} from "@/services/admin/rewards";
+import { useRewardClaimStatusLabel, REWARD_CLAIM_STATUS_STYLES } from "@/lib/i18n-labels";
+import { normalizeRewardClaimStatus } from "../../../../shared/reward-claim-status";
+import { listRewardClaims, transitionRewardClaim } from "@/services/reward-claims";
 import {
   deleteSystemNotification,
   listSystemNotifications,
@@ -40,18 +36,30 @@ export const Route = createFileRoute("/admin/rewards/claims")({
   component: RewardClaimsPage,
 });
 
+const STATUS_TABS = [
+  "all",
+  "pending_approval",
+  "approved",
+  "processing",
+  "dispatched_from_factory",
+  "delivered",
+  "rejected",
+] as const;
+
 function RewardClaimsPage() {
   const { t } = useTranslation();
-  const { can, isMasterAdmin } = useAdminPermissions();
-  const [searchInput, setSearchInput] = useState("");
-  const search = useDebouncedValue(searchInput, 350);
-  const [status, setStatus] = useState<"all" | "pending" | "delivered">("all");
+  const navigate = useNavigate();
+  const { can } = useAdminPermissions();
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<(typeof STATUS_TABS)[number]>("all");
   const [page, setPage] = useState(1);
-  const [deliverId, setDeliverId] = useState<string | null>(null);
-  const [undoId, setUndoId] = useState<string | null>(null);
   const [loadingAction, setLoadingAction] = useState(false);
+  const [processId, setProcessId] = useState<string | null>(null);
+  const [dispatchId, setDispatchId] = useState<string | null>(null);
   const [editNotif, setEditNotif] = useState<{ id: string; title: string; body: string } | null>(null);
   const [deleteNotifId, setDeleteNotifId] = useState<string | null>(null);
+
+  const canProcess = can("rewards:process");
 
   const notifQuery = useAsyncData(async () => {
     try {
@@ -62,35 +70,19 @@ function RewardClaimsPage() {
   }, []);
 
   const { data, loading, error, retry } = useAsyncData(
-    () => listRewardClaims({ search, status, page, pageSize: 10 }),
+    () => listRewardClaims({ search, status: status === "all" ? "all" : status, page, pageSize: 10 }),
     [search, status, page],
   );
 
-  const handleDeliver = async () => {
-    if (!deliverId) return;
+  const advance = async (id: string, to: "processing" | "dispatched_from_factory", clear: () => void) => {
     setLoadingAction(true);
     try {
-      await markClaimDelivered(deliverId);
-      toast.success(t("common.statusDelivered"));
-      setDeliverId(null);
+      await transitionRewardClaim(id, to);
+      toast.success(t("common.statusUpdated"));
+      clear();
       retry();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("errors.saveFailed"));
-    } finally {
-      setLoadingAction(false);
-    }
-  };
-
-  const handleUndo = async () => {
-    if (!undoId) return;
-    setLoadingAction(true);
-    try {
-      const res = await undoRewardClaim(undoId);
-      toast.success(`${res.pointsReturned.toLocaleString("en-IN")} points returned to dealer`);
-      setUndoId(null);
-      retry();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Undo failed");
     } finally {
       setLoadingAction(false);
     }
@@ -102,19 +94,19 @@ function RewardClaimsPage() {
   return (
     <div>
       <AdminPageHeader
-        title="Reward claims"
-        description="Redeemed rewards — pending delivery and completed claims."
+        title={t("admin.rewards.claims")}
+        description={t("admin.rewards.claimsDescription")}
         actions={
           <Link to="/admin/rewards">
-            <Button variant="outline" className="rounded-lg font-bold">← Catalogue</Button>
+            <Button variant="outline" className="rounded-lg font-bold">← {t("admin.rewards.title")}</Button>
           </Link>
         }
       />
 
       <AdminFiltersBar
-        search={searchInput}
+        search={search}
         onSearchChange={(v) => {
-          setSearchInput(v);
+          setSearch(v);
           setPage(1);
         }}
         searchPlaceholder="Search by dealer or reward…"
@@ -125,17 +117,14 @@ function RewardClaimsPage() {
             setStatus(v as typeof status);
             setPage(1);
           }}
-          tabs={[
-            { value: "all", label: "All claims" },
-            { value: "pending", label: "Pending" },
-            { value: "delivered", label: "Delivered" },
-          ]}
+          tabs={STATUS_TABS.map((s) => ({ value: s, label: s === "all" ? t("common.all") : REWARD_CLAIM_STATUS_LABEL(s) }))}
         />
       </AdminFiltersBar>
 
       <AdminDataTable
         data={data?.items ?? []}
         keyFn={(c) => c.id}
+        onRowClick={(c) => navigate({ to: "/admin/rewards/claims/$claimId", params: { claimId: c.id } })}
         emptyTitle="No claims found"
         columns={[
           { key: "dealer", header: "Dealer", cell: (c) => c.dealerName },
@@ -152,43 +141,45 @@ function RewardClaimsPage() {
           {
             key: "status",
             header: "Status",
-            cell: (c) => (
-              <Badge variant={c.status === "delivered" ? "secondary" : "default"} className="capitalize">
-                {c.status}
-              </Badge>
-            ),
+            cell: (c) => <ClaimStatusBadge status={c.status} />,
           },
           {
             key: "action",
             header: "",
-            cell: (c) => (
-              <div className="flex flex-wrap gap-1">
-                {c.status === "pending" && isMasterAdmin ? (
-                  <Button size="sm" className="rounded-lg font-bold" onClick={() => setDeliverId(c.id)}>
-                    Mark delivered
-                  </Button>
-                ) : c.status === "delivered" && isMasterAdmin ? (
+            cell: (c) => {
+              if (!canProcess) return null;
+              const s = normalizeRewardClaimStatus(c.status);
+              // Admin staff processes an approved claim then dispatches it from the factory.
+              if (s === "approved") {
+                return (
                   <Button
                     size="sm"
-                    variant="outline"
                     className="rounded-lg font-bold"
-                    onClick={() => void markClaimPending(c.id).then(retry)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setProcessId(c.id);
+                    }}
                   >
-                    Mark pending
+                    {t("admin.rewards.markProcessing")}
                   </Button>
-                ) : null}
-                {isMasterAdmin && (
+                );
+              }
+              if (s === "processing") {
+                return (
                   <Button
                     size="sm"
-                    variant="destructive"
                     className="rounded-lg font-bold"
-                    onClick={() => setUndoId(c.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDispatchId(c.id);
+                    }}
                   >
-                    Undo claim
+                    {t("admin.rewards.markDispatched")}
                   </Button>
-                )}
-              </div>
-            ),
+                );
+              }
+              return null;
+            },
           },
         ]}
       />
@@ -235,24 +226,23 @@ function RewardClaimsPage() {
       </AdminSection>
 
       <ConfirmActionDialog
-        open={!!deliverId}
-        onOpenChange={(o) => !o && setDeliverId(null)}
-        title="Mark as delivered?"
-        description="Confirm that this reward has been delivered to the dealer."
-        confirmLabel="Mark delivered"
-        onConfirm={handleDeliver}
+        open={!!processId}
+        onOpenChange={(o) => !o && setProcessId(null)}
+        title={t("admin.rewards.markProcessing")}
+        description={t("admin.rewards.markProcessingDesc")}
+        confirmLabel={t("admin.rewards.markProcessing")}
         loading={loadingAction}
+        onConfirm={() => processId && advance(processId, "processing", () => setProcessId(null))}
       />
 
       <ConfirmActionDialog
-        open={!!undoId}
-        onOpenChange={(o) => !o && setUndoId(null)}
-        title="Undo this claim?"
-        description="Points will be returned to the dealer and the claim will be removed."
-        confirmLabel="Undo claim"
-        onConfirm={handleUndo}
+        open={!!dispatchId}
+        onOpenChange={(o) => !o && setDispatchId(null)}
+        title={t("admin.rewards.markDispatched")}
+        description={t("admin.rewards.markDispatchedDesc")}
+        confirmLabel={t("admin.rewards.markDispatched")}
         loading={loadingAction}
-        variant="destructive"
+        onConfirm={() => dispatchId && advance(dispatchId, "dispatched_from_factory", () => setDispatchId(null))}
       />
 
       <Dialog open={!!editNotif} onOpenChange={(o) => !o && setEditNotif(null)}>
@@ -336,4 +326,19 @@ function RewardClaimsPage() {
       />
     </div>
   );
+}
+
+function ClaimStatusBadge({ status }: { status: string }) {
+  const s = normalizeRewardClaimStatus(status);
+  const label = useRewardClaimStatusLabel(s);
+  return (
+    <Badge className={`${REWARD_CLAIM_STATUS_STYLES[s]} border-0 font-bold`}>{label}</Badge>
+  );
+}
+
+// Non-hook English fallback for the filter tab labels (AdminFilterTabs takes plain strings).
+import { REWARD_CLAIM_STATUS_LABELS } from "../../../../shared/reward-claim-status";
+function REWARD_CLAIM_STATUS_LABEL(status: string): string {
+  const s = normalizeRewardClaimStatus(status);
+  return REWARD_CLAIM_STATUS_LABELS[s];
 }

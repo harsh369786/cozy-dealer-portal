@@ -1,6 +1,7 @@
 import { getDatabase } from "../api/db/get-db";
 import { dispatchPendingWhatsapp, scanPendingOrderReminders } from "../api/services/whatsapp";
 import { dispatchScheduledAnnouncements } from "../api/services/system-notifications-admin";
+import { retryRecentPushNotifications } from "../api/services/push-notifications";
 import { effectiveEnv } from "../api/app";
 import { setPushEnv, resolveExecutionContext } from "../api/push-env";
 import type { ApiEnv } from "../api/types";
@@ -39,6 +40,10 @@ export async function handleCron(env: ApiEnv, ctx?: ExecutionContext) {
     ["scanPendingOrderReminders", () => scanPendingOrderReminders(db)],
     ["dispatchScheduledAnnouncements", () => dispatchScheduledAnnouncements(db)],
     ["dispatchPendingWhatsapp", () => dispatchPendingWhatsapp(db, merged)],
+    // Safety-net: re-attempt push for recent unread notifications that weren't demonstrably
+    // delivered (torn-down background send / transient 429/5xx). Server-driven, so the device
+    // gets the alert without opening the app. No-op when VAPID keys are unset.
+    ["retryRecentPushNotifications", () => retryRecentPushNotifications(merged)],
   ];
   for (const [name, run] of steps) {
     try {

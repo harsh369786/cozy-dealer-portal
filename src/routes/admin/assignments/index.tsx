@@ -28,7 +28,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
 import type { SignupApplication } from "@/lib/mock/admin/types";
 import type { UserRole } from "@/lib/mock/distributor/types";
@@ -86,8 +85,8 @@ function AdminAssignmentsPage() {
     }
   }, [permissionsLoading, canReviewSignups, canReadAssignments, activeTab, navigate, signupId]);
 
-  const [searchInput, setSearchInput] = useState("");
-  const search = useDebouncedValue(searchInput, 350);
+  // AdminFiltersBar debounces search internally (350ms) with a focus-stable input.
+  const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [distributorFilter, setDistributorFilter] = useState<string>("all");
   const [seFilter, setSeFilter] = useState<string>("all");
@@ -388,7 +387,7 @@ function AdminAssignmentsPage() {
             ) : null}
           </div>
 
-          <AdminFiltersBar search={searchInput} onSearchChange={(v) => { setSearchInput(v); setPage(1); }} />
+          <AdminFiltersBar search={search} onSearchChange={(v) => { setSearch(v); setPage(1); }} />
 
           <AdminDataTable
             data={signupResult.items ?? []}
@@ -671,9 +670,9 @@ function AdminAssignmentsPage() {
         )}
 
         <AdminFiltersBar
-          search={searchInput}
+          search={search}
           onSearchChange={(v) => {
-            setSearchInput(v);
+            setSearch(v);
             setPage(1);
           }}
           searchPlaceholder="Search dealers…"

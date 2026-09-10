@@ -65,7 +65,7 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   order_placed: "Order Placed",
   approved: "Approved",
   in_making: "In Making",
-  out_for_delivery: "Out for Delivery",
+  out_for_delivery: "Dispatched from Factory",
   delivered: "Delivered",
   rejected: "Rejected",
   cancelled: "Cancelled",

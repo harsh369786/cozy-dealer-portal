@@ -170,7 +170,7 @@ function statusLabel(status: string): string {
     approved: "Approved",
     in_making: "In Making",
     in_production: "In Making",
-    out_for_delivery: "Out for Delivery",
+    out_for_delivery: "Dispatched from Factory",
     delivered: "Delivered",
     rejected: "Rejected",
   };

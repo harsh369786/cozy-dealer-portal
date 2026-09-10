@@ -77,7 +77,7 @@ function AdditionalRewardsAdminPage() {
         columns={[
           { key: "emoji", header: "", cell: (r) => <span className="text-xl">{r.emoji}</span> },
           { key: "name", header: t("admin.rewards.title"), cell: (r) => <span className="font-bold">{r.name}</span> },
-          { key: "points", header: t("common.points"), cell: (r) => formatNumber(r.pointsRequired) },
+          { key: "points", header: t("admin.rewards.targetPoints"), cell: (r) => formatNumber(r.pointsRequired) },
           {
             key: "active",
             header: t("common.active"),

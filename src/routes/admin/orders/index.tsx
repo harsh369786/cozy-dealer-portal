@@ -8,7 +8,6 @@ import { AdminPagination } from "@/components/admin/admin-pagination";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
-import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useFormat } from "@/hooks/use-format";
 import { orderStatusKey } from "@/lib/i18n-labels";
 import type { OrderStatus } from "@/lib/mock/distributor/types";
@@ -26,8 +25,8 @@ function AdminOrdersPage() {
   const { formatCurrency, formatTimestamp } = useFormat();
   const navigate = useNavigate();
   const { status: statusFromUrl } = Route.useSearch();
-  const [searchInput, setSearchInput] = useState("");
-  const search = useDebouncedValue(searchInput, 350);
+  // AdminFiltersBar debounces search internally (350ms) with a focus-stable input.
+  const [search, setSearch] = useState("");
   const [status, setStatus] = useState<OrderStatus | "all">(statusFromUrl ?? "all");
   const [page, setPage] = useState(1);
 
@@ -70,9 +69,9 @@ function AdminOrdersPage() {
       <AdminPageHeader title={t("admin.orders.title")} description={t("admin.orders.description")} />
 
       <AdminFiltersBar
-        search={searchInput}
+        search={search}
         onSearchChange={(v) => {
-          setSearchInput(v);
+          setSearch(v);
           setPage(1);
         }}
         searchPlaceholder={t("common.searchOrders")}

@@ -56,6 +56,29 @@ export function useVisitStatusLabel(status: "active" | "completed") {
   return t(`visitStatus.${status}`);
 }
 
+import {
+  REWARD_CLAIM_STATUS_I18N,
+  normalizeRewardClaimStatus,
+  type RewardClaimStatus,
+} from "../../shared/reward-claim-status";
+
+export function useRewardClaimStatusLabel(status: string) {
+  const { t } = useTranslation();
+  const s = normalizeRewardClaimStatus(status);
+  return t(REWARD_CLAIM_STATUS_I18N[s]);
+}
+
+/** Tailwind badge classes per reward-claim status (mirrors the order badge palette). */
+export const REWARD_CLAIM_STATUS_STYLES: Record<RewardClaimStatus, string> = {
+  pending_approval: "bg-amber-100 text-amber-900",
+  approved: "bg-emerald-100 text-emerald-900",
+  processing: "bg-blue-100 text-blue-900",
+  dispatched_from_factory: "bg-violet-100 text-violet-900",
+  delivered: "bg-secondary text-secondary-foreground",
+  rejected: "bg-red-100 text-red-900",
+  cancelled: "bg-red-100 text-red-900",
+};
+
 /** Map timeline event status to order status label when possible. */
 export function useTimelineEventLabel(event: { label: string; status?: string }) {
   const { t } = useTranslation();
