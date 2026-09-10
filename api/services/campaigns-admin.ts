@@ -73,7 +73,11 @@ function isActiveStatus(status: string, startDate: string, endDate: string) {
   return isCampaignLive(status, startDate, endDate);
 }
 
-async function sendCampaignNotifications(db: D1Database, campaign: AdminCampaignRow) {
+async function sendCampaignNotifications(
+  db: D1Database,
+  campaign: AdminCampaignRow,
+  env?: { WHATSAPP_QUEUE?: Queue },
+) {
   if (campaign.status === "expired") return;
   if (campaign.status !== "active" && campaign.status !== "upcoming") return;
 
@@ -85,6 +89,86 @@ async function sendCampaignNotifications(db: D1Database, campaign: AdminCampaign
     discountPercent: campaign.discountPercent,
     distributorId: campaign.distributorId ?? null,
   });
+
+  // WhatsApp "campaign_live" broadcast — best-effort, only to the audience the campaign targets.
+  // Never throws (enqueueWhatsapp swallows). Each recipient gets a per-recipient referenceId so the
+  // dedup index makes a re-publish/re-activate a no-op per recipient without collapsing all
+  // recipients into one row.
+  try {
+    await sendCampaignWhatsapp(db, campaign, env ?? {});
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[whatsapp] campaign broadcast failed for ${campaign.id}: ${message}`);
+  }
+}
+
+/**
+ * Enqueue the campaign_live WhatsApp to the campaign's dealer/distributor audience. Mirrors the
+ * in-app recipient resolution in notifyCampaignPublished but selects phones. Gated on the campaign's
+ * whatsappTargetDealers / whatsappTargetDistributors flags. Distributor-scoped when the campaign
+ * belongs to one distributor, else all active dealers/distributors.
+ */
+async function sendCampaignWhatsapp(
+  db: D1Database,
+  campaign: AdminCampaignRow,
+  env: { WHATSAPP_QUEUE?: Queue },
+) {
+  const { enqueueWhatsapp } = await import("./whatsapp");
+  const distributorId = campaign.distributorId ?? null;
+
+  const phones: string[] = [];
+  if (campaign.whatsappTargetDealers) {
+    const rows = distributorId
+      ? await db
+          .prepare(
+            `SELECT u.phone FROM users u
+             JOIN dealers d ON d.id = u.dealer_id
+             WHERE d.distributor_id = ? AND u.role = 'dealer' AND u.status = 'active' AND u.deleted_at IS NULL
+               AND u.phone IS NOT NULL AND u.phone != ''`,
+          )
+          .bind(distributorId)
+          .all<{ phone: string }>()
+      : await db
+          .prepare(
+            `SELECT phone FROM users
+             WHERE role = 'dealer' AND status = 'active' AND deleted_at IS NULL
+               AND phone IS NOT NULL AND phone != ''`,
+          )
+          .all<{ phone: string }>();
+    for (const r of rows.results) phones.push(r.phone);
+  }
+  if (campaign.whatsappTargetDistributors) {
+    const rows = distributorId
+      ? await db
+          .prepare(
+            `SELECT phone FROM users
+             WHERE distributor_id = ? AND role = 'distributor' AND status = 'active' AND deleted_at IS NULL
+               AND phone IS NOT NULL AND phone != ''`,
+          )
+          .bind(distributorId)
+          .all<{ phone: string }>()
+      : await db
+          .prepare(
+            `SELECT phone FROM users
+             WHERE role = 'distributor' AND status = 'active' AND deleted_at IS NULL
+               AND phone IS NOT NULL AND phone != ''`,
+          )
+          .all<{ phone: string }>();
+    for (const r of rows.results) phones.push(r.phone);
+  }
+
+  // De-dup phones within this broadcast, then enqueue one row each with a per-recipient referenceId.
+  const seen = new Set<string>();
+  for (const phone of phones) {
+    if (!phone || seen.has(phone)) continue;
+    seen.add(phone);
+    await enqueueWhatsapp(db, env, {
+      toPhone: phone,
+      templateKey: "campaign_live",
+      payload: {},
+      referenceId: `${campaign.id}:${phone}`,
+    });
+  }
 }
 
 function mapCampaign(
@@ -375,7 +459,12 @@ async function validateCampaignInput(
   }
 }
 
-export async function createCampaign(db: D1Database, input: CampaignInput, actorUserId: string) {
+export async function createCampaign(
+  db: D1Database,
+  input: CampaignInput,
+  actorUserId: string,
+  env?: { WHATSAPP_QUEUE?: Queue },
+) {
   if (!input.name?.trim()) throw new Error("Campaign name is required");
 
   // Full target set (multi-product). The legacy product_id column holds the FIRST product (or NULL
@@ -427,7 +516,7 @@ export async function createCampaign(db: D1Database, input: CampaignInput, actor
     after: created,
   });
   if (created) {
-    await sendCampaignNotifications(db, created);
+    await sendCampaignNotifications(db, created, env);
     await db
       .prepare(`UPDATE price_campaigns SET notifications_sent_at = ? WHERE id = ?`)
       .bind(nowIso(), campaignId)
@@ -525,7 +614,12 @@ async function shouldSendCampaignNotifications(notificationsSentAt: string | nul
   return new Date(notificationsSentAt).getTime() < hourAgo;
 }
 
-export async function activateAdminCampaign(db: D1Database, campaignId: string, actorUserId: string) {
+export async function activateAdminCampaign(
+  db: D1Database,
+  campaignId: string,
+  actorUserId: string,
+  env?: { WHATSAPP_QUEUE?: Queue },
+) {
   const before = await loadCampaign(db, campaignId);
   if (!before) throw new Error("Campaign not found");
 
@@ -549,7 +643,7 @@ export async function activateAdminCampaign(db: D1Database, campaignId: string, 
     after,
   });
   if (after && shouldSendCampaignNotifications(row?.notifications_sent_at)) {
-    await sendCampaignNotifications(db, after);
+    await sendCampaignNotifications(db, after, env);
     await db
       .prepare(`UPDATE price_campaigns SET notifications_sent_at = ? WHERE id = ?`)
       .bind(nowIso(), campaignId)
@@ -563,8 +657,10 @@ export async function saveAdminCampaign(
   input: Record<string, unknown>,
   actorUserId: string,
   existingId?: string,
+  env?: { WHATSAPP_QUEUE?: Queue },
 ) {
   const payload = input as CampaignInput;
+  // updateCampaign does NOT broadcast (only create/activate do), so env isn't needed for it.
   if (existingId) return updateCampaign(db, existingId, payload, actorUserId);
-  return createCampaign(db, payload, actorUserId);
+  return createCampaign(db, payload, actorUserId, env);
 }

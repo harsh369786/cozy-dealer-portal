@@ -1,17 +1,22 @@
 import type { D1Database } from "@cloudflare/workers-types";
+import type { ApiEnv } from "../types";
 
-export type OtpProvider = {
-  sendOtp(phone: string, code: string): Promise<void>;
-};
-
-export class MockOtpProvider implements OtpProvider {
-  async sendOtp(phone: string, code: string) {
-    console.info(`[otp:mock] ${phone} → ${code}`);
-  }
-}
-
-export function getOtpProvider(): OtpProvider {
-  return new MockOtpProvider();
+/**
+ * Deliver the login OTP. The SAME code stored/validated by the app is sent — never a second OTP.
+ * Delivery goes through the existing WhatsApp outbox (Gupshup `otp_for_login` template) so it shares
+ * the one Gupshup client, is durable, and retries via the queue. If Gupshup isn't configured the
+ * outbox row simply stays pending (nothing is sent) — login still works (demo/mock uses code 123456).
+ *
+ * The OTP value is NEVER written to logs. No referenceId is set (OTP has no stable entity + is capped
+ * by the OTP phone rate limiter), so it's excluded from the dedup index.
+ */
+async function deliverOtp(db: D1Database, env: ApiEnv | undefined, phone: string, code: string) {
+  const { enqueueWhatsapp } = await import("./whatsapp");
+  await enqueueWhatsapp(db, env ?? {}, {
+    toPhone: phone,
+    templateKey: "otp_for_login",
+    payload: { otp: code },
+  });
 }
 
 export async function generateOtpCode(env?: {
@@ -29,11 +34,7 @@ export async function generateOtpCode(env?: {
   return String(100000 + (random[0]! % 900000));
 }
 
-export async function requestOtp(
-  db: D1Database,
-  phone: string,
-  env?: { MOCK_OTP?: string; DEMO_LOGINS_ENABLED?: string; ENVIRONMENT?: string },
-) {
+export async function requestOtp(db: D1Database, phone: string, env?: ApiEnv) {
   const { normalizePhone, sha256, id, nowIso, OTP_TTL_MINUTES } = await import("../utils");
   const normalized = normalizePhone(phone);
   const code = await generateOtpCode(env);
@@ -50,8 +51,9 @@ export async function requestOtp(
     .bind(challengeId, normalized, await sha256(code), expires)
     .run();
 
-  const provider = getOtpProvider();
-  await provider.sendOtp(normalized, code);
+  // Send the SAME code via WhatsApp (Gupshup otp_for_login). Best-effort: enqueueWhatsapp never
+  // throws, so a WhatsApp failure never blocks login. The OTP value is not logged.
+  await deliverOtp(db, env, normalized, code);
   return { challengeId, expiresAt: expires };
 }
 

@@ -68,6 +68,19 @@ export type ApiEnv = {
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   VAPID_SUBJECT?: string;
+  // Gupshup WhatsApp (all optional — when GUPSHUP_API_KEY is unset, WhatsApp sending is skipped and
+  // business operations proceed normally). API key is a SECRET; the rest are plain config/vars.
+  GUPSHUP_API_KEY?: string;
+  GUPSHUP_API_BASE_URL?: string; // default https://api.gupshup.io
+  GUPSHUP_SOURCE?: string; // WhatsApp business number, digits only (e.g. 918451945853)
+  GUPSHUP_SRC_NAME?: string; // Gupshup app name (e.g. Backrest)
+  GUPSHUP_TEMPLATE_LANG?: string; // template language code, default en
+  GUPSHUP_TEMPLATE_ID_OTP?: string;
+  GUPSHUP_TEMPLATE_ID_ORDER_PLACED?: string;
+  GUPSHUP_TEMPLATE_ID_ORDER_REJECTED?: string;
+  GUPSHUP_TEMPLATE_ID_ORDER_DELIVERED?: string;
+  GUPSHUP_TEMPLATE_ID_CAMPAIGN_LIVE?: string;
+  WHATSAPP_TEST_PHONE?: string; // designated test recipient for the template test endpoint
   Bindings?: ApiEnv;
 };
 

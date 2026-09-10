@@ -14,6 +14,7 @@ import {
   LogOut,
   MapPin,
   Megaphone,
+  MessageCircle,
   Package,
   ScrollText,
   Shield,
@@ -88,6 +89,7 @@ const NAV_ITEMS: Array<{
   },
   { to: "/admin/reports", labelKey: "nav.admin.reports", icon: BarChart3, permission: "reports:read" },
   { to: "/admin/notifications", labelKey: "nav.admin.notifications", icon: Bell, permission: "notifications:read" },
+  { to: "/admin/whatsapp", labelKey: "nav.admin.whatsapp", icon: MessageCircle, permission: "settings:read" },
   { to: "/admin/audit-logs", labelKey: "nav.admin.auditLogs", icon: ScrollText, permission: "audit:read" },
 ];
 

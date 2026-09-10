@@ -71,6 +71,7 @@ import { Route as AdminUsersUserIdRouteImport } from './routes/admin/users/$user
 import { Route as AdminUsersNewRouteImport } from './routes/admin/users/new'
 import { Route as AdminVisitsIndexRouteImport } from './routes/admin/visits/index'
 import { Route as AdminVisitsVisitIdRouteImport } from './routes/admin/visits/$visitId'
+import { Route as AdminWhatsappIndexRouteImport } from './routes/admin/whatsapp/index'
 import { Route as DistributorCampaignsIndexRouteImport } from './routes/distributor/campaigns/index'
 import { Route as DistributorCampaignsCampaignIdRouteImport } from './routes/distributor/campaigns/$campaignId'
 import { Route as DistributorComplaintsIndexRouteImport } from './routes/distributor/complaints/index'
@@ -398,6 +399,11 @@ const AdminVisitsVisitIdRoute = AdminVisitsVisitIdRouteImport.update({
   path: '/visits/$visitId',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminWhatsappIndexRoute = AdminWhatsappIndexRouteImport.update({
+  id: '/whatsapp/',
+  path: '/whatsapp/',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const DistributorCampaignsIndexRoute =
   DistributorCampaignsIndexRouteImport.update({
     id: '/campaigns/',
@@ -534,6 +540,7 @@ export interface FileRoutesByFullPath {
   '/admin/sales-executives/': typeof AdminSalesExecutivesIndexRoute
   '/admin/users/': typeof AdminUsersIndexRoute
   '/admin/visits/': typeof AdminVisitsIndexRoute
+  '/admin/whatsapp/': typeof AdminWhatsappIndexRoute
   '/distributor/campaigns/': typeof DistributorCampaignsIndexRoute
   '/distributor/complaints/': typeof DistributorComplaintsIndexRoute
   '/distributor/dealer-visits/': typeof DistributorDealerVisitsIndexRoute
@@ -600,6 +607,7 @@ export interface FileRoutesByTo {
   '/admin/sales-executives': typeof AdminSalesExecutivesIndexRoute
   '/admin/users': typeof AdminUsersIndexRoute
   '/admin/visits': typeof AdminVisitsIndexRoute
+  '/admin/whatsapp': typeof AdminWhatsappIndexRoute
   '/distributor/campaigns': typeof DistributorCampaignsIndexRoute
   '/distributor/complaints': typeof DistributorComplaintsIndexRoute
   '/distributor/dealer-visits': typeof DistributorDealerVisitsIndexRoute
@@ -677,6 +685,7 @@ export interface FileRoutesById {
   '/admin/sales-executives/': typeof AdminSalesExecutivesIndexRoute
   '/admin/users/': typeof AdminUsersIndexRoute
   '/admin/visits/': typeof AdminVisitsIndexRoute
+  '/admin/whatsapp/': typeof AdminWhatsappIndexRoute
   '/distributor/campaigns/': typeof DistributorCampaignsIndexRoute
   '/distributor/complaints/': typeof DistributorComplaintsIndexRoute
   '/distributor/dealer-visits/': typeof DistributorDealerVisitsIndexRoute
@@ -754,6 +763,7 @@ export interface FileRouteTypes {
     | '/admin/sales-executives/'
     | '/admin/users/'
     | '/admin/visits/'
+    | '/admin/whatsapp/'
     | '/distributor/campaigns/'
     | '/distributor/complaints/'
     | '/distributor/dealer-visits/'
@@ -820,6 +830,7 @@ export interface FileRouteTypes {
     | '/admin/sales-executives'
     | '/admin/users'
     | '/admin/visits'
+    | '/admin/whatsapp'
     | '/distributor/campaigns'
     | '/distributor/complaints'
     | '/distributor/dealer-visits'
@@ -896,6 +907,7 @@ export interface FileRouteTypes {
     | '/admin/sales-executives/'
     | '/admin/users/'
     | '/admin/visits/'
+    | '/admin/whatsapp/'
     | '/distributor/campaigns/'
     | '/distributor/complaints/'
     | '/distributor/dealer-visits/'
@@ -1358,6 +1370,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminVisitsVisitIdRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/whatsapp/': {
+      id: '/admin/whatsapp/'
+      path: '/whatsapp'
+      fullPath: '/admin/whatsapp/'
+      preLoaderRoute: typeof AdminWhatsappIndexRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/distributor/campaigns/': {
       id: '/distributor/campaigns/'
       path: '/campaigns'
@@ -1558,6 +1577,7 @@ interface AdminRouteRouteChildren {
   AdminReportsIndexRoute: typeof AdminReportsIndexRoute
   AdminSalesExecutivesIndexRoute: typeof AdminSalesExecutivesIndexRoute
   AdminVisitsIndexRoute: typeof AdminVisitsIndexRoute
+  AdminWhatsappIndexRoute: typeof AdminWhatsappIndexRoute
 }
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
@@ -1582,6 +1602,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminReportsIndexRoute: AdminReportsIndexRoute,
   AdminSalesExecutivesIndexRoute: AdminSalesExecutivesIndexRoute,
   AdminVisitsIndexRoute: AdminVisitsIndexRoute,
+  AdminWhatsappIndexRoute: AdminWhatsappIndexRoute,
 }
 
 const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(

@@ -81,33 +81,96 @@ async function addTimelineEvent(
     .run();
 }
 
-function buildOrderWhatsappPayload(
+/** Split a stored size string like `73.25" × 66"` (or `73.25 x 66`) into its length/width parts. */
+function splitSize(size: string | null | undefined): { length: string; width: string } {
+  const raw = String(size ?? "").trim();
+  if (!raw) return { length: "", width: "" };
+  const parts = raw.split(/[×xX*]/).map((p) => p.trim()).filter(Boolean);
+  return { length: parts[0] ?? "", width: parts[1] ?? "" };
+}
+
+/** Turn stored free_items JSON (or legacy text) into a readable "2 Fiber pillows, 1 wedge pillow". */
+function formatFreeItemsText(value: unknown): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((item) => {
+          if (typeof item === "string") return item.trim();
+          if (item && typeof item === "object") {
+            const row = item as { label?: string; quantity?: number };
+            const label = String(row.label ?? "").trim();
+            if (!label) return "";
+            const qty = Math.max(1, Number(row.quantity) || 1);
+            return `${qty} × ${label}`;
+          }
+          return "";
+        })
+        .filter(Boolean)
+        .join(", ");
+    }
+  } catch {
+    // already a plain display string
+  }
+  return raw;
+}
+
+/**
+ * Assemble the flat WhatsApp template payload for an order (used by placed / rejected / delivered).
+ * Reads the actual DB rows so template variables are never invented. Orders in this app have a
+ * single line item. `name` is the dealer contact/store; `placedBy` is the salesperson if chosen,
+ * else the placing user's name. The template registry (shared/whatsapp-templates.ts) picks the
+ * subset of these fields each template needs, in order.
+ */
+async function buildOrderWhatsappPayload(
+  db: D1Database,
   orderId: string,
-  order: {
-    totalValue: number;
-    totalItems: number;
-    items: Array<{
-      model: string;
-      size: string;
-      thickness: string;
-      quantity: number;
-      mrp: number;
-      dealerPrice: number;
-      campaignPrice?: number | null;
-    }>;
-  },
-) {
+  extra?: { reason?: string },
+): Promise<Record<string, unknown> | null> {
+  const order = await db
+    .prepare(
+      `SELECT o.id, o.total_items, o.rejection_reason, o.salesperson_id, o.placed_by_user_id,
+              d.contact_name AS dealer_contact, d.store_name AS dealer_store,
+              sp.name AS salesperson_name, pu.name AS placed_by_name
+       FROM orders o
+       JOIN dealers d ON d.id = o.dealer_id
+       LEFT JOIN salespeople sp ON sp.id = o.salesperson_id
+       LEFT JOIN users pu ON pu.id = o.placed_by_user_id
+       WHERE o.id = ? AND o.deleted_at IS NULL`,
+    )
+    .bind(orderId)
+    .first<Record<string, unknown>>();
+  if (!order) return null;
+
+  const item = await db
+    .prepare(
+      `SELECT product_name, size_requested, size_standard, thickness, quantity, perma,
+              free_items, points_earned
+       FROM order_items WHERE order_id = ? LIMIT 1`,
+    )
+    .bind(orderId)
+    .first<Record<string, unknown>>();
+
+  const sizeStr = (item?.size_requested as string) ?? (item?.size_standard as string) ?? "";
+  const { length, width } = splitSize(sizeStr);
+  const qty = Number(item?.quantity ?? order.total_items ?? 1) || 1;
+  const points = Number(item?.points_earned ?? 0) || 0;
+
   return {
-    orderId,
-    total: order.totalValue,
-    totalItems: order.totalItems,
-    items: order.items.map((i) => ({
-      model: i.model,
-      size: i.size,
-      thickness: i.thickness,
-      quantity: i.quantity,
-      price: i.campaignPrice ?? i.dealerPrice,
-    })),
+    name: (order.dealer_contact as string) ?? (order.dealer_store as string) ?? "",
+    model: (item?.product_name as string) ?? "",
+    orderNo: orderId,
+    length,
+    width,
+    thickness: (item?.thickness as string) ?? "",
+    farma: item?.perma ? "Yes" : "No",
+    quantity: `${qty} Piece`,
+    freeScheme: formatFreeItemsText(item?.free_items),
+    rewardPoints: `${points} Points`,
+    placedBy: (order.salesperson_name as string) || (order.placed_by_name as string) || "",
+    reason: extra?.reason ?? (order.rejection_reason as string) ?? "",
   };
 }
 
@@ -262,11 +325,15 @@ export async function createOrder(
 
   const order = await getOrderById(db, orderId);
   if (order && dealer.phone) {
-    await enqueueWhatsapp(db, env, {
-      toPhone: dealer.phone,
-      templateKey: "order_placed",
-      payload: buildOrderWhatsappPayload(orderId, order),
-    });
+    const payload = await buildOrderWhatsappPayload(db, orderId);
+    if (payload) {
+      await enqueueWhatsapp(db, env, {
+        toPhone: dealer.phone,
+        templateKey: "mattress_order_placed",
+        payload,
+        referenceId: orderId,
+      });
+    }
   }
 
   return order;
@@ -324,12 +391,16 @@ export async function rejectOrder(
     .bind(orderId)
     .first<{ phone: string }>();
 
-  if (dealer) {
-    await enqueueWhatsapp(db, env, {
-      toPhone: dealer.phone,
-      templateKey: "order_rejected",
-      payload: { orderId, reason },
-    });
+  if (dealer?.phone) {
+    const payload = await buildOrderWhatsappPayload(db, orderId, { reason });
+    if (payload) {
+      await enqueueWhatsapp(db, env, {
+        toPhone: dealer.phone,
+        templateKey: "mattress_order_rejection",
+        payload,
+        referenceId: orderId,
+      });
+    }
   }
 
   return getOrderById(db, orderId);
@@ -533,25 +604,16 @@ async function handleOrderDelivered(
     .bind(order.dealer_id)
     .first<{ phone: string; store_name: string }>();
 
-  if (dealer) {
-    const whatsappOrder = {
-      totalValue: Number(order.total_value ?? 0),
-      totalItems: Number(order.total_items ?? items.results.length),
-      items: items.results.map((item) => ({
-        model: item.product_name,
-        size: item.size_standard ?? item.size_requested ?? "",
-        thickness: item.thickness,
-        quantity: item.quantity,
-        mrp: item.mrp,
-        dealerPrice: item.dealer_price,
-        campaignPrice: item.campaign_price,
-      })),
-    };
-    await enqueueWhatsapp(db, env, {
-      toPhone: dealer.phone,
-      templateKey: "order_delivered",
-      payload: buildOrderWhatsappPayload(orderId, whatsappOrder),
-    });
+  if (dealer?.phone) {
+    const payload = await buildOrderWhatsappPayload(db, orderId);
+    if (payload) {
+      await enqueueWhatsapp(db, env, {
+        toPhone: dealer.phone,
+        templateKey: "mattress_delivered",
+        payload,
+        referenceId: orderId,
+      });
+    }
   }
 
   return creditedPoints;

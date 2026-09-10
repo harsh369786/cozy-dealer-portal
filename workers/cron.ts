@@ -1,5 +1,5 @@
 import { getDatabase } from "../api/db/get-db";
-import { scanPendingOrderReminders } from "../api/services/whatsapp";
+import { dispatchPendingWhatsapp, scanPendingOrderReminders } from "../api/services/whatsapp";
 import { dispatchScheduledAnnouncements } from "../api/services/system-notifications-admin";
 import { effectiveEnv } from "../api/app";
 import { setPushEnv, resolveExecutionContext } from "../api/push-env";
@@ -38,6 +38,7 @@ export async function handleCron(env: ApiEnv, ctx?: ExecutionContext) {
     ["purgeExpiredSessions", () => purgeExpiredSessions(db)],
     ["scanPendingOrderReminders", () => scanPendingOrderReminders(db)],
     ["dispatchScheduledAnnouncements", () => dispatchScheduledAnnouncements(db)],
+    ["dispatchPendingWhatsapp", () => dispatchPendingWhatsapp(db, merged)],
   ];
   for (const [name, run] of steps) {
     try {

@@ -28,6 +28,18 @@ crons = ["*/15 * * * *"]
 [vars]
 ENVIRONMENT = "development"
 ALLOWED_ORIGINS = ""
+# Gupshup WhatsApp — non-secret config (API key is a SECRET set via `wrangler secret put GUPSHUP_API_KEY`).
+# Template IDs are the Gupshup template UUIDs; fill with the approved template IDs from the console.
+GUPSHUP_API_BASE_URL = "https://api.gupshup.io"
+GUPSHUP_SOURCE = ""
+GUPSHUP_SRC_NAME = "Backrest"
+GUPSHUP_TEMPLATE_LANG = "en"
+GUPSHUP_TEMPLATE_ID_OTP = ""
+GUPSHUP_TEMPLATE_ID_ORDER_PLACED = ""
+GUPSHUP_TEMPLATE_ID_ORDER_REJECTED = ""
+GUPSHUP_TEMPLATE_ID_ORDER_DELIVERED = ""
+GUPSHUP_TEMPLATE_ID_CAMPAIGN_LIVE = ""
+WHATSAPP_TEST_PHONE = ""
 
 [[ratelimits]]
 name = "OTP_IP_RATE_LIMITER"
@@ -76,6 +88,16 @@ max_batch_timeout = 30
 [env.production.vars]
 ENVIRONMENT = "production"
 ALLOWED_ORIGINS = ""
+GUPSHUP_API_BASE_URL = "https://api.gupshup.io"
+GUPSHUP_SOURCE = ""
+GUPSHUP_SRC_NAME = "Backrest"
+GUPSHUP_TEMPLATE_LANG = "en"
+GUPSHUP_TEMPLATE_ID_OTP = ""
+GUPSHUP_TEMPLATE_ID_ORDER_PLACED = ""
+GUPSHUP_TEMPLATE_ID_ORDER_REJECTED = ""
+GUPSHUP_TEMPLATE_ID_ORDER_DELIVERED = ""
+GUPSHUP_TEMPLATE_ID_CAMPAIGN_LIVE = ""
+WHATSAPP_TEST_PHONE = ""
 
 [[env.production.ratelimits]]
 name = "OTP_IP_RATE_LIMITER"

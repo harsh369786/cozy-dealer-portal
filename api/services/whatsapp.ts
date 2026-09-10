@@ -1,39 +1,284 @@
 import { id, nowIso } from "../utils";
+import type { ApiEnv } from "../types";
+import {
+  businessEventForTemplate,
+  formatGupshupPhone,
+  getTemplateDef,
+} from "../../shared/whatsapp-templates";
+import { isGupshupConfigured, sendGupshupTemplate } from "./gupshup";
 
+/**
+ * Queue a WhatsApp message into the durable outbox. The actual Gupshup send happens later in
+ * processWhatsappOutbox (queue consumer / internal endpoint), so a send failure NEVER blocks the
+ * business operation that enqueued it.
+ *
+ * Idempotency: when a stable `referenceId` is provided (order id / campaign id), the row is inserted
+ * with `INSERT OR IGNORE` against the UNIQUE(reference_id, template_key) index (migration 0043) — so
+ * re-enqueuing the same event for the same entity (retry, re-fired status, re-saved campaign) is a
+ * no-op and can't send a duplicate. OTP has no referenceId (capped by the OTP phone rate limiter).
+ *
+ * This function is intentionally best-effort and must not throw into its caller: any DB error here
+ * is swallowed so order/campaign/OTP flows always succeed.
+ */
 export async function enqueueWhatsapp(
   db: D1Database,
   env: { WHATSAPP_QUEUE?: Queue },
-  input: { toPhone: string; templateKey: string; payload: Record<string, unknown> },
+  input: {
+    toPhone: string;
+    templateKey: string;
+    payload: Record<string, unknown>;
+    referenceId?: string | null;
+    businessEvent?: string | null;
+  },
 ) {
-  const outboxId = id("wa");
-  await db
-    .prepare(
-      `INSERT INTO whatsapp_outbox (id, to_phone, template_key, payload, status, scheduled_at) VALUES (?, ?, ?, ?, 'pending', ?)`,
-    )
-    .bind(outboxId, input.toPhone, input.templateKey, JSON.stringify(input.payload), nowIso())
-    .run();
+  try {
+    const outboxId = id("wa");
+    const businessEvent = input.businessEvent ?? businessEventForTemplate(input.templateKey);
+    const result = await db
+      .prepare(
+        `INSERT OR IGNORE INTO whatsapp_outbox
+           (id, to_phone, template_key, payload, status, scheduled_at, reference_id, business_event)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`,
+      )
+      .bind(
+        outboxId,
+        input.toPhone,
+        input.templateKey,
+        JSON.stringify(input.payload),
+        nowIso(),
+        input.referenceId ?? null,
+        businessEvent,
+      )
+      .run();
 
-  if (env.WHATSAPP_QUEUE) {
-    await env.WHATSAPP_QUEUE.send({ outboxId });
-  } else if (typeof process !== "undefined") {
-    console.info(`[whatsapp:mock] ${input.templateKey} → ${input.toPhone}`, input.payload);
+    // If the OR IGNORE hit the unique index (duplicate event), don't queue a send.
+    if ((result.meta.changes ?? 0) === 0) return;
+
+    if (env.WHATSAPP_QUEUE) {
+      await env.WHATSAPP_QUEUE.send({ outboxId });
+    }
+  } catch (err) {
+    // Never let a notification enqueue break the caller. Log a safe, value-free reason.
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[whatsapp] enqueue failed for ${input.templateKey}: ${message}`);
   }
 }
 
-export async function processWhatsappOutbox(db: D1Database, outboxId: string) {
+/**
+ * Send one queued outbox row via Gupshup. Idempotent on status (skips anything not 'pending').
+ * Marks the row 'sent' (with the Gupshup message id) or 'failed' (with a safe error) — never throws.
+ * When Gupshup isn't configured the row is left 'pending' (so it sends once configured) unless the
+ * template/phone is fundamentally unusable, in which case it's marked 'failed'.
+ */
+export async function processWhatsappOutbox(db: D1Database, env: ApiEnv, outboxId: string) {
   const row = await db
     .prepare(`SELECT * FROM whatsapp_outbox WHERE id = ?`)
     .bind(outboxId)
     .first<Record<string, unknown>>();
   if (!row || row.status !== "pending") return;
 
-  const sentAt = nowIso();
+  const templateKey = String(row.template_key);
+  const def = getTemplateDef(templateKey);
+
+  const markFailed = async (error: string) => {
+    await db
+      .prepare(
+        `UPDATE whatsapp_outbox SET status = 'failed', attempts = attempts + 1, error = ? WHERE id = ?`,
+      )
+      .bind(error.slice(0, 500), outboxId)
+      .run();
+  };
+
+  if (!def) {
+    await markFailed(`Unknown template: ${templateKey}`);
+    return;
+  }
+
+  // Not configured yet: leave 'pending' so it goes out once GUPSHUP_* is set (don't burn the row).
+  if (!isGupshupConfigured(env)) return;
+
+  const destination = formatGupshupPhone(String(row.to_phone ?? ""));
+  if (!destination) {
+    await markFailed("Invalid destination phone");
+    return;
+  }
+
+  const templateId = def.resolveTemplateId(env);
+  if (!templateId) {
+    await markFailed(`Template id not configured for ${templateKey}`);
+    return;
+  }
+
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = JSON.parse(String(row.payload ?? "{}")) as Record<string, unknown>;
+  } catch {
+    payload = {};
+  }
+  const params = def.buildParams(payload);
+
+  const result = await sendGupshupTemplate(env, { destination, templateId, params });
+  if (result.ok) {
+    await db
+      .prepare(
+        `UPDATE whatsapp_outbox SET status = 'sent', sent_at = ?, attempts = attempts + 1, provider_message_id = ?, error = NULL WHERE id = ?`,
+      )
+      .bind(nowIso(), result.providerMessageId, outboxId)
+      .run();
+  } else {
+    await markFailed(result.error);
+  }
+}
+
+/**
+ * Admin log: recent WhatsApp outbox rows, newest first. Returns safe fields only (never any Gupshup
+ * credential; the payload column is intentionally omitted so no OTP value is ever exposed).
+ */
+export async function listWhatsappOutbox(
+  db: D1Database,
+  filters: { limit?: number; status?: string } = {},
+) {
+  const limit = Math.min(200, Math.max(1, filters.limit ?? 100));
+  let sql = `SELECT id, to_phone, template_key, business_event, reference_id, status,
+                    provider_message_id, error, attempts, scheduled_at, sent_at
+             FROM whatsapp_outbox`;
+  const binds: unknown[] = [];
+  if (filters.status && filters.status !== "all") {
+    sql += ` WHERE status = ?`;
+    binds.push(filters.status);
+  }
+  sql += ` ORDER BY scheduled_at DESC LIMIT ?`;
+  binds.push(limit);
+  const { results } = await db.prepare(sql).bind(...binds).all<Record<string, unknown>>();
+  return results.map((r) => ({
+    id: r.id as string,
+    toPhone: maskPhone(r.to_phone as string),
+    templateKey: r.template_key as string,
+    businessEvent: (r.business_event as string) ?? null,
+    referenceId: (r.reference_id as string) ?? null,
+    status: r.status as string,
+    providerMessageId: (r.provider_message_id as string) ?? null,
+    error: (r.error as string) ?? null,
+    attempts: Number(r.attempts ?? 0),
+    scheduledAt: r.scheduled_at as string,
+    sentAt: (r.sent_at as string) ?? null,
+  }));
+}
+
+/** Mask the middle of a phone for the admin log (e.g. +9198****5853). Not a security control. */
+function maskPhone(phone: string | null | undefined): string {
+  const s = String(phone ?? "");
+  if (s.length <= 6) return s;
+  return `${s.slice(0, 5)}****${s.slice(-4)}`;
+}
+
+/** Sample payloads for the test endpoint — mirror the Gupshup-approved template samples exactly. */
+const TEST_PAYLOADS: Record<string, Record<string, unknown>> = {
+  otp_for_login: { otp: "123456" },
+  mattress_order_placed: {
+    name: "Rajesh",
+    model: "AquaFresh",
+    orderNo: "BR-14102603",
+    length: '73.25"',
+    width: '66"',
+    thickness: '6.5"',
+    farma: "Yes",
+    quantity: "1 Piece",
+    freeScheme: "2 Fiber pillows, 1 wedge pillow",
+    rewardPoints: "5544 Points",
+    placedBy: "Santosh",
+  },
+  mattress_order_rejection: {
+    name: "Rajesh",
+    orderNo: "BR-44444444",
+    model: "Ortho Plush",
+    reason: "Wrong size entered",
+    length: '72"',
+    width: '66"',
+    thickness: '6"',
+    quantity: "1 Piece",
+    placedBy: "Sanjay",
+  },
+  mattress_delivered: {
+    name: "Rajesh",
+    orderNo: "BR-44444444",
+    model: "Ortho Plush",
+    length: '77"',
+    width: '66"',
+    thickness: '6"',
+    quantity: "1 Piece",
+    freeScheme: "1 fiber pillow, 1 wedge pillow",
+    placedBy: "sanjay",
+  },
+  campaign_live: {},
+};
+
+/**
+ * Send ONE of the five approved templates to a designated test number with representative sample
+ * data. No free-form messages. Sends synchronously through the Gupshup client and returns the raw
+ * result so an admin/tester can see success/failure immediately. Test rows are marked in the outbox
+ * with business_event 'TEST' and are NOT deduped (referenceId null).
+ */
+export async function sendWhatsappTest(
+  db: D1Database,
+  env: ApiEnv,
+  templateKey: string,
+  toPhone: string,
+): Promise<{ ok: boolean; error?: string; providerMessageId?: string | null }> {
+  const def = getTemplateDef(templateKey);
+  if (!def) return { ok: false, error: `Unknown template: ${templateKey}` };
+  if (!isGupshupConfigured(env)) return { ok: false, error: "Gupshup not configured" };
+
+  const destination = formatGupshupPhone(toPhone);
+  if (!destination) return { ok: false, error: "Invalid test phone" };
+
+  const templateId = def.resolveTemplateId(env);
+  if (!templateId) return { ok: false, error: `Template id not configured for ${templateKey}` };
+
+  const params = def.buildParams(TEST_PAYLOADS[templateKey] ?? {});
+
+  // Log the attempt in the outbox (visible in the admin log), then send synchronously.
+  const outboxId = id("wa");
   await db
     .prepare(
-      `UPDATE whatsapp_outbox SET status = 'sent', sent_at = ?, attempts = attempts + 1, provider_message_id = ? WHERE id = ?`,
+      `INSERT INTO whatsapp_outbox (id, to_phone, template_key, payload, status, scheduled_at, business_event)
+       VALUES (?, ?, ?, ?, 'pending', ?, 'TEST')`,
     )
-    .bind(sentAt, `mock-${outboxId}`, outboxId)
+    .bind(outboxId, toPhone, templateKey, JSON.stringify(TEST_PAYLOADS[templateKey] ?? {}), nowIso())
     .run();
+
+  const result = await sendGupshupTemplate(env, { destination, templateId, params });
+  if (result.ok) {
+    await db
+      .prepare(
+        `UPDATE whatsapp_outbox SET status = 'sent', sent_at = ?, attempts = attempts + 1, provider_message_id = ? WHERE id = ?`,
+      )
+      .bind(nowIso(), result.providerMessageId, outboxId)
+      .run();
+    return { ok: true, providerMessageId: result.providerMessageId };
+  }
+  await db
+    .prepare(`UPDATE whatsapp_outbox SET status = 'failed', attempts = attempts + 1, error = ? WHERE id = ?`)
+    .bind(result.error.slice(0, 500), outboxId)
+    .run();
+  return { ok: false, error: result.error };
+}
+
+/**
+ * Safety-net sweeper (run from cron): send any outbox rows still 'pending'. Covers messages queued
+ * without a live queue binding, transient queue misses, or rows that were pending before Gupshup was
+ * configured. Bounded per run so a backlog can't blow the cron budget. No-op when Gupshup is unset.
+ */
+export async function dispatchPendingWhatsapp(db: D1Database, env: ApiEnv, limit = 50) {
+  if (!isGupshupConfigured(env)) return { attempted: 0 };
+  const { results } = await db
+    .prepare(`SELECT id FROM whatsapp_outbox WHERE status = 'pending' ORDER BY scheduled_at LIMIT ?`)
+    .bind(limit)
+    .all<{ id: string }>();
+  for (const row of results) {
+    await processWhatsappOutbox(db, env, row.id);
+  }
+  return { attempted: results.length };
 }
 
 export async function scanPendingOrderReminders(db: D1Database) {

@@ -8,7 +8,7 @@ export async function handleQueueBatch(
 ) {
   const db = await getDatabase(env);
   for (const msg of batch.messages) {
-    await processWhatsappOutbox(db, msg.body.outboxId);
+    await processWhatsappOutbox(db, env, msg.body.outboxId);
     msg.ack();
   }
 }

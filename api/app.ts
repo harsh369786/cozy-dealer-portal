@@ -78,7 +78,12 @@ import {
   PushSubscriptionConflictError,
 } from "./services/push-notifications";
 import { setPushEnv, resolveExecutionContext } from "./push-env";
-import { enqueueWhatsapp, processWhatsappOutbox, scanPendingOrderReminders } from "./services/whatsapp";
+import {
+  processWhatsappOutbox,
+  scanPendingOrderReminders,
+  listWhatsappOutbox,
+  sendWhatsappTest,
+} from "./services/whatsapp";
 import {
   bulkUpdateAssignments,
   getAssignmentOptions,
@@ -2097,7 +2102,7 @@ admin.post("/campaigns", requirePermission("campaigns:write"), async (c) => {
   const db = await getRequestDb(c);
   const body = await c.req.json();
   try {
-    const campaign = await saveAdminCampaign(db, body, c.get("user").id);
+    const campaign = await saveAdminCampaign(db, body, c.get("user").id, undefined, effectiveEnv(c.env));
     return c.json(campaign, 201);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Create failed";
@@ -2130,7 +2135,7 @@ admin.patch("/campaigns/:id/archive", requirePermission("campaigns:write"), asyn
 admin.patch("/campaigns/:id/activate", requirePermission("campaigns:write"), async (c) => {
   const db = await getRequestDb(c);
   try {
-    return c.json(await activateAdminCampaign(db, c.req.param("id"), c.get("user").id));
+    return c.json(await activateAdminCampaign(db, c.req.param("id"), c.get("user").id, effectiveEnv(c.env)));
   } catch (err) {
     const message = err instanceof Error ? err.message : "Activate failed";
     return c.json({ error: message }, message.includes("not found") ? 404 : 400);
@@ -2581,6 +2586,38 @@ admin.get("/audit-logs", requirePermission("audit:read"), async (c) => {
   return c.json(await listAuditLogs(db, { limit: Number(c.req.query("limit") ?? 200) }));
 });
 
+// WhatsApp integration status + recent message log (no secrets, phones masked).
+admin.get("/whatsapp/outbox", requirePermission("settings:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const env = effectiveEnv(c.env);
+  return c.json({
+    configured: Boolean((env.GUPSHUP_API_KEY ?? "").trim() && (env.GUPSHUP_SOURCE ?? "").trim()),
+    templates: [
+      "otp_for_login",
+      "mattress_order_placed",
+      "mattress_order_rejection",
+      "mattress_delivered",
+      "campaign_live",
+    ],
+    messages: await listWhatsappOutbox(db, {
+      limit: Number(c.req.query("limit") ?? 100),
+      status: c.req.query("status") ?? undefined,
+    }),
+  });
+});
+
+// Send ONE approved template to a designated test number (master admin only). No free-form text.
+admin.post("/whatsapp/test", requirePermission("settings:write"), async (c) => {
+  const db = await getRequestDb(c);
+  const env = effectiveEnv(c.env);
+  const body = await c.req.json<{ templateKey?: string; phone?: string }>();
+  const templateKey = String(body.templateKey ?? "");
+  const phone = String(body.phone ?? env.WHATSAPP_TEST_PHONE ?? "").trim();
+  if (!phone) return c.json({ error: "No test phone provided or configured" }, 400);
+  const result = await sendWhatsappTest(db, env, templateKey, phone);
+  return c.json(result, result.ok ? 200 : 400);
+});
+
 admin.get("/signup-applications", requirePermission("signup:review"), async (c) => {
   const db = await getRequestDb(c);
   return c.json(
@@ -2627,7 +2664,7 @@ app.post("/api/v1/internal/whatsapp/process", async (c) => {
   if (!auth.ok) return c.json({ error: auth.error }, auth.status);
   const db = await getRequestDb(c);
   const body = await c.req.json<{ outboxId: string }>();
-  await processWhatsappOutbox(db, body.outboxId);
+  await processWhatsappOutbox(db, effectiveEnv(c.env), body.outboxId);
   return c.json({ ok: true });
 });
 
