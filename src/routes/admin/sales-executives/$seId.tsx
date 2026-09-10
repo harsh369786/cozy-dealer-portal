@@ -110,19 +110,23 @@ function DetailContent() {
         ) : (
           <ul className="space-y-2">
             {data.dealers.map((d) => (
-              <li
-                key={d.id}
-                className="flex items-center justify-between gap-2 rounded-2xl bg-secondary/40 px-3 py-2 text-sm"
-              >
-                <div className="min-w-0">
-                  <p className="truncate font-semibold">{d.storeName}</p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {d.code} · {d.location}
-                  </p>
-                </div>
-                <Badge variant={d.active ? "secondary" : "outline"}>
-                  {d.active ? t("common.active") : t("common.inactive")}
-                </Badge>
+              <li key={d.id}>
+                <Link
+                  to="/admin/dealers/$dealerId"
+                  params={{ dealerId: d.id }}
+                  search={{ tab: "overview" }}
+                  className="flex items-center justify-between gap-2 rounded-2xl bg-secondary/40 px-3 py-2 text-sm hover:bg-secondary"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-primary">{d.storeName}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {d.code} · {d.location}
+                    </p>
+                  </div>
+                  <Badge variant={d.active ? "secondary" : "outline"}>
+                    {d.active ? t("common.active") : t("common.inactive")}
+                  </Badge>
+                </Link>
               </li>
             ))}
           </ul>

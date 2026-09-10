@@ -3,6 +3,7 @@ import type { DealerVisit } from "@/services/visits";
 
 export async function listAdminVisits(params: {
   salesExecutiveId?: string;
+  dealerId?: string;
   status?: "active" | "completed" | "all";
   fromDate?: string;
   toDate?: string;
@@ -12,6 +13,7 @@ export async function listAdminVisits(params: {
 }) {
   const qs = new URLSearchParams();
   if (params.salesExecutiveId) qs.set("salesExecutiveId", params.salesExecutiveId);
+  if (params.dealerId) qs.set("dealerId", params.dealerId);
   if (params.status) qs.set("status", params.status);
   if (params.fromDate) qs.set("fromDate", params.fromDate);
   if (params.toDate) qs.set("toDate", params.toDate);

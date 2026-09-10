@@ -254,3 +254,102 @@ export async function mapDealerRows(db: D1Database, rows: Record<string, unknown
 }
 
 export { VALID_ORDER_STATUSES };
+
+/**
+ * Per-dealer 360° rewards view for the admin Dealer Profile: a points summary derived from the
+ * points_ledger (the single source of truth — NOT a manually-edited "current points" number), the
+ * full ledger with each row's order/claim reference so earned rows can link back to their order,
+ * and the reward-claim history. Reuses the existing tables (points_ledger, reward_claims); adds no
+ * new storage.
+ */
+export async function loadDealerRewards(db: D1Database, dealerId: string) {
+  // Ledger: keep reference_type/reference_id so the client can link an "Order delivered" credit
+  // (reference_type='order', reference_id=orderId) to /admin/orders/$orderId.
+  const { results: ledgerRows } = await db
+    .prepare(
+      `SELECT delta, balance_after, label, reference_type, reference_id, occurred_at
+       FROM points_ledger WHERE dealer_id = ? ORDER BY occurred_at DESC, id DESC`,
+    )
+    .bind(dealerId)
+    .all<{
+      delta: number;
+      balance_after: number;
+      label: string;
+      reference_type: string | null;
+      reference_id: string | null;
+      occurred_at: string;
+    }>();
+
+  const ledger = ledgerRows.map((r) => {
+    const delta = Number(r.delta) || 0;
+    return {
+      label: r.label,
+      delta,
+      earned: delta > 0 ? delta : 0,
+      redeemed: delta < 0 ? Math.abs(delta) : 0,
+      balanceAfter: coerceRewardPoints(r.balance_after, 0),
+      referenceType: r.reference_type,
+      referenceId: r.reference_id,
+      // Convenience for the UI: the order id when this row was an order-delivered credit.
+      orderId: r.reference_type === "order" ? r.reference_id : null,
+      date: r.occurred_at ? formatInLabel(r.occurred_at) : "",
+      occurredAt: r.occurred_at,
+    };
+  });
+
+  const totalEarned = coerceRewardPoints(
+    ledgerRows.reduce((sum, r) => sum + (Number(r.delta) > 0 ? Number(r.delta) : 0), 0),
+    0,
+  );
+  const totalRedeemed = coerceRewardPoints(
+    ledgerRows.reduce((sum, r) => sum + (Number(r.delta) < 0 ? Math.abs(Number(r.delta)) : 0), 0),
+    0,
+  );
+  const available = Math.max(0, totalEarned - totalRedeemed);
+
+  // Claims. reward_claims.status is 'pending' | 'approved' | 'delivered' (migration 0025); older
+  // DBs only had 'pending'/'delivered'. approved_at/delivered_at may be null. We read defensively.
+  const { results: claimRows } = await db
+    .prepare(`SELECT * FROM reward_claims WHERE dealer_id = ? ORDER BY claimed_at DESC`)
+    .bind(dealerId)
+    .all<Record<string, unknown>>();
+
+  const claims = claimRows.map((r) => {
+    const status = String(r.status ?? "pending");
+    return {
+      id: r.id as string,
+      name: r.name as string,
+      emoji: r.emoji as string,
+      points: coerceRewardPoints(r.points_spent, 0),
+      status,
+      kind: (r.kind as string) ?? "standard",
+      claimedAt: r.claimed_at ? formatInLabel(String(r.claimed_at)) : "",
+      approvedAt: r.approved_at ? formatInLabel(String(r.approved_at)) : null,
+      deliveredAt: r.delivered_at ? formatInLabel(String(r.delivered_at)) : null,
+    };
+  });
+
+  const claimsClaimed = claims.length;
+  const claimsDelivered = claims.filter((c) => c.status === "delivered").length;
+  const claimsPending = claims.filter((c) => c.status !== "delivered").length;
+  // Points still tied up in not-yet-delivered claims (already debited from the ledger at claim time,
+  // shown so the admin can see "points pending delivery").
+  const pointsPending = coerceRewardPoints(
+    claims.filter((c) => c.status !== "delivered").reduce((sum, c) => sum + c.points, 0),
+    0,
+  );
+
+  return {
+    summary: {
+      totalEarned,
+      totalRedeemed,
+      available,
+      pointsPending,
+      claimsClaimed,
+      claimsDelivered,
+      claimsPending,
+    },
+    ledger,
+    claims,
+  };
+}

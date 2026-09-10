@@ -48,6 +48,8 @@ import { Route as AdminCampaignsCampaignIdRouteImport } from './routes/admin/cam
 import { Route as AdminCampaignsNewRouteImport } from './routes/admin/campaigns/new'
 import { Route as AdminComplaintsIndexRouteImport } from './routes/admin/complaints/index'
 import { Route as AdminComplaintsComplaintIdRouteImport } from './routes/admin/complaints/$complaintId'
+import { Route as AdminDealersIndexRouteImport } from './routes/admin/dealers/index'
+import { Route as AdminDealersDealerIdRouteImport } from './routes/admin/dealers/$dealerId'
 import { Route as AdminExploreIndexRouteImport } from './routes/admin/explore/index'
 import { Route as AdminNotificationsIndexRouteImport } from './routes/admin/notifications/index'
 import { Route as AdminOrdersIndexRouteImport } from './routes/admin/orders/index'
@@ -279,6 +281,16 @@ const AdminComplaintsComplaintIdRoute =
     path: '/complaints/$complaintId',
     getParentRoute: () => AdminRouteRoute,
   } as any)
+const AdminDealersIndexRoute = AdminDealersIndexRouteImport.update({
+  id: '/dealers/',
+  path: '/dealers/',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
+const AdminDealersDealerIdRoute = AdminDealersDealerIdRouteImport.update({
+  id: '/dealers/$dealerId',
+  path: '/dealers/$dealerId',
+  getParentRoute: () => AdminRouteRoute,
+} as any)
 const AdminExploreIndexRoute = AdminExploreIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -490,6 +502,7 @@ export interface FileRoutesByFullPath {
   '/admin/campaigns/$campaignId': typeof AdminCampaignsCampaignIdRoute
   '/admin/campaigns/new': typeof AdminCampaignsNewRoute
   '/admin/complaints/$complaintId': typeof AdminComplaintsComplaintIdRoute
+  '/admin/dealers/$dealerId': typeof AdminDealersDealerIdRoute
   '/admin/orders/$orderId': typeof AdminOrdersOrderIdRouteWithChildren
   '/admin/pricing/tiers': typeof AdminPricingTiersRoute
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
@@ -511,6 +524,7 @@ export interface FileRoutesByFullPath {
   '/admin/audit-logs/': typeof AdminAuditLogsIndexRoute
   '/admin/campaigns/': typeof AdminCampaignsIndexRoute
   '/admin/complaints/': typeof AdminComplaintsIndexRoute
+  '/admin/dealers/': typeof AdminDealersIndexRoute
   '/admin/explore/': typeof AdminExploreIndexRoute
   '/admin/notifications/': typeof AdminNotificationsIndexRoute
   '/admin/orders/': typeof AdminOrdersIndexRoute
@@ -554,6 +568,7 @@ export interface FileRoutesByTo {
   '/admin/campaigns/$campaignId': typeof AdminCampaignsCampaignIdRoute
   '/admin/campaigns/new': typeof AdminCampaignsNewRoute
   '/admin/complaints/$complaintId': typeof AdminComplaintsComplaintIdRoute
+  '/admin/dealers/$dealerId': typeof AdminDealersDealerIdRoute
   '/admin/orders/$orderId': typeof AdminOrdersOrderIdRouteWithChildren
   '/admin/pricing/tiers': typeof AdminPricingTiersRoute
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
@@ -575,6 +590,7 @@ export interface FileRoutesByTo {
   '/admin/audit-logs': typeof AdminAuditLogsIndexRoute
   '/admin/campaigns': typeof AdminCampaignsIndexRoute
   '/admin/complaints': typeof AdminComplaintsIndexRoute
+  '/admin/dealers': typeof AdminDealersIndexRoute
   '/admin/explore': typeof AdminExploreIndexRoute
   '/admin/notifications': typeof AdminNotificationsIndexRoute
   '/admin/orders': typeof AdminOrdersIndexRoute
@@ -629,6 +645,7 @@ export interface FileRoutesById {
   '/admin/campaigns/$campaignId': typeof AdminCampaignsCampaignIdRoute
   '/admin/campaigns/new': typeof AdminCampaignsNewRoute
   '/admin/complaints/$complaintId': typeof AdminComplaintsComplaintIdRoute
+  '/admin/dealers/$dealerId': typeof AdminDealersDealerIdRoute
   '/admin/orders/$orderId': typeof AdminOrdersOrderIdRouteWithChildren
   '/admin/pricing/tiers': typeof AdminPricingTiersRoute
   '/admin/products/$productId': typeof AdminProductsProductIdRoute
@@ -650,6 +667,7 @@ export interface FileRoutesById {
   '/admin/audit-logs/': typeof AdminAuditLogsIndexRoute
   '/admin/campaigns/': typeof AdminCampaignsIndexRoute
   '/admin/complaints/': typeof AdminComplaintsIndexRoute
+  '/admin/dealers/': typeof AdminDealersIndexRoute
   '/admin/explore/': typeof AdminExploreIndexRoute
   '/admin/notifications/': typeof AdminNotificationsIndexRoute
   '/admin/orders/': typeof AdminOrdersIndexRoute
@@ -704,6 +722,7 @@ export interface FileRouteTypes {
     | '/admin/campaigns/$campaignId'
     | '/admin/campaigns/new'
     | '/admin/complaints/$complaintId'
+    | '/admin/dealers/$dealerId'
     | '/admin/orders/$orderId'
     | '/admin/pricing/tiers'
     | '/admin/products/$productId'
@@ -725,6 +744,7 @@ export interface FileRouteTypes {
     | '/admin/audit-logs/'
     | '/admin/campaigns/'
     | '/admin/complaints/'
+    | '/admin/dealers/'
     | '/admin/explore/'
     | '/admin/notifications/'
     | '/admin/orders/'
@@ -768,6 +788,7 @@ export interface FileRouteTypes {
     | '/admin/campaigns/$campaignId'
     | '/admin/campaigns/new'
     | '/admin/complaints/$complaintId'
+    | '/admin/dealers/$dealerId'
     | '/admin/orders/$orderId'
     | '/admin/pricing/tiers'
     | '/admin/products/$productId'
@@ -789,6 +810,7 @@ export interface FileRouteTypes {
     | '/admin/audit-logs'
     | '/admin/campaigns'
     | '/admin/complaints'
+    | '/admin/dealers'
     | '/admin/explore'
     | '/admin/notifications'
     | '/admin/orders'
@@ -842,6 +864,7 @@ export interface FileRouteTypes {
     | '/admin/campaigns/$campaignId'
     | '/admin/campaigns/new'
     | '/admin/complaints/$complaintId'
+    | '/admin/dealers/$dealerId'
     | '/admin/orders/$orderId'
     | '/admin/pricing/tiers'
     | '/admin/products/$productId'
@@ -863,6 +886,7 @@ export interface FileRouteTypes {
     | '/admin/audit-logs/'
     | '/admin/campaigns/'
     | '/admin/complaints/'
+    | '/admin/dealers/'
     | '/admin/explore/'
     | '/admin/notifications/'
     | '/admin/orders/'
@@ -1171,6 +1195,20 @@ declare module '@tanstack/react-router' {
       path: '/complaints/$complaintId'
       fullPath: '/admin/complaints/$complaintId'
       preLoaderRoute: typeof AdminComplaintsComplaintIdRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/dealers/': {
+      id: '/admin/dealers/'
+      path: '/dealers'
+      fullPath: '/admin/dealers/'
+      preLoaderRoute: typeof AdminDealersIndexRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
+    '/admin/dealers/$dealerId': {
+      id: '/admin/dealers/$dealerId'
+      path: '/dealers/$dealerId'
+      fullPath: '/admin/dealers/$dealerId'
+      preLoaderRoute: typeof AdminDealersDealerIdRouteImport
       parentRoute: typeof AdminRouteRoute
     }
     '/admin/explore/': {
@@ -1506,6 +1544,7 @@ interface AdminRouteRouteChildren {
   AdminUsersRoute: typeof AdminUsersRouteWithChildren
   AdminIndexRoute: typeof AdminIndexRoute
   AdminComplaintsComplaintIdRoute: typeof AdminComplaintsComplaintIdRoute
+  AdminDealersDealerIdRoute: typeof AdminDealersDealerIdRoute
   AdminOrdersOrderIdRoute: typeof AdminOrdersOrderIdRouteWithChildren
   AdminPricingTiersRoute: typeof AdminPricingTiersRoute
   AdminSalesExecutivesSeIdRoute: typeof AdminSalesExecutivesSeIdRoute
@@ -1513,6 +1552,7 @@ interface AdminRouteRouteChildren {
   AdminAssignmentsIndexRoute: typeof AdminAssignmentsIndexRoute
   AdminAuditLogsIndexRoute: typeof AdminAuditLogsIndexRoute
   AdminComplaintsIndexRoute: typeof AdminComplaintsIndexRoute
+  AdminDealersIndexRoute: typeof AdminDealersIndexRoute
   AdminNotificationsIndexRoute: typeof AdminNotificationsIndexRoute
   AdminOrdersIndexRoute: typeof AdminOrdersIndexRoute
   AdminReportsIndexRoute: typeof AdminReportsIndexRoute
@@ -1528,6 +1568,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminUsersRoute: AdminUsersRouteWithChildren,
   AdminIndexRoute: AdminIndexRoute,
   AdminComplaintsComplaintIdRoute: AdminComplaintsComplaintIdRoute,
+  AdminDealersDealerIdRoute: AdminDealersDealerIdRoute,
   AdminOrdersOrderIdRoute: AdminOrdersOrderIdRouteWithChildren,
   AdminPricingTiersRoute: AdminPricingTiersRoute,
   AdminSalesExecutivesSeIdRoute: AdminSalesExecutivesSeIdRoute,
@@ -1535,6 +1576,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminAssignmentsIndexRoute: AdminAssignmentsIndexRoute,
   AdminAuditLogsIndexRoute: AdminAuditLogsIndexRoute,
   AdminComplaintsIndexRoute: AdminComplaintsIndexRoute,
+  AdminDealersIndexRoute: AdminDealersIndexRoute,
   AdminNotificationsIndexRoute: AdminNotificationsIndexRoute,
   AdminOrdersIndexRoute: AdminOrdersIndexRoute,
   AdminReportsIndexRoute: AdminReportsIndexRoute,

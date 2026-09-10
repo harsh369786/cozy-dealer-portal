@@ -18,6 +18,7 @@ import {
   ScrollText,
   Shield,
   ShoppingBag,
+  Store,
   Users,
 } from "lucide-react";
 import { Logo } from "@/components/brand";
@@ -55,6 +56,13 @@ const NAV_ITEMS: Array<{
 }> = [
   { to: "/admin", labelKey: "nav.admin.dashboard", icon: LayoutDashboard, matchPrefix: "/admin" },
   { to: "/admin/users", labelKey: "nav.admin.users", icon: Users, permission: "users:read" },
+  {
+    to: "/admin/dealers",
+    labelKey: "nav.admin.dealers",
+    icon: Store,
+    permission: "dealers:read",
+    matchPrefix: "/admin/dealers",
+  },
   {
     to: "/admin/assignments",
     search: { tab: "approvals" },

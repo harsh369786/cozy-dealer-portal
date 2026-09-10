@@ -136,7 +136,7 @@ import {
   getVisitSummary,
   listVisits,
 } from "./services/dealer-visits";
-import { mapDealerRow, mapDealerRows } from "./services/dealers";
+import { mapDealerRow, mapDealerRows, loadDealerRewards } from "./services/dealers";
 import { redeemRewardClaim } from "./services/reward-redemption";
 import { listAdditionalRewardsForDealer, redeemAdditionalReward } from "./services/additional-rewards";
 import {
@@ -920,6 +920,16 @@ app.get("/api/v1/dealers/:id/reward-claims", requireAuth, requireActiveAccount, 
       deliveredAt: r['delivered_at'] ? formatInLabel(String(r['delivered_at'])) : null,
     })),
   );
+});
+
+// 360° per-dealer rewards view for the admin Dealer Profile: points summary + full ledger (with
+// order references so earned rows link back to their order) + claim history. Reuses points_ledger
+// and reward_claims (no new storage). Gated rewards:read + canAccessDealer.
+app.get("/api/v1/dealers/:id/rewards", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const dealerId = c.req.param("id");
+  if (!(await canAccessDealer(db, c.get("user"), dealerId))) return c.json({ error: "Forbidden" }, 403);
+  return c.json(await loadDealerRewards(db, dealerId));
 });
 
 // Campaigns
@@ -2147,6 +2157,8 @@ admin.get("/visits", requirePermission("visits:read"), async (c) => {
   return c.json(
     await listVisits(db, {
       salesExecutiveUserId: c.req.query("salesExecutiveId"),
+      // Optional dealer filter powers the Dealer Profile Visits tab. listVisits already supports it.
+      dealerId: c.req.query("dealerId") || undefined,
       status: (c.req.query("status") as "active" | "completed" | "all") ?? "all",
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),

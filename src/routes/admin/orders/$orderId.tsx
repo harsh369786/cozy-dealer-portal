@@ -157,7 +157,18 @@ function AdminOrderDetailPage() {
 
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="font-display text-xl font-bold">{order.dealerName}</p>
+          {order.dealerId && can("dealers:read") ? (
+            <Link
+              to="/admin/dealers/$dealerId"
+              params={{ dealerId: order.dealerId }}
+              search={{ tab: "overview" }}
+              className="font-display text-xl font-bold text-primary hover:underline"
+            >
+              {order.dealerName}
+            </Link>
+          ) : (
+            <p className="font-display text-xl font-bold">{order.dealerName}</p>
+          )}
           <p className="text-sm text-muted-foreground">{order.dealerCode}</p>
         </div>
         <StatusBadge kind="order" status={order.status} />
