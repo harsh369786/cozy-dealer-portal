@@ -31,9 +31,22 @@ export function todayIso(at = new Date()): string {
   }).format(at);
 }
 
-/** Stored status + date window → status shown to dealers/distributors. */
+/**
+ * Effective campaign status, computed PURELY from the date window in IST — the stored `status`
+ * column is intentionally ignored so status is always automatic:
+ *   Upcoming: today < start
+ *   Active:   start <= today <= end
+ *   Expired:  today > end
+ * A campaign whose dates have passed can NEVER show as Upcoming/Active, and a future campaign can
+ * only show as Upcoming, regardless of any stale stored status. The `_storedStatus` parameter is
+ * kept for call-site compatibility but is unused.
+ *
+ * NOTE: comparison is day-granularity in IST (dates are stored as YYYY-MM-DD). A campaign is Active
+ * for the whole end day and becomes Expired when the IST calendar rolls past it. End-of-day TIME
+ * precision would require storing timestamps (schema change) — not done here.
+ */
 export function getEffectiveCampaignStatus(
-  storedStatus: string,
+  _storedStatus: string,
   startDate: string,
   endDate: string,
   at = new Date(),
@@ -43,13 +56,9 @@ export function getEffectiveCampaignStatus(
   const end = readCampaignDate(endDate);
   if (!start || !end) return "expired";
 
-  if (end < today) return "expired";
-  if (storedStatus === "expired") return "expired";
-  if (start > today || storedStatus === "upcoming") return "upcoming";
-  if (storedStatus === "active") return "active";
-  return storedStatus === "upcoming" || storedStatus === "expired"
-    ? (storedStatus as CampaignStatus)
-    : "active";
+  if (today < start) return "upcoming";
+  if (today > end) return "expired";
+  return "active";
 }
 
 export function isCampaignLive(

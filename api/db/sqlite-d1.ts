@@ -240,6 +240,10 @@ export function applyPendingDevMigrations(db: Database.Database, root: string) {
       file: "0045_reward_claim_workflow.sql",
       applied: () => hasColumn(db, "reward_claims", "workflow_status"),
     },
+    {
+      file: "0046_notification_send_events.sql",
+      applied: () => hasTable(db, "notification_send_events"),
+    },
   ];
 
   for (const migration of laterStructural) {

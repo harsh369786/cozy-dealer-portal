@@ -238,12 +238,14 @@ export async function listAdminCampaigns(db: D1Database, filters: CampaignFilter
   const page = Math.max(1, filters.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, filters.pageSize ?? 20));
   const today = todayIso();
+  // Effective status is computed PURELY from the date window (IST) — the stored status column is
+  // intentionally ignored so campaigns bucket automatically as time passes.
   const baseSql = `WITH campaign_rows AS (
     SELECT pc.*, p.name AS product_name, d.name AS distributor_name,
       CASE
         WHEN date(pc.start_at) IS NULL OR date(pc.end_at) IS NULL THEN 'expired'
-        WHEN date(pc.end_at) < date(?) OR pc.status = 'expired' THEN 'expired'
-        WHEN date(pc.start_at) > date(?) OR pc.status = 'upcoming' THEN 'upcoming'
+        WHEN date(pc.start_at) > date(?) THEN 'upcoming'
+        WHEN date(pc.end_at) < date(?) THEN 'expired'
         ELSE 'active'
       END AS effective_status
     FROM price_campaigns pc

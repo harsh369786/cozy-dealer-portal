@@ -485,7 +485,6 @@ app.get("/api/v1/catalog", requireAuth, requireActiveAccount, requirePermission(
          SELECT pc.*
          FROM price_campaigns pc
          WHERE pc.deleted_at IS NULL
-           AND pc.status = 'active'
            AND date(pc.start_at) <= date(?)
            AND date(pc.end_at) >= date(?)
        ),
@@ -2448,6 +2447,32 @@ admin.patch("/system-notifications/:id", requirePermission("settings:write"), as
   const updated = await updateAnnouncement(db, paramId, body);
   if (!updated) return c.json({ error: "Announcement not found" }, 404);
   return c.json(updated);
+});
+
+// Send Again: create a NEW send event for an existing notification template and dispatch now or
+// schedule it. Reuses the template's saved audience unless overridden. Does not alter the template
+// or prior send history.
+admin.post("/system-notifications/:id/resend", requirePermission("settings:write"), async (c) => {
+  const db = await getRequestDb(c);
+  const body = await c.req.json<{
+    mode?: "now" | "schedule";
+    sendAt?: string;
+    audiences?: string[];
+    popupMaxPerDay?: number;
+  }>().catch(() => ({}));
+  const { resendAnnouncement } = await import("./services/system-notifications-admin");
+  try {
+    const result = await resendAnnouncement(db, c.req.param("id"), {
+      mode: body.mode,
+      sendAt: body.sendAt,
+      audiences: body.audiences as never,
+      popupMaxPerDay: body.popupMaxPerDay,
+    });
+    return c.json(result, 201);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Resend failed";
+    return c.json({ error: message }, message.includes("not found") ? 404 : 400);
+  }
 });
 
 admin.delete("/system-notifications/:id", requirePermission("settings:write"), async (c) => {

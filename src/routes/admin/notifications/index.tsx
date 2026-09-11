@@ -1,7 +1,7 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Pencil, Power } from "lucide-react";
+import { Pencil, Power, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AdminDataTable } from "@/components/admin/admin-data-table";
 import { AdminFilterTabs, AdminFiltersBar } from "@/components/admin/admin-filters-bar";
@@ -9,6 +9,7 @@ import { AdminPageHeader, AdminPrimaryButton } from "@/components/admin/admin-pa
 import { AdminPagination } from "@/components/admin/admin-pagination";
 import { AdminPermissionGate } from "@/components/admin/admin-permission-gate";
 import { NotificationItem } from "@/components/shared/notification-item";
+import { ConfirmActionDialog } from "@/components/shared/dialogs";
 import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,10 +38,13 @@ import type { NotificationCategory } from "@/lib/mock/distributor/types";
 import { cn } from "@/lib/utils";
 import {
   AUDIENCE_LABELS,
+  AUDIENCE_OPTIONS,
   activateNotification,
   composeAnnouncement,
   deactivateNotification,
+  deleteNotification,
   listNotifications as listAnnouncements,
+  resendNotification,
   updateNotification,
 } from "@/services/admin/notifications";
 import {
@@ -84,10 +88,11 @@ const emptyForm = (): AdminNotificationInput => ({
   title: "",
   body: "",
   category: "system",
-  audience: "all_dealers",
+  audiences: ["all_dealers"],
   sendAt: new Date().toISOString().slice(0, 16),
   popupEnabled: false,
   maxImpressions: 1,
+  popupMaxPerDay: 1,
 });
 
 // The <input type="datetime-local"> value is a naive local wall-clock string ("2026-09-04T11:10",
@@ -106,11 +111,22 @@ function withNormalizedSendAt(form: AdminNotificationInput): AdminNotificationIn
 function NotificationForm({
   form,
   onChange,
+  sendMode,
+  onSendModeChange,
 }: {
   form: AdminNotificationInput;
   onChange: (f: AdminNotificationInput) => void;
+  sendMode: "now" | "schedule";
+  onSendModeChange: (m: "now" | "schedule") => void;
 }) {
   const patch = (p: Partial<AdminNotificationInput>) => onChange({ ...form, ...p });
+  const selected = new Set(form.audiences ?? []);
+  const toggleAudience = (key: NotificationAudience, on: boolean) => {
+    const next = new Set(selected);
+    if (on) next.add(key);
+    else next.delete(key);
+    patch({ audiences: [...next] as NotificationAudience[] });
+  };
 
   return (
     <div className="space-y-3">
@@ -122,46 +138,74 @@ function NotificationForm({
         <Label>Message</Label>
         <Textarea value={form.body} onChange={(e) => patch({ body: e.target.value })} className="mt-1 rounded-2xl" />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div>
-          <Label>Category</Label>
-          <Select value={form.category} onValueChange={(v) => patch({ category: v as NotificationCategory })}>
-            <SelectTrigger className="mt-1 rounded-2xl">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="system">System</SelectItem>
-              <SelectItem value="campaigns">Campaigns</SelectItem>
-              <SelectItem value="orders">Orders</SelectItem>
-              <SelectItem value="complaints">Complaints</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        <div>
-          <Label>Audience (who)</Label>
-          <Select value={form.audience} onValueChange={(v) => patch({ audience: v as NotificationAudience })}>
-            <SelectTrigger className="mt-1 rounded-2xl">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(AUDIENCE_LABELS) as NotificationAudience[]).map((key) => (
-                <SelectItem key={key} value={key}>
-                  {AUDIENCE_LABELS[key]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
       <div>
-        <Label>Send at (when)</Label>
-        <Input
-          type="datetime-local"
-          value={form.sendAt}
-          onChange={(e) => patch({ sendAt: e.target.value })}
-          className="mt-1 rounded-2xl"
-        />
+        <Label>Category</Label>
+        <Select value={form.category} onValueChange={(v) => patch({ category: v as NotificationCategory })}>
+          <SelectTrigger className="mt-1 rounded-2xl">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="system">System</SelectItem>
+            <SelectItem value="campaigns">Campaigns</SelectItem>
+            <SelectItem value="orders">Orders</SelectItem>
+            <SelectItem value="complaints">Complaints</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
+
+      {/* Audience — multi-select */}
+      <div>
+        <Label>Audience (select one or more)</Label>
+        <div className="mt-1 grid gap-2 rounded-2xl border border-border p-3 sm:grid-cols-2">
+          {AUDIENCE_OPTIONS.map((key) => (
+            <label key={key} className="flex items-center gap-2 text-sm font-medium">
+              <Checkbox
+                checked={selected.has(key)}
+                onCheckedChange={(v) => toggleAudience(key, v === true)}
+              />
+              {AUDIENCE_LABELS[key]}
+            </label>
+          ))}
+        </div>
+        {selected.size === 0 ? (
+          <p className="mt-1 text-xs text-destructive">Select at least one audience.</p>
+        ) : null}
+      </div>
+
+      {/* Send Now / Schedule */}
+      <div>
+        <Label>Delivery</Label>
+        <div className="mt-1 flex gap-2">
+          <Button
+            type="button"
+            variant={sendMode === "now" ? "default" : "outline"}
+            className="rounded-2xl font-bold"
+            onClick={() => onSendModeChange("now")}
+          >
+            Send now
+          </Button>
+          <Button
+            type="button"
+            variant={sendMode === "schedule" ? "default" : "outline"}
+            className="rounded-2xl font-bold"
+            onClick={() => onSendModeChange("schedule")}
+          >
+            Schedule
+          </Button>
+        </div>
+        {sendMode === "schedule" ? (
+          <div className="mt-2">
+            <Label>Send at (IST)</Label>
+            <Input
+              type="datetime-local"
+              value={form.sendAt}
+              onChange={(e) => patch({ sendAt: e.target.value })}
+              className="mt-1 rounded-2xl"
+            />
+          </div>
+        ) : null}
+      </div>
+
       <div className="flex items-center gap-2">
         <Checkbox
           id="popup"
@@ -169,20 +213,23 @@ function NotificationForm({
           onCheckedChange={(v) => patch({ popupEnabled: v === true })}
         />
         <Label htmlFor="popup" className="cursor-pointer font-normal">
-          Show as in-app popup
+          Show as in-app pop-up
         </Label>
       </div>
       <div>
-        <Label>Max popup impressions (how many times)</Label>
+        <Label>Pop-up frequency — times per day (per user)</Label>
         <Input
           type="number"
           min={1}
           max={10}
-          value={form.maxImpressions}
-          onChange={(e) => patch({ maxImpressions: Number(e.target.value) || 1 })}
+          value={form.popupMaxPerDay}
+          onChange={(e) => patch({ popupMaxPerDay: Math.max(1, Number(e.target.value) || 1) })}
           className="mt-1 rounded-2xl"
           disabled={!form.popupEnabled}
         />
+        <p className="mt-1 text-xs text-muted-foreground">
+          Default 1 per day. Limits how many times the pop-up appears to each user per day.
+        </p>
       </div>
     </div>
   );
@@ -269,7 +316,16 @@ function AnnouncementsManager() {
   const [editOpen, setEditOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [sendMode, setSendMode] = useState<"now" | "schedule">("now");
   const [saving, setSaving] = useState(false);
+  // Send Again dialog state.
+  const [resendTarget, setResendTarget] = useState<AdminNotification | null>(null);
+  const [resendMode, setResendMode] = useState<"now" | "schedule">("now");
+  const [resendSendAt, setResendSendAt] = useState<string>(new Date().toISOString().slice(0, 16));
+  const [resending, setResending] = useState(false);
+  // Delete confirm state.
+  const [deleteTarget, setDeleteTarget] = useState<AdminNotification | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
   const [enabling, setEnabling] = useState(false);
   const pushSupported = isPushSupported();
@@ -340,25 +396,37 @@ function AnnouncementsManager() {
       title: n.title,
       body: n.body,
       category: n.category,
-      audience: n.audience,
-      sendAt: n.sendAt.includes("T") ? n.sendAt.slice(0, 16) : n.sendAt,
+      audiences: n.audiences && n.audiences.length ? n.audiences : n.audience ? [n.audience] : ["all_dealers"],
+      sendAt: n.sendAt && n.sendAt.includes("T") ? n.sendAt.slice(0, 16) : new Date().toISOString().slice(0, 16),
       popupEnabled: n.popupEnabled,
       maxImpressions: n.maxImpressions,
+      popupMaxPerDay: n.popupMaxPerDay ?? 1,
     });
+    setSendMode("now");
     setEditOpen(true);
   };
 
+  // For Send Now, deliver at "now" (server treats non-future sendAt as immediate). For Schedule,
+  // send the chosen instant. resolveSendAt normalizes to a UTC ISO instant.
+  const resolveComposeSendAt = () =>
+    sendMode === "now" ? new Date().toISOString() : toIsoInstant(form.sendAt);
+
   const handleCompose = async () => {
     if (!form.title.trim() || !form.body.trim()) {
-      toast.error("Title and body are required");
+      toast.error("Title and message are required");
+      return;
+    }
+    if (!form.audiences || form.audiences.length === 0) {
+      toast.error("Select at least one audience");
       return;
     }
     setSaving(true);
     try {
-      await composeAnnouncement(withNormalizedSendAt(form));
-      toast.success("Notification scheduled");
+      await composeAnnouncement({ ...form, sendAt: resolveComposeSendAt() });
+      toast.success(sendMode === "now" ? "Notification sent" : "Notification scheduled");
       setComposeOpen(false);
       setForm(emptyForm());
+      setSendMode("now");
       retry();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to create");
@@ -371,7 +439,7 @@ function AnnouncementsManager() {
     if (!editingId) return;
     setSaving(true);
     try {
-      await updateNotification(editingId, withNormalizedSendAt(form));
+      await updateNotification(editingId, { ...form, sendAt: resolveComposeSendAt() });
       toast.success("Notification updated");
       setEditOpen(false);
       retry();
@@ -379,6 +447,39 @@ function AnnouncementsManager() {
       toast.error(e instanceof Error ? e.message : "Failed to update");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (!resendTarget) return;
+    setResending(true);
+    try {
+      await resendNotification(resendTarget.id, {
+        mode: resendMode,
+        sendAt: resendMode === "schedule" ? toIsoInstant(resendSendAt) : undefined,
+      });
+      toast.success(resendMode === "now" ? "Notification sent again" : "Re-send scheduled");
+      setResendTarget(null);
+      retry();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to send again");
+    } finally {
+      setResending(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteNotification(deleteTarget.id);
+      toast.success("Notification deleted");
+      setDeleteTarget(null);
+      retry();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -441,11 +542,21 @@ function AnnouncementsManager() {
           { key: "title", header: "Title", cell: (n) => <span className="font-bold">{n.title}</span> },
           { key: "category", header: "Category", cell: (n) => <Badge variant="secondary" className="capitalize">{n.category}</Badge> },
           { key: "audience", header: "To whom", cell: (n) => n.recipientScope, hideOnMobile: true },
-          { key: "when", header: "Send at", cell: (n) => n.sendAt, hideOnMobile: true },
+          {
+            key: "sends",
+            header: "Sends",
+            cell: (n) =>
+              n.scheduled
+                ? `Scheduled · ${n.nextSendAt ?? n.sendAt}`
+                : n.sendCount != null
+                  ? `Sent ${n.sendCount}×`
+                  : n.sendAt,
+            hideOnMobile: true,
+          },
           {
             key: "popup",
             header: "Popup",
-            cell: (n) => (n.popupEnabled ? `Yes Â· max ${n.maxImpressions}` : "No"),
+            cell: (n) => (n.popupEnabled ? `Yes · ${n.popupMaxPerDay ?? 1}/day` : "No"),
             hideOnMobile: true,
           },
           {
@@ -460,12 +571,39 @@ function AnnouncementsManager() {
             header: "",
             cell: (n) => (
               <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                {canWrite && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="rounded-xl"
+                    aria-label="Send again"
+                    title="Send again"
+                    onClick={() => {
+                      setResendTarget(n);
+                      setResendMode("now");
+                      setResendSendAt(new Date().toISOString().slice(0, 16));
+                    }}
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                )}
                 <Button size="sm" variant="ghost" className="rounded-xl" onClick={() => openEdit(n)} disabled={!canWrite}>
                   <Pencil className="h-4 w-4" />
                 </Button>
                 {canWrite && (
-                  <Button size="sm" variant="ghost" className="rounded-xl" onClick={() => toggleActive(n)}>
+                  <Button size="sm" variant="ghost" className="rounded-xl" aria-label="Toggle active" onClick={() => toggleActive(n)}>
                     <Power className="h-4 w-4" />
+                  </Button>
+                )}
+                {canWrite && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="rounded-xl text-destructive"
+                    aria-label="Delete"
+                    onClick={() => setDeleteTarget(n)}
+                  >
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 )}
               </div>
@@ -481,10 +619,10 @@ function AnnouncementsManager() {
           <DialogHeader>
             <DialogTitle>Create notification</DialogTitle>
           </DialogHeader>
-          <NotificationForm form={form} onChange={setForm} />
+          <NotificationForm form={form} onChange={setForm} sendMode={sendMode} onSendModeChange={setSendMode} />
           <DialogFooter>
             <AdminPrimaryButton onClick={handleCompose} disabled={saving}>
-              {saving ? t("common.saving") : "Schedule"}
+              {saving ? t("common.saving") : sendMode === "now" ? "Send now" : "Schedule"}
             </AdminPrimaryButton>
           </DialogFooter>
         </DialogContent>
@@ -495,7 +633,7 @@ function AnnouncementsManager() {
           <DialogHeader>
             <DialogTitle>Edit notification</DialogTitle>
           </DialogHeader>
-          <NotificationForm form={form} onChange={setForm} />
+          <NotificationForm form={form} onChange={setForm} sendMode={sendMode} onSendModeChange={setSendMode} />
           <DialogFooter>
             <AdminPrimaryButton onClick={handleUpdate} disabled={saving}>
               {saving ? t("common.saving") : "Save changes"}
@@ -503,6 +641,67 @@ function AnnouncementsManager() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Send Again */}
+      <Dialog open={resendTarget != null} onOpenChange={(open) => { if (!open) setResendTarget(null); }}>
+        <DialogContent className="rounded-3xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send again</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Re-send <span className="font-semibold">{resendTarget?.title}</span> to its saved
+              audience ({resendTarget ? resendTarget.recipientScope : ""}). This creates a new send;
+              past sends and their history are unchanged.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant={resendMode === "now" ? "default" : "outline"}
+                className="rounded-2xl font-bold"
+                onClick={() => setResendMode("now")}
+              >
+                Send now
+              </Button>
+              <Button
+                type="button"
+                variant={resendMode === "schedule" ? "default" : "outline"}
+                className="rounded-2xl font-bold"
+                onClick={() => setResendMode("schedule")}
+              >
+                Schedule
+              </Button>
+            </div>
+            {resendMode === "schedule" ? (
+              <div>
+                <Label>Send at (IST)</Label>
+                <Input
+                  type="datetime-local"
+                  value={resendSendAt}
+                  onChange={(e) => setResendSendAt(e.target.value)}
+                  className="mt-1 rounded-2xl"
+                />
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <AdminPrimaryButton onClick={handleResend} disabled={resending}>
+              {resending ? t("common.saving") : resendMode === "now" ? "Send now" : "Schedule"}
+            </AdminPrimaryButton>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmActionDialog
+        open={deleteTarget != null}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        title="Delete notification?"
+        description="This removes the notification and its send history. It cannot be undone."
+        confirmLabel="Delete"
+        onConfirm={handleDelete}
+        loading={deleting}
+        variant="destructive"
+      />
     </div>
   );
 }

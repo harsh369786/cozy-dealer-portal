@@ -5,7 +5,12 @@ import { useTranslation } from "react-i18next";
 import { IN_APP_NOTIFICATION_EVENT, type InAppNotificationAlert } from "@/lib/in-app-notifications";
 import { localizeNotification } from "@/lib/localize-notification";
 import { resolveDealerNotificationLink } from "@/lib/notification-links";
-import { canShowAnnouncementPopup, recordPopupImpression } from "@/lib/notification-popup";
+import {
+  canShowAnnouncementPopup,
+  recordPopupImpression,
+  canShowPopupToday,
+  recordPopupDaily,
+} from "@/lib/notification-popup";
 import { cn } from "@/lib/utils";
 import type { AppNotification } from "@/lib/notifications";
 import { markNotificationRead } from "@/services/notifications";
@@ -73,6 +78,13 @@ function announcementMeta(detail: InAppNotificationAlert) {
 function shouldQueuePopup(detail: InAppNotificationAlert): boolean {
   const meta = announcementMeta(detail);
   if (meta['popupEnabled'] !== true) return false;
+  // New model: cap "N times per day" per send event. Fall back to the legacy lifetime cap
+  // (by notification id) for older announcements that carry no sendEventId / popupMaxPerDay.
+  const sendEventId = typeof meta['sendEventId'] === "string" ? (meta['sendEventId'] as string) : null;
+  if (sendEventId) {
+    const perDay = Number(meta['popupMaxPerDay'] ?? 1) || 1;
+    return canShowPopupToday(sendEventId, perDay);
+  }
   return canShowAnnouncementPopup(detail.id, Number(meta['maxImpressions'] ?? 0));
 }
 
@@ -99,7 +111,9 @@ export function InAppNotificationOverlay() {
     const meta = announcementMeta(current);
     if (meta['popupEnabled'] === true && !recordedImpressions.current.has(current.id)) {
       recordedImpressions.current.add(current.id);
-      recordPopupImpression(current.id);
+      const sendEventId = typeof meta['sendEventId'] === "string" ? (meta['sendEventId'] as string) : null;
+      if (sendEventId) recordPopupDaily(sendEventId);
+      else recordPopupImpression(current.id);
     }
   }, [current]);
 

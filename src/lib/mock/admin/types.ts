@@ -172,10 +172,20 @@ export type AdminComplaint = {
 export type NotificationAudience =
   | "all_dealers"
   | "all_distributors"
+  | "dealers_and_distributors"
   | "all_users"
   | "dealers"
   | "distributors"
   | "admin_staff";
+
+export type NotificationSendEvent = {
+  id: string;
+  audiences: NotificationAudience[];
+  status: string;
+  sendAt: string;
+  sentAt: string | null;
+  recipientCount: number;
+};
 
 export type AdminNotification = {
   id: string;
@@ -184,25 +194,37 @@ export type AdminNotification = {
   body: string;
   recipientScope: string;
   audience: NotificationAudience;
+  audiences?: NotificationAudience[];
   read: boolean;
   active: boolean;
   sendAt: string;
   popupEnabled: boolean;
   maxImpressions: number;
+  popupMaxPerDay?: number;
   impressionCount: number;
   createdAt: string;
   whatsappTargetDealers?: boolean;
   whatsappTargetDistributors?: boolean;
+  /** Send history (Template -> Send Event). */
+  sendEvents?: NotificationSendEvent[];
+  sendCount?: number;
+  scheduled?: boolean;
+  nextSendAt?: string | null;
 };
 
 export type AdminNotificationInput = {
   title: string;
   body: string;
   category: NotificationCategory;
-  audience: NotificationAudience;
+  /** Legacy single audience (kept for back-compat). */
+  audience?: NotificationAudience;
+  /** Multi-select audiences (union). */
+  audiences: NotificationAudience[];
   sendAt: string;
   popupEnabled: boolean;
   maxImpressions: number;
+  /** Pop-up frequency: how many times per day, per user. Default 1. */
+  popupMaxPerDay: number;
 };
 
 export type AuditLogEntry = {

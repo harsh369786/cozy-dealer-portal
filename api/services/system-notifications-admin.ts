@@ -4,6 +4,7 @@ import { id, nowIso, formatInLabel } from "../utils";
 export type AnnouncementAudience =
   | "all_dealers"
   | "all_distributors"
+  | "dealers_and_distributors"
   | "all_users"
   | "dealers"
   | "distributors"
@@ -13,29 +14,62 @@ export type AnnouncementInput = {
   title: string;
   body: string;
   category: string;
-  audience: AnnouncementAudience;
+  /** Legacy single audience. Kept for back-compat; `audiences` (multi-select) takes precedence. */
+  audience?: AnnouncementAudience;
+  /** Multi-select audiences. The recipient set is the UNION of all selected audiences. */
+  audiences?: AnnouncementAudience[];
   sendAt: string;
   popupEnabled: boolean;
+  /** Legacy lifetime impression cap. */
   maxImpressions: number;
+  /** How many times per day the in-app pop-up may show, per user. Defaults to 1. */
+  popupMaxPerDay?: number;
 };
 
 const AUDIENCE_LABELS: Record<AnnouncementAudience, string> = {
   all_dealers: "All dealers",
   all_distributors: "All distributors",
-  all_users: "All users",
+  dealers_and_distributors: "Dealers + Distributors",
+  all_users: "Everyone",
   dealers: "Dealers",
   distributors: "Distributors",
   admin_staff: "Admin staff",
 };
 
+/** Normalize an input's audience(s) into a de-duped array (multi-select first, legacy fallback). */
+function resolveAudienceList(input: {
+  audiences?: AnnouncementAudience[];
+  audience?: AnnouncementAudience;
+}): AnnouncementAudience[] {
+  const list =
+    Array.isArray(input.audiences) && input.audiences.length
+      ? input.audiences
+      : input.audience
+        ? [input.audience]
+        : [];
+  return Array.from(new Set(list.filter(Boolean))) as AnnouncementAudience[];
+}
+
+/** Human label for one or more audiences. */
+function audienceLabel(audiences: AnnouncementAudience[]): string {
+  if (!audiences.length) return "Everyone";
+  return audiences.map((a) => AUDIENCE_LABELS[a] ?? a).join(", ");
+}
+
 type AnnouncementMetadata = {
   announcementId: string;
   audience: AnnouncementAudience;
+  /** Full multi-select audience list (union). Falls back to [audience] for legacy rows. */
+  audiences?: AnnouncementAudience[];
   popupEnabled: boolean;
   maxImpressions: number;
+  /** Per-user per-day pop-up cap. */
+  popupMaxPerDay?: number;
   impressionCount: number;
   active: boolean;
   sendAt: string;
+  /** The send event this fan-out belongs to (Template -> Send Event -> recipients). */
+  sendEventId?: string;
 };
 
 function parseMetadata(raw: unknown): AnnouncementMetadata | null {
@@ -49,20 +83,58 @@ function parseMetadata(raw: unknown): AnnouncementMetadata | null {
   }
 }
 
+/** Map an audience to the set of user roles it targets. Empty set (all_users) => everyone. */
+function rolesForAudience(audience: AnnouncementAudience): string[] | null {
+  switch (audience) {
+    case "all_dealers":
+    case "dealers":
+      return ["dealer"];
+    case "all_distributors":
+    case "distributors":
+      return ["distributor"];
+    case "dealers_and_distributors":
+      return ["dealer", "distributor"];
+    case "admin_staff":
+      return ["admin_staff", "master_admin"];
+    case "all_users":
+    default:
+      return null; // null = no role filter (everyone)
+  }
+}
+
+/**
+ * Resolve the de-duplicated UNION of users across one or more audiences (multi-select). A user who
+ * matches several selected audiences is included exactly once.
+ */
 async function resolveAudienceUsers(
   db: D1Database,
-  audience: AnnouncementAudience,
+  audiences: AnnouncementAudience[],
 ): Promise<Array<{ id: string; role: string }>> {
-  let sql = `SELECT id, role FROM users WHERE deleted_at IS NULL AND status = 'active'`;
-  if (audience === "all_dealers" || audience === "dealers") {
-    sql += ` AND role = 'dealer'`;
-  } else if (audience === "all_distributors" || audience === "distributors") {
-    sql += ` AND role = 'distributor'`;
-  } else if (audience === "admin_staff") {
-    sql += ` AND role IN ('admin_staff', 'master_admin')`;
+  const list = audiences.length ? audiences : (["all_users"] as AnnouncementAudience[]);
+  // "Everyone" (null role filter) subsumes every other audience — resolve once.
+  const roleSet = new Set<string>();
+  let everyone = false;
+  for (const a of list) {
+    const roles = rolesForAudience(a);
+    if (roles === null) {
+      everyone = true;
+      break;
+    }
+    for (const r of roles) roleSet.add(r);
   }
-  const { results } = await db.prepare(sql).all<{ id: string; role: string }>();
-  return results;
+
+  let sql = `SELECT id, role FROM users WHERE deleted_at IS NULL AND status = 'active'`;
+  const binds: unknown[] = [];
+  if (!everyone) {
+    const roles = [...roleSet];
+    if (roles.length === 0) return [];
+    sql += ` AND role IN (${roles.map(() => "?").join(",")})`;
+    binds.push(...roles);
+  }
+  const { results } = await db.prepare(sql).bind(...binds).all<{ id: string; role: string }>();
+  // De-dupe by user id (a single query already returns distinct users, but be safe).
+  const seen = new Set<string>();
+  return results.filter((r) => (seen.has(r.id) ? false : (seen.add(r.id), true)));
 }
 
 function announcementLinkForRole(role: string): string {
@@ -98,43 +170,46 @@ function isFutureSendAt(sendAt: string): boolean {
  * notification rows (which also trigger push). Shared by the immediate path in
  * createAnnouncement and by the cron dispatcher for due scheduled announcements.
  */
-async function sendAnnouncementNow(
+/**
+ * Fan out ONE send event to its audience RIGHT NOW.
+ *
+ * Template -> Send Event -> per-recipient: `announcementId` is the reusable TEMPLATE; `sendEventId`
+ * is this specific Send / Send-Again. Each per-recipient notification row carries BOTH ids, so a
+ * re-send creates fresh rows tagged with a new sendEventId while prior sends' history is untouched.
+ *
+ * Idempotent: if notification rows already exist for this sendEventId (e.g. the cron re-ran or the
+ * request was retried), the fan-out is skipped so nobody is double-delivered.
+ */
+async function fanOutSendEvent(
   db: D1Database,
   announcementId: string,
+  sendEventId: string,
   input: AnnouncementInput,
 ): Promise<number> {
-  const recipients = await resolveAudienceUsers(db, input.audience);
+  // Idempotency guard: never fan out the same send event twice.
+  const existing = await db
+    .prepare(`SELECT COUNT(*) AS c FROM notifications WHERE send_event_id = ?`)
+    .bind(sendEventId)
+    .first<{ c: number }>();
+  if ((existing?.c ?? 0) > 0) return existing!.c;
+
+  const audiences = resolveAudienceList(input);
+  const recipients = await resolveAudienceUsers(db, audiences);
   if (!recipients.length) throw new Error("No recipients found for this audience");
 
+  const popupMaxPerDay = Math.max(1, Math.floor(Number(input.popupMaxPerDay ?? 1)) || 1);
   const metadata: AnnouncementMetadata = {
     announcementId,
-    audience: input.audience,
+    audience: audiences[0] ?? "all_users",
+    audiences,
     popupEnabled: input.popupEnabled,
     maxImpressions: input.maxImpressions,
+    popupMaxPerDay,
     impressionCount: 0,
     active: true,
     sendAt: input.sendAt,
+    sendEventId,
   };
-
-  // P2-3: write ONE master row per announcement first, then fan out the notification rows linked
-  // to it via announcement_id. This makes the admin list O(1) per announcement (paginated from the
-  // master table) with recipientCount derived from a COUNT, instead of reverse-scanning up to 500
-  // notification rows. The metadata JSON is still stored (for audience/popup/impression settings).
-  await db
-    .prepare(
-      `INSERT OR REPLACE INTO announcements (id, title, body, category, metadata, recipient_count, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      announcementId,
-      input.title,
-      input.body,
-      input.category,
-      JSON.stringify(metadata),
-      recipients.length,
-      nowIso(),
-    )
-    .run();
 
   await createNotificationsBatch(
     db,
@@ -147,10 +222,116 @@ async function sendAnnouncementNow(
       link: announcementLinkForRole(role),
       metadata,
       announcementId,
+      sendEventId,
     })),
   );
 
+  // Record the delivered count on the send event.
+  await db
+    .prepare(`UPDATE notification_send_events SET recipient_count = ?, status = 'sent', sent_at = ? WHERE id = ?`)
+    .bind(recipients.length, nowIso(), sendEventId)
+    .run();
+
   return recipients.length;
+}
+
+/**
+ * Upsert the reusable TEMPLATE (announcements row) — its saved audiences/popup settings drive future
+ * Send-Again actions — WITHOUT fanning out. The template's metadata mirrors the latest send config.
+ */
+async function upsertTemplate(
+  db: D1Database,
+  announcementId: string,
+  input: AnnouncementInput,
+  recipientCount: number,
+): Promise<AnnouncementMetadata> {
+  const audiences = resolveAudienceList(input);
+  const metadata: AnnouncementMetadata = {
+    announcementId,
+    audience: audiences[0] ?? "all_users",
+    audiences,
+    popupEnabled: input.popupEnabled,
+    maxImpressions: input.maxImpressions,
+    popupMaxPerDay: Math.max(1, Math.floor(Number(input.popupMaxPerDay ?? 1)) || 1),
+    impressionCount: 0,
+    active: true,
+    sendAt: input.sendAt,
+  };
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO announcements (id, title, body, category, metadata, recipient_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, COALESCE((SELECT created_at FROM announcements WHERE id = ?), ?))`,
+    )
+    .bind(
+      announcementId,
+      input.title,
+      input.body,
+      input.category,
+      JSON.stringify(metadata),
+      recipientCount,
+      announcementId,
+      nowIso(),
+    )
+    .run();
+  return metadata;
+}
+
+/** Create a SEND EVENT row (one per Send / Send-Again). status='sent' for immediate, else 'scheduled'. */
+async function createSendEventRow(
+  db: D1Database,
+  templateId: string,
+  input: AnnouncementInput,
+  opts: { sendAtIso: string; status: "scheduled" | "sent"; createdBy?: string },
+): Promise<string> {
+  const sendEventId = id("nse");
+  const audiences = resolveAudienceList(input);
+  await db
+    .prepare(
+      `INSERT INTO notification_send_events
+        (id, template_id, title, body, category, audiences, popup_enabled, popup_max_per_day, send_at, status, sent_at, recipient_count, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?)`,
+    )
+    .bind(
+      sendEventId,
+      templateId,
+      input.title,
+      input.body,
+      input.category,
+      JSON.stringify(audiences),
+      input.popupEnabled ? 1 : 0,
+      Math.max(1, Math.floor(Number(input.popupMaxPerDay ?? 1)) || 1),
+      opts.sendAtIso,
+      opts.status,
+      opts.createdBy ?? null,
+      nowIso(),
+    )
+    .run();
+  return sendEventId;
+}
+
+/**
+ * Send a template's content to its audience NOW: ensure the template exists, create a send event,
+ * and fan out. Shared by createAnnouncement (immediate), resendAnnouncement, and the cron.
+ */
+async function sendAnnouncementNow(
+  db: D1Database,
+  announcementId: string,
+  input: AnnouncementInput,
+  sendEventId?: string,
+): Promise<number> {
+  // Validate recipients up-front (clear error before creating a send event).
+  const audiences = resolveAudienceList(input);
+  const recipients = await resolveAudienceUsers(db, audiences);
+  if (!recipients.length) throw new Error("No recipients found for this audience");
+
+  await upsertTemplate(db, announcementId, input, recipients.length);
+  const eventId =
+    sendEventId ??
+    (await createSendEventRow(db, announcementId, input, {
+      sendAtIso: normalizeSendAt(input.sendAt) ?? nowIso(),
+      status: "sent",
+    }));
+  return fanOutSendEvent(db, announcementId, eventId, input);
 }
 
 export async function createAnnouncement(db: D1Database, input: AnnouncementInput) {
@@ -158,36 +339,20 @@ export async function createAnnouncement(db: D1Database, input: AnnouncementInpu
 
   // Scheduled for later: persist the definition and let the cron dispatch it when due. We still
   // validate the audience up-front so the admin gets immediate feedback if there are no recipients.
+  const audiences = resolveAudienceList(input);
   if (isFutureSendAt(input.sendAt)) {
-    const recipients = await resolveAudienceUsers(db, input.audience);
+    const recipients = await resolveAudienceUsers(db, audiences);
     if (!recipients.length) throw new Error("No recipients found for this audience");
 
-    // Store a normalized UTC ISO instant so the cron's send_at <= nowIso() comparison is a true
-    // instant comparison (both UTC), not a naive-string vs UTC mismatch.
+    // Store the reusable TEMPLATE now (so it appears in the list + is available for Send-Again),
+    // and a SCHEDULED send event the cron will dispatch when due. Nothing is delivered yet.
     const sendAtIso = normalizeSendAt(input.sendAt) ?? input.sendAt;
+    await upsertTemplate(db, announcementId, { ...input, sendAt: sendAtIso }, recipients.length);
+    await createSendEventRow(db, announcementId, { ...input, sendAt: sendAtIso }, {
+      sendAtIso,
+      status: "scheduled",
+    });
 
-    await db
-      .prepare(
-        `INSERT INTO scheduled_announcements
-          (id, announcement_id, title, body, category, audience, popup_enabled, max_impressions, send_at, sent, sent_at, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)`,
-      )
-      .bind(
-        id("sann"),
-        announcementId,
-        input.title,
-        input.body,
-        input.category,
-        input.audience,
-        input.popupEnabled ? 1 : 0,
-        input.maxImpressions,
-        sendAtIso,
-        nowIso(),
-      )
-      .run();
-
-    // Return the same shape the UI expects; recipientCount reflects the resolved audience size
-    // it is scheduled to reach (nothing has been delivered yet — sendAt is in the future).
     return mapAnnouncementRow(
       announcementId,
       { ...input, sendAt: sendAtIso },
@@ -196,9 +361,68 @@ export async function createAnnouncement(db: D1Database, input: AnnouncementInpu
     );
   }
 
-  // sendAt is now/past (or unparseable): deliver immediately, as before.
+  // sendAt is now/past (or unparseable): deliver immediately.
   const recipientCount = await sendAnnouncementNow(db, announcementId, input);
   return mapAnnouncementRow(announcementId, input, recipientCount, nowIso());
+}
+
+/**
+ * Send-Again: create a NEW send event for an existing TEMPLATE and either dispatch now or schedule.
+ * Reuses the template's saved audiences/popup settings unless the caller overrides them. Does NOT
+ * modify the template or any prior send's history — each send is independent (own send event id +
+ * its own per-recipient notification rows).
+ */
+export async function resendAnnouncement(
+  db: D1Database,
+  templateId: string,
+  opts: {
+    mode?: "now" | "schedule";
+    sendAt?: string;
+    audiences?: AnnouncementAudience[];
+    popupMaxPerDay?: number;
+  } = {},
+) {
+  const master = await db
+    .prepare(`SELECT id, title, body, category, metadata FROM announcements WHERE id = ?`)
+    .bind(templateId)
+    .first<{ id: string; title: string; body: string; category: string | null; metadata: string | null }>();
+  if (!master) throw new Error("Notification not found");
+
+  const meta = parseMetadata(master.metadata);
+  const savedAudiences =
+    meta?.audiences && meta.audiences.length
+      ? meta.audiences
+      : meta?.audience
+        ? [meta.audience]
+        : (["all_users"] as AnnouncementAudience[]);
+
+  const input: AnnouncementInput = {
+    title: master.title,
+    body: master.body,
+    category: String(master.category ?? "system"),
+    audiences: opts.audiences && opts.audiences.length ? opts.audiences : savedAudiences,
+    popupEnabled: meta?.popupEnabled ?? false,
+    maxImpressions: meta?.maxImpressions ?? 1,
+    popupMaxPerDay: opts.popupMaxPerDay ?? meta?.popupMaxPerDay ?? 1,
+    sendAt: opts.sendAt ?? nowIso(),
+  };
+
+  if (opts.mode === "schedule" && opts.sendAt && isFutureSendAt(opts.sendAt)) {
+    const sendAtIso = normalizeSendAt(opts.sendAt) ?? opts.sendAt;
+    const eventId = await createSendEventRow(db, templateId, { ...input, sendAt: sendAtIso }, {
+      sendAtIso,
+      status: "scheduled",
+    });
+    return { templateId, sendEventId: eventId, status: "scheduled" as const, sendAt: sendAtIso };
+  }
+
+  // Send now: create a send event + fan out immediately.
+  const eventId = await createSendEventRow(db, templateId, input, {
+    sendAtIso: nowIso(),
+    status: "sent",
+  });
+  const recipientCount = await fanOutSendEvent(db, templateId, eventId, input);
+  return { templateId, sendEventId: eventId, status: "sent" as const, recipientCount };
 }
 
 /**
@@ -209,13 +433,71 @@ export async function createAnnouncement(db: D1Database, input: AnnouncementInpu
  * to avoid an unbounded retry storm; failures are logged.
  */
 export async function dispatchScheduledAnnouncements(db: D1Database): Promise<number> {
+  let dispatched = 0;
+
+  // NEW model: due scheduled SEND EVENTS. fanOutSendEvent is idempotent (skips if already fanned
+  // out for this send event id), so marking status='sent' + a retry can never double-deliver.
+  const { results: events } = await db
+    .prepare(
+      `SELECT id, template_id, title, body, category, audiences, popup_enabled, popup_max_per_day, send_at
+       FROM notification_send_events
+       WHERE status = 'scheduled' AND send_at <= ?
+       ORDER BY send_at ASC LIMIT 100`,
+    )
+    .bind(nowIso())
+    .all<{
+      id: string;
+      template_id: string;
+      title: string;
+      body: string;
+      category: string;
+      audiences: string | null;
+      popup_enabled: number;
+      popup_max_per_day: number;
+      send_at: string;
+    }>();
+
+  for (const row of events) {
+    let audiences: AnnouncementAudience[] = [];
+    try {
+      audiences = JSON.parse(row.audiences ?? "[]") as AnnouncementAudience[];
+    } catch {
+      audiences = [];
+    }
+    const input: AnnouncementInput = {
+      title: row.title,
+      body: row.body,
+      category: row.category,
+      audiences,
+      sendAt: row.send_at,
+      popupEnabled: row.popup_enabled === 1,
+      maxImpressions: 1,
+      popupMaxPerDay: row.popup_max_per_day,
+    };
+    try {
+      await fanOutSendEvent(db, row.template_id, row.id, input);
+      dispatched += 1;
+    } catch (err) {
+      console.error(
+        `[cron] dispatchScheduledAnnouncements: send event ${row.id} failed:`,
+        err instanceof Error ? err.message : err,
+      );
+      // Mark sent so a persistent failure (e.g. audience now empty) doesn't re-fire forever.
+      await db
+        .prepare(`UPDATE notification_send_events SET status = 'sent', sent_at = ? WHERE id = ?`)
+        .bind(nowIso(), row.id)
+        .run();
+    }
+  }
+
+  // LEGACY back-compat: dispatch any pre-existing scheduled_announcements rows (created before the
+  // send-event model) so nothing scheduled under the old system is silently dropped.
   const { results } = await db
     .prepare(
       `SELECT id, announcement_id, title, body, category, audience, popup_enabled, max_impressions, send_at
        FROM scheduled_announcements
        WHERE sent = 0 AND send_at <= ?
-       ORDER BY send_at ASC
-       LIMIT 100`,
+       ORDER BY send_at ASC LIMIT 100`,
     )
     .bind(nowIso())
     .all<{
@@ -230,7 +512,6 @@ export async function dispatchScheduledAnnouncements(db: D1Database): Promise<nu
       send_at: string;
     }>();
 
-  let dispatched = 0;
   for (const row of results) {
     const input: AnnouncementInput = {
       title: row.title,
@@ -246,12 +527,10 @@ export async function dispatchScheduledAnnouncements(db: D1Database): Promise<nu
       dispatched += 1;
     } catch (err) {
       console.error(
-        `[cron] dispatchScheduledAnnouncements: failed to send ${row.announcement_id}:`,
+        `[cron] dispatchScheduledAnnouncements (legacy): failed to send ${row.announcement_id}:`,
         err instanceof Error ? err.message : err,
       );
     }
-    // Mark sent regardless, so a persistent failure (e.g. audience now empty) doesn't re-fire
-    // every 15 minutes forever.
     await db
       .prepare(`UPDATE scheduled_announcements SET sent = 1, sent_at = ? WHERE id = ?`)
       .bind(nowIso(), row.id)
@@ -311,10 +590,64 @@ export async function listAnnouncements(
     );
   });
 
-  // Merge in announcements that are SCHEDULED but not yet sent. These live in
-  // scheduled_announcements (no notification rows exist yet), so without this they'd be invisible
-  // in the admin list and look like the create silently failed. Marked scheduled=true so the UI
-  // can distinguish "will send at" from already-delivered.
+  // Attach each template's SEND EVENT history (Template -> Send Event -> recipients), so the UI can
+  // show "sent 3 times" with per-send audience/time/count, and a pending scheduled send.
+  const templateIds = items.map((it) => it.id);
+  const sendEventsByTemplate = new Map<
+    string,
+    Array<{ id: string; audiences: AnnouncementAudience[]; status: string; sendAt: string; sentAt: string | null; recipientCount: number }>
+  >();
+  if (templateIds.length) {
+    const ph = templateIds.map(() => "?").join(",");
+    const { results: evRows } = await db
+      .prepare(
+        `SELECT id, template_id, audiences, status, send_at, sent_at, recipient_count
+         FROM notification_send_events WHERE template_id IN (${ph})
+         ORDER BY created_at DESC`,
+      )
+      .bind(...templateIds)
+      .all<{
+        id: string;
+        template_id: string;
+        audiences: string | null;
+        status: string;
+        send_at: string;
+        sent_at: string | null;
+        recipient_count: number;
+      }>();
+    for (const ev of evRows) {
+      let auds: AnnouncementAudience[] = [];
+      try {
+        auds = JSON.parse(ev.audiences ?? "[]") as AnnouncementAudience[];
+      } catch {
+        auds = [];
+      }
+      const list = sendEventsByTemplate.get(ev.template_id) ?? [];
+      list.push({
+        id: ev.id,
+        audiences: auds,
+        status: ev.status,
+        sendAt: ev.send_at,
+        sentAt: ev.sent_at ? formatInLabel(ev.sent_at) : null,
+        recipientCount: ev.recipient_count,
+      });
+      sendEventsByTemplate.set(ev.template_id, list);
+    }
+  }
+  items = items.map((it) => {
+    const events = sendEventsByTemplate.get(it.id) ?? [];
+    const scheduledPending = events.find((e) => e.status === "scheduled");
+    return {
+      ...it,
+      sendEvents: events,
+      sendCount: events.filter((e) => e.status === "sent").length,
+      scheduled: Boolean(scheduledPending),
+      nextSendAt: scheduledPending ? scheduledPending.sendAt : null,
+    };
+  });
+
+  // LEGACY back-compat: also surface pre-existing scheduled_announcements rows (created before the
+  // send-event model) that have no template row yet.
   const scheduled = await db
     .prepare(
       `SELECT announcement_id, title, body, category, audience, popup_enabled, max_impressions, send_at, created_at
@@ -332,7 +665,10 @@ export async function listAnnouncements(
       created_at: string;
     }>();
 
-  const scheduledItems = scheduled.results.map((row) => ({
+  const knownIds = new Set(items.map((it) => it.id));
+  const scheduledItems = scheduled.results
+    .filter((row) => !knownIds.has(row.announcement_id))
+    .map((row) => ({
     ...mapAnnouncementRow(
       row.announcement_id,
       {
@@ -485,16 +821,16 @@ export async function deleteAnnouncement(db: D1Database, announcementId: string)
     .filter((r) => parseMetadata(r.metadata)?.announcementId === announcementId)
     .map((r) => r.id);
 
-  // Also remove the master row (if present) so the announcement leaves the paginated list. Not all
-  // announcements have a master row (scheduled-only ones live in scheduled_announcements), so a
-  // missing row here is fine. Allow deleting a master row even when there are no notification rows.
+  // Also remove the master/template row so the notification leaves the list, plus its send events
+  // (Template -> Send Event) and any legacy scheduled row. Deleting the template removes all of its
+  // sends and their delivered history (the admin explicitly deleted the notification).
   await db.prepare(`DELETE FROM announcements WHERE id = ?`).bind(announcementId).run();
+  await db.prepare(`DELETE FROM notification_send_events WHERE template_id = ?`).bind(announcementId).run();
+  await db.prepare(`DELETE FROM scheduled_announcements WHERE announcement_id = ?`).bind(announcementId).run();
+  // Remove per-recipient rows for this template's sends (matched by announcement_id = template id).
+  await db.prepare(`DELETE FROM notifications WHERE announcement_id = ?`).bind(announcementId).run();
 
-  if (!targetIds.length) {
-    // Nothing fanned out yet (e.g. scheduled-only) — the master delete above is sufficient.
-    return;
-  }
-
+  // Fallback: also drop any legacy rows matched only via metadata.announcementId.
   for (const rowId of targetIds) {
     await db.prepare(`DELETE FROM notifications WHERE id = ?`).bind(rowId).run();
   }
@@ -507,15 +843,20 @@ function mapAnnouncementRow(
   createdAt: string,
   metadata?: AnnouncementMetadata,
 ) {
+  const inputAudiences = resolveAudienceList(input);
   const meta = metadata ?? {
     announcementId,
-    audience: input.audience,
+    audience: inputAudiences[0] ?? "all_users",
+    audiences: inputAudiences,
     popupEnabled: input.popupEnabled,
     maxImpressions: input.maxImpressions,
+    popupMaxPerDay: input.popupMaxPerDay ?? 1,
     impressionCount: 0,
     active: true,
     sendAt: input.sendAt,
   };
+  const audiences =
+    meta.audiences && meta.audiences.length ? meta.audiences : [meta.audience];
 
   return {
     id: announcementId,
@@ -523,12 +864,14 @@ function mapAnnouncementRow(
     title: input.title,
     body: input.body,
     audience: meta.audience,
-    recipientScope: `${AUDIENCE_LABELS[meta.audience]} (${recipientCount})`,
+    audiences,
+    recipientScope: `${audienceLabel(audiences)} (${recipientCount})`,
     read: false,
     active: meta.active,
     sendAt: meta.sendAt,
     popupEnabled: meta.popupEnabled,
     maxImpressions: meta.maxImpressions,
+    popupMaxPerDay: meta.popupMaxPerDay ?? 1,
     impressionCount: meta.impressionCount,
     createdAt: formatInLabel(createdAt),
     recipientCount,

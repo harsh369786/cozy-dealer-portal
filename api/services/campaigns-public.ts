@@ -47,17 +47,20 @@ function mapCampaignRow(r: Record<string, unknown>): PublicCampaign {
   };
 }
 
+// Bucket filter computed PURELY from the date window in IST (date('now','+05:30')). The stored
+// status column is intentionally NOT consulted, so campaigns move between tabs automatically:
+//   active   = start <= today <= end
+//   upcoming = today < start
+//   expired  = today > end
 function campaignTabSql(tab: CampaignStatus) {
   if (tab === "active") {
     return ` AND date(substr(pc.start_at, 1, 10)) <= date('now', '+05:30')
-              AND date(substr(pc.end_at, 1, 10)) >= date('now', '+05:30')
-              AND IFNULL(pc.status, 'active') != 'expired'`;
+              AND date(substr(pc.end_at, 1, 10)) >= date('now', '+05:30')`;
   }
   if (tab === "upcoming") {
-    return ` AND date(substr(pc.end_at, 1, 10)) >= date('now', '+05:30')
-              AND (date(substr(pc.start_at, 1, 10)) > date('now', '+05:30') OR pc.status = 'upcoming')`;
+    return ` AND date(substr(pc.start_at, 1, 10)) > date('now', '+05:30')`;
   }
-  return ` AND (date(substr(pc.end_at, 1, 10)) < date('now', '+05:30') OR pc.status = 'expired')`;
+  return ` AND date(substr(pc.end_at, 1, 10)) < date('now', '+05:30')`;
 }
 
 export async function listDealerCampaigns(
@@ -81,7 +84,8 @@ export async function listDealerCampaigns(
     .prepare(
       `SELECT pc.*, p.name as product_name FROM price_campaigns pc
        LEFT JOIN products p ON p.id = pc.product_id
-       WHERE pc.deleted_at IS NULL AND pc.whatsapp_target_dealers = 1${scopeSql}${campaignTabSql(tab)}`,
+       WHERE pc.deleted_at IS NULL AND pc.whatsapp_target_dealers = 1${scopeSql}${campaignTabSql(tab)}
+       ORDER BY date(substr(pc.start_at, 1, 10)) DESC, pc.id DESC`,
     )
     .bind(...binds)
     .all();
@@ -110,6 +114,7 @@ export async function listDistributorCampaigns(
     sql += ` AND pc.distributor_id IS NULL`;
   }
   if (tab) sql += campaignTabSql(tab);
+  sql += ` ORDER BY date(substr(pc.start_at, 1, 10)) DESC, pc.id DESC`;
   const { results } = await db.prepare(sql).bind(...binds).all();
 
   return results
@@ -190,7 +195,6 @@ export async function getActivePriceCampaignRow(
            pc.product_id = ? OR pc.product_id IS NULL
            OR pc.id IN (SELECT campaign_id FROM price_campaign_products WHERE product_id = ?)
          ) AND pc.deleted_at IS NULL${distributorClause}
-         AND pc.status = 'active'
          AND date(pc.start_at) <= date(?)
          AND date(pc.end_at) >= date(?)
        ORDER BY is_all_products ASC, pc.start_at DESC LIMIT 1`,

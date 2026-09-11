@@ -13,6 +13,8 @@ export type NotificationInsertInput = {
   metadata?: Record<string, unknown>;
   /** Links a fanned-out notification back to its announcements-master row (P2-3). */
   announcementId?: string | null;
+  /** Links a fanned-out notification to its specific send event (Template -> Send Event). */
+  sendEventId?: string | null;
 };
 
 export type CreatedNotification = NotificationInsertInput & { id: string };
@@ -53,8 +55,8 @@ export async function createNotification(
   const ts = nowIso();
   await db
     .prepare(
-      `INSERT INTO notifications (id, recipient_user_id, category, type, title, body, link, read, is_reminder, metadata, announcement_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+      `INSERT INTO notifications (id, recipient_user_id, category, type, title, body, link, read, is_reminder, metadata, announcement_id, send_event_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
     )
     .bind(
       notificationId,
@@ -67,6 +69,7 @@ export async function createNotification(
       input.isReminder ? 1 : 0,
       input.metadata ? JSON.stringify(input.metadata) : null,
       input.announcementId ?? null,
+      input.sendEventId ?? null,
       ts,
     )
     .run();
@@ -103,8 +106,8 @@ export async function createNotificationsBatch(
       rows.map((input) =>
         db
           .prepare(
-            `INSERT INTO notifications (id, recipient_user_id, category, type, title, body, link, read, is_reminder, metadata, announcement_id, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+            `INSERT INTO notifications (id, recipient_user_id, category, type, title, body, link, read, is_reminder, metadata, announcement_id, send_event_id, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
           )
           .bind(
             input.id,
@@ -117,6 +120,7 @@ export async function createNotificationsBatch(
             input.isReminder ? 1 : 0,
             input.metadata ? JSON.stringify(input.metadata) : null,
             input.announcementId ?? null,
+            input.sendEventId ?? null,
             ts,
           ),
       ),
