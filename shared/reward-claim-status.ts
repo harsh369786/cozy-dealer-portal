@@ -79,8 +79,13 @@ export const REWARD_CLAIM_TRANSITIONS: Transition[] = [
     to: "dispatched_from_factory",
     roles: ["admin_staff", "master_admin"],
   },
-  // Distributor confirms delivery to the dealer.
-  { from: "dispatched_from_factory", to: "delivered", roles: ["distributor", "master_admin"] },
+  // Distributor confirms delivery to the dealer. Admin staff (and master_admin) may also mark it
+  // delivered so operations can close out a claim when the distributor hasn't.
+  {
+    from: "dispatched_from_factory",
+    to: "delivered",
+    roles: ["distributor", "admin_staff", "master_admin"],
+  },
   // Cancellation is allowed from any pre-delivery state.
   { from: "pending_approval", to: "cancelled", roles: ["distributor", "admin_staff", "master_admin"] },
   { from: "approved", to: "cancelled", roles: ["admin_staff", "master_admin"] },

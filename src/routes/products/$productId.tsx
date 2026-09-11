@@ -26,7 +26,6 @@ import { requireRoles } from "@/lib/auth-guard";
 import { useFormat } from "@/hooks/use-format";
 import { useFormatApiError } from "@/lib/api-errors";
 import i18n from "@/lib/i18n";
-import { resolveAssetUrl } from "@/lib/asset-url";
 import { getProductDetail } from "@/services/catalog";
 import { createDealerOrder, getPriceQuote } from "@/services/orders";
 import { recordOrderPlaced } from "@/lib/browser-notifications";
@@ -199,7 +198,9 @@ function Configurator() {
     }
   }, [product, thickness]);
 
-  const showPrice = isPillow || Boolean(thickness);
+  // Pillows and foldables price immediately from their fixed MRP — thickness is never a required
+  // order selection for them. Only mattresses need a thickness chosen before a price can show.
+  const showPrice = isPillow || isFoldable || Boolean(thickness);
   const dimensionError = isMattress ? getMattressDimensionError(length, breadth) : null;
   const canQuote = Boolean(
     product && showPrice && (!isMattress || (length > 0 && breadth > 0 && !dimensionError)),
@@ -371,13 +372,6 @@ function Configurator() {
       )}
 
       <div className="mt-4 flex gap-3 rounded-3xl border border-border bg-card p-3 shadow-soft">
-        <img
-          src={resolveAssetUrl(product.image_url ?? "")}
-          alt={product.name}
-          width={400}
-          height={400}
-          className="h-20 w-20 rounded-2xl object-cover"
-        />
         <div className="flex-1">
           <p className="font-display text-lg font-bold">{product.name}</p>
           {!hasNoGuarantee(product.guarantee) && (
@@ -446,30 +440,19 @@ function Configurator() {
           <p className="mt-1 font-display text-2xl font-bold">{product.fixed_size}</p>
         </div>
       ) : isFoldable ? (
+        // Foldable: fixed size AND fixed thickness are product attributes shown for reference, NOT
+        // order selections. The dealer does not pick a thickness while ordering.
         <>
           <div className="mt-5 rounded-3xl border border-border bg-card p-4">
             <p className="text-base font-bold">{t("common.size")}</p>
             <p className="mt-1 font-display text-2xl font-bold">{product.fixed_size}</p>
           </div>
-          <div className="mt-5">
-            <p className="text-base font-bold">{t("common.thickness")}</p>
-            <div className="mt-3 flex flex-wrap gap-3">
-              {thicknesses.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setThickness(t)}
-                  className={cn(
-                    "press min-w-[4.5rem] flex-1 rounded-2xl border py-4 text-base font-bold",
-                    thickness === t
-                      ? "border-transparent brand-gradient text-primary-foreground"
-                      : "border-border bg-card",
-                  )}
-                >
-                  {t}
-                </button>
-              ))}
+          {thickness && (
+            <div className="mt-5 rounded-3xl border border-border bg-card p-4">
+              <p className="text-base font-bold">{t("common.thickness")}</p>
+              <p className="mt-1 font-display text-2xl font-bold">{thickness}</p>
             </div>
-          </div>
+          )}
         </>
       ) : (
         <>

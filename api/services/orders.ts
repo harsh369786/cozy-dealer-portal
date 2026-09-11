@@ -17,6 +17,7 @@ import {
   notifyNewOrder,
   notifyOrderStatusChange,
 } from "./notification-events";
+import { snapshotPushContext, runBackground } from "../push-env";
 
 /**
  * Thrown when an order status update loses the optimistic-lock race (the row changed status
@@ -321,20 +322,31 @@ export async function createOrder(
     }
   }
 
-  await notifyNewOrder(db, orderId, dealer.id, dealer.store_name, dealer.distributor_id, user.id);
-
+  // Return to the dealer as soon as the order is persisted. The notification fan-out (~8 D1
+  // round-trips across dealer/distributor/SE/admin recipients) and the WhatsApp enqueue are NOT on
+  // the dealer's critical path — do them in the background via the request's execution context so
+  // the response isn't blocked. On Workers this is tied to ctx.waitUntil so it still completes
+  // after the HTTP response; in local dev it runs to completion in-process.
   const order = await getOrderById(db, orderId);
-  if (order && dealer.phone) {
-    const payload = await buildOrderWhatsappPayload(db, orderId);
-    if (payload) {
-      await enqueueWhatsapp(db, env, {
-        toPhone: dealer.phone,
-        templateKey: "mattress_order_placed",
-        payload,
-        referenceId: orderId,
-      });
-    }
-  }
+
+  const { ctx } = snapshotPushContext();
+  runBackground(
+    ctx,
+    (async () => {
+      await notifyNewOrder(db, orderId, dealer.id, dealer.store_name, dealer.distributor_id, user.id);
+      if (dealer.phone) {
+        const payload = await buildOrderWhatsappPayload(db, orderId);
+        if (payload) {
+          await enqueueWhatsapp(db, env, {
+            toPhone: dealer.phone,
+            templateKey: "mattress_order_placed",
+            payload,
+            referenceId: orderId,
+          });
+        }
+      }
+    })(),
+  );
 
   return order;
 }
@@ -667,6 +679,7 @@ export async function getOrderById(db: D1Database, orderId: string) {
     .prepare(
       `SELECT o.*, d.store_name as dealer_name, d.code as dealer_code, d.address as dealer_address,
               d.phone as dealer_phone, d.contact_name,
+              d.area as dealer_area, d.location as dealer_location,
               dist.name as distributor_name
        FROM orders o
        JOIN dealers d ON d.id = o.dealer_id
@@ -732,6 +745,10 @@ export async function getOrderById(db: D1Database, orderId: string) {
     contactName: order.contact_name,
     dealerAddress: order.dealer_address,
     dealerPhone: order.dealer_phone,
+    // Structured area for the Job Card. Prefer the structured `area`; fall back to the legacy
+    // free-text `location` so older dealers (no pincode-derived area) still show something.
+    dealerArea:
+      (order.dealer_area as string | null) || (order.dealer_location as string | null) || undefined,
     status,
     placedAt: formatInLabel(placedAt),
     approvedAt: order.approved_at ? formatInLabel(order.approved_at as string) : undefined,

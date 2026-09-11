@@ -1,8 +1,12 @@
 import { api } from "@/lib/api-client";
 
-export async function getRewardCatalog() {
+export async function getRewardCatalog(opts?: { light?: boolean }) {
+  // The reward catalog stores images as inline base64 data URLs, which can make the full response
+  // hundreds of KB. Callers that only need progress/threshold data (home bar, product page) pass
+  // { light: true } to skip the image payload; the rewards page fetches the full catalog.
+  const qs = opts?.light ? "?light=1" : "";
   return api.get<Array<{ id: string; name: string; emoji: string; points: number; imageUrl?: string }>>(
-    "/api/v1/rewards/catalog",
+    `/api/v1/rewards/catalog${qs}`,
   );
 }
 

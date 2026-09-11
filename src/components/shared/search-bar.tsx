@@ -55,13 +55,13 @@ export function SearchBar({
   }, [localValue, debounceMs]);
 
   return (
-    <div className="relative">
+    <div className="relative w-full min-w-0">
       <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       <Input
         value={localValue}
         onChange={(e) => setLocalValue(e.target.value)}
         placeholder={placeholder}
-        className="h-11 rounded-lg border-border bg-card pl-10 pr-10 text-base shadow-soft"
+        className="h-11 w-full rounded-lg border-border bg-card pl-10 pr-10 text-base shadow-soft"
       />
       {localValue && (
         <button

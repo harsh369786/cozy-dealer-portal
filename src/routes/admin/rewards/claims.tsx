@@ -60,6 +60,8 @@ function RewardClaimsPage() {
   const [deleteNotifId, setDeleteNotifId] = useState<string | null>(null);
 
   const canProcess = can("rewards:process");
+  const canDeliver = can("rewards:deliver");
+  const [deliverId, setDeliverId] = useState<string | null>(null);
 
   const notifQuery = useAsyncData(async () => {
     try {
@@ -74,7 +76,11 @@ function RewardClaimsPage() {
     [search, status, page],
   );
 
-  const advance = async (id: string, to: "processing" | "dispatched_from_factory", clear: () => void) => {
+  const advance = async (
+    id: string,
+    to: "processing" | "dispatched_from_factory" | "delivered",
+    clear: () => void,
+  ) => {
     setLoadingAction(true);
     try {
       await transitionRewardClaim(id, to);
@@ -147,10 +153,10 @@ function RewardClaimsPage() {
             key: "action",
             header: "",
             cell: (c) => {
-              if (!canProcess) return null;
+              if (!canProcess && !canDeliver) return null;
               const s = normalizeRewardClaimStatus(c.status);
               // Admin staff processes an approved claim then dispatches it from the factory.
-              if (s === "approved") {
+              if (s === "approved" && canProcess) {
                 return (
                   <Button
                     size="sm"
@@ -164,7 +170,7 @@ function RewardClaimsPage() {
                   </Button>
                 );
               }
-              if (s === "processing") {
+              if (s === "processing" && canProcess) {
                 return (
                   <Button
                     size="sm"
@@ -175,6 +181,20 @@ function RewardClaimsPage() {
                     }}
                   >
                     {t("admin.rewards.markDispatched")}
+                  </Button>
+                );
+              }
+              if (s === "dispatched_from_factory" && canDeliver) {
+                return (
+                  <Button
+                    size="sm"
+                    className="rounded-lg font-bold"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeliverId(c.id);
+                    }}
+                  >
+                    {t("common.markDelivered")}
                   </Button>
                 );
               }
@@ -243,6 +263,16 @@ function RewardClaimsPage() {
         confirmLabel={t("admin.rewards.markDispatched")}
         loading={loadingAction}
         onConfirm={() => dispatchId && advance(dispatchId, "dispatched_from_factory", () => setDispatchId(null))}
+      />
+
+      <ConfirmActionDialog
+        open={!!deliverId}
+        onOpenChange={(o) => !o && setDeliverId(null)}
+        title={t("common.markDelivered")}
+        description={t("admin.rewards.markDeliveredDesc")}
+        confirmLabel={t("common.markDelivered")}
+        loading={loadingAction}
+        onConfirm={() => deliverId && advance(deliverId, "delivered", () => setDeliverId(null))}
       />
 
       <Dialog open={!!editNotif} onOpenChange={(o) => !o && setEditNotif(null)}>

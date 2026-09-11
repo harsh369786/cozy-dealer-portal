@@ -17,7 +17,6 @@ import {
   getCampaignPrice,
 } from "@/lib/campaign-service";
 import { requireRoles } from "@/lib/auth-guard";
-import { resolveAssetUrl } from "@/lib/asset-url";
 import { useFormat } from "@/hooks/use-format";
 import i18n from "@/lib/i18n";
 import { useSession } from "@/hooks/use-session";
@@ -286,7 +285,7 @@ function HomeRewardsSection() {
 function ProductionHomeContent({ user, data }: { user: SessionUser; data: ProductionHomeData }) {
   const { t } = useTranslation();
   const { formatCurrency } = useFormat();
-  const { dealerProfile, featured, activeCampaigns } = data;
+  const { dealerProfile, activeCampaigns } = data;
   const greetingName = firstName(user.name);
   const storeName = dealerProfile?.name;
   const address = dealerProfile?.address ?? dealerProfile?.location;
@@ -392,75 +391,6 @@ function ProductionHomeContent({ user, data }: { user: SessionUser; data: Produc
           ))}
         </div>
       </Section>
-
-      {featured.length > 0 && (
-        <Section
-          title={t("common.featuredProducts")}
-          action={
-            <Link to="/products" className="text-sm font-bold text-primary">
-              {t("common.seeAll")}
-            </Link>
-          }
-        >
-          <div className="scrollbar-none -mx-5 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth-touch px-5 pb-2">
-            {featured.map((p) => (
-              <Link
-                key={p.id}
-                to="/products/$productId"
-                params={{ productId: p.id }}
-                className="press w-56 shrink-0 snap-start overflow-hidden rounded-2xl border border-border bg-card shadow-soft"
-              >
-                {p.image ? (
-                  <img
-                    src={resolveAssetUrl(p.image)}
-                    alt={p.name}
-                    loading="lazy"
-                    decoding="async"
-                    width={224}
-                    height={128}
-                    className="h-32 w-full object-cover"
-                  />
-                ) : (
-                  <div className="grid h-32 place-items-center bg-secondary text-sm text-muted-foreground">
-                    {t("common.noImage")}
-                  </div>
-                )}
-                <div className="p-3">
-                  <p className="text-base font-bold leading-snug">{p.name}</p>
-                  {p.price != null && (
-                    <div className="mt-1">
-                      {p.campaignPrice != null && p.campaignPrice < p.price ? (
-                        <>
-                          <p className="text-sm text-muted-foreground line-through">
-                            {t("common.dealerLabel", { price: formatCurrency(p.price) })}
-                          </p>
-                          {/* "From": base 72"×36", 5" price; scales with size/thickness on the
-                              product page. Shown as a starting price, not the exact charge. */}
-                          <p className="text-sm font-bold text-primary">
-                            {t("common.from")} {formatCurrency(p.campaignPrice)}
-                          </p>
-                        </>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">
-                          {t("common.from")} {formatCurrency(p.unitPrice ?? p.price)}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                  {p.points != null && (
-                    <p className="mt-1 text-sm font-semibold text-primary">
-                      {t("common.earn")} {p.points} {t("common.points")}
-                    </p>
-                  )}
-                  <span className="press mt-3 block rounded-xl brand-gradient py-2.5 text-center text-sm font-bold text-primary-foreground">
-                    {t("common.order")}
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </Section>
-      )}
 
       {priceCampaign && priceProduct && campaignPrice && (
         <Section title={t("common.campaignHighlight")}>

@@ -30,6 +30,23 @@ async function apiGetOptional<T>(path: string): Promise<T | null> {
   }
 }
 
+/**
+ * Run a dashboard data promise, treating a 403 (the caller lacks that permission) as "no data"
+ * instead of an error. The admin dashboard is shared by roles with DIFFERENT permission sets
+ * (master_admin, admin_staff, and the view-only sales_head). A single section the current role
+ * isn't allowed to see (e.g. sales_head lacks signup:review, so /admin/signup-applications 403s)
+ * must NOT reject the whole Promise.all and blow up the dashboard into an "Access restricted" loop.
+ * So every optional section resolves to null on 403 and its stat falls back to a safe default.
+ */
+async function optional<T>(promise: Promise<T>): Promise<T | null> {
+  try {
+    return await promise;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) return null;
+    throw err;
+  }
+}
+
 export async function getAdminDashboard(): Promise<AdminDashboardData> {
   const [
     analytics,
@@ -50,14 +67,19 @@ export async function getAdminDashboard(): Promise<AdminDashboardData> {
       previousMonthLabel?: string;
     }>("/api/v1/reports/dashboard"),
     apiGetOptional<Array<{ product: string; sales: number; units: number }>>("/api/v1/reports/product-sales"),
-    api.get<{ items: OrderListItem[]; total: number }>("/api/v1/orders?page=1&pageSize=5"),
-    listSignupApplications({ page: 1, pageSize: 5, status: "pending" }),
-    api.get<{ items?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>("/api/v1/complaints?page=1&pageSize=50"),
-    api.get<{ total: number }>("/api/v1/admin/campaigns?status=active&pageSize=1"),
+    optional(api.get<{ items: OrderListItem[]; total: number }>("/api/v1/orders?page=1&pageSize=5")),
+    optional(listSignupApplications({ page: 1, pageSize: 5, status: "pending" })),
+    optional(
+      api.get<{ items?: Array<Record<string, unknown>> } | Array<Record<string, unknown>>>(
+        "/api/v1/complaints?page=1&pageSize=50",
+      ),
+    ),
+    optional(api.get<{ total: number }>("/api/v1/admin/campaigns?status=active&pageSize=1")),
   ]);
 
   const kpi = (id: string) => analytics?.kpis.find((k) => k.id === id)?.value ?? 0;
-  const complaintRows = Array.isArray(complaints) ? complaints : (complaints.items ?? []);
+  const complaintList = complaints == null ? [] : Array.isArray(complaints) ? complaints : (complaints.items ?? []);
+  const complaintRows = complaintList;
   const openComplaintRows = complaintRows.filter(
     (c) => c.status === "pending" || c.status === "in_progress",
   );
@@ -68,12 +90,12 @@ export async function getAdminDashboard(): Promise<AdminDashboardData> {
       salesGrowth: dashboardMtd?.salesGrowth ?? 0,
       currentMonthLabel: dashboardMtd?.currentMonthLabel,
       previousMonthLabel: dashboardMtd?.previousMonthLabel,
-      totalOrders: analytics ? kpi("orders") : ordersRes.total ?? 0,
+      totalOrders: analytics ? kpi("orders") : ordersRes?.total ?? 0,
       totalDealers: analytics?.filterOptions?.dealers?.length ?? 0,
       totalDistributors: analytics?.filterOptions?.distributors?.length ?? 0,
       pendingApprovals: analytics ? kpi("pending_approvals") : 0,
       openComplaints: analytics ? kpi("complaints") : openComplaintRows.length,
-      activeCampaigns: campaignsRes.total ?? 0,
+      activeCampaigns: campaignsRes?.total ?? 0,
     },
     monthlySales: (monthlySales ?? []).map((row) => ({
       month: row.month,
@@ -85,7 +107,7 @@ export async function getAdminDashboard(): Promise<AdminDashboardData> {
       sales: Number(row.sales ?? 0),
       units: Number(row.units ?? 0),
     })),
-    recentOrders: (ordersRes.items ?? []).map((o) => ({
+    recentOrders: (ordersRes?.items ?? []).map((o) => ({
       id: o.id,
       dealerName: o.dealerName,
       dealerCode: o.dealerCode,
@@ -95,7 +117,7 @@ export async function getAdminDashboard(): Promise<AdminDashboardData> {
       totalValue: o.totalValue,
       totalItems: o.totalItems,
     })),
-    pendingSignups: pendingSignups.items ?? [],
+    pendingSignups: pendingSignups?.items ?? [],
     openComplaints: openComplaintRows.map(mapComplaintRow),
   };
 }

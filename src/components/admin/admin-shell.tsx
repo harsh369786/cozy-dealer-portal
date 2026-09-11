@@ -53,6 +53,7 @@ const NAV_ITEMS: Array<{
   labelKey: string;
   icon: typeof LayoutDashboard;
   permission?: Permission;
+  masterAdminOnly?: boolean;
   matchPrefix?: string;
 }> = [
   { to: "/admin", labelKey: "nav.admin.dashboard", icon: LayoutDashboard, matchPrefix: "/admin" },
@@ -78,6 +79,14 @@ const NAV_ITEMS: Array<{
   { to: "/admin/orders", labelKey: "nav.admin.orders", icon: ShoppingBag, permission: "orders:read" },
   { to: "/admin/campaigns", labelKey: "nav.admin.campaigns", icon: Megaphone, permission: "campaigns:read" },
   { to: "/admin/rewards", labelKey: "nav.admin.rewards", icon: Gift, permission: "rewards:read" },
+  {
+    to: "/admin/rewards/points",
+    labelKey: "nav.admin.rewardPoints",
+    icon: IndianRupee,
+    permission: "rewards:read",
+    masterAdminOnly: true,
+    matchPrefix: "/admin/rewards/points",
+  },
   { to: "/admin/complaints", labelKey: "nav.admin.complaints", icon: ClipboardList, permission: "complaints:read" },
   { to: "/admin/visits", labelKey: "nav.admin.dealerVisits", icon: MapPin, permission: "visits:read", matchPrefix: "/admin/visits" },
   {
@@ -147,6 +156,7 @@ export function AdminShell({ children }: { children: ReactNode }) {
 
   const visibleNav = NAV_ITEMS.filter((item) => {
     if (item.to === "/admin") return true;
+    if (item.masterAdminOnly && !isMasterAdmin) return false;
     if (!item.permission) return true;
     return can(item.permission);
   });

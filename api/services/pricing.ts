@@ -66,51 +66,71 @@ export async function buildPriceQuote(
     pricingTierId?: string | null;
   },
 ) {
-  const product = await db
-    .prepare(`SELECT * FROM products WHERE id = ? AND deleted_at IS NULL AND active = 1`)
-    .bind(input.productId)
-    .first<{
-      id: string;
-      name: string;
-      category: string;
-      mrp: number;
-    }>();
-
-  const priceRow = await db
-    .prepare(
-      `SELECT mrp, dealer_price, points, reward_percent, reward_eligibility, free_items_label FROM product_prices
-       WHERE product_id = ? ORDER BY effective_from DESC LIMIT 1`,
-    )
-    .bind(input.productId)
-    .first<{
-      mrp: number;
-      dealer_price: number;
-      points: number;
-      reward_percent: number | null;
-      reward_eligibility: string | null;
-      free_items_label: string | null;
-    }>();
+  // product + latest price are independent lookups — fetch them in parallel to save a round-trip.
+  const [product, priceRow] = await Promise.all([
+    db
+      .prepare(`SELECT * FROM products WHERE id = ? AND deleted_at IS NULL AND active = 1`)
+      .bind(input.productId)
+      .first<{
+        id: string;
+        name: string;
+        category: string;
+        mrp: number;
+      }>(),
+    db
+      .prepare(
+        `SELECT mrp, dealer_price, points, reward_percent, reward_eligibility, free_items_label FROM product_prices
+         WHERE product_id = ? ORDER BY effective_from DESC LIMIT 1`,
+      )
+      .bind(input.productId)
+      .first<{
+        mrp: number;
+        dealer_price: number;
+        points: number;
+        reward_percent: number | null;
+        reward_eligibility: string | null;
+        free_items_label: string | null;
+      }>(),
+  ]);
 
   if (!product || !priceRow) throw new Error("Product not found");
 
-  assertMattressDimensions(input.lengthIn, input.breadthIn);
+  const isMattress = isMattressCategory(product.category);
 
-  // Scale the base MRP (72"x36") to the requested size/thickness. dealer_price is passed
-  // only so the helper returns a scaled figure; the authoritative dealer price is derived
-  // from MRP x (1 - dealerMargin%) below.
-  const sized = applyMattressPricing(priceRow.mrp, priceRow.dealer_price, {
-    lengthIn: input.lengthIn,
-    breadthIn: input.breadthIn,
-    thickness: input.thickness,
-  });
-  const standardDims = pricingDimensions(input.lengthIn, input.breadthIn);
+  // Only mattresses use dimensional pricing. Pillows/foldables have a FIXED size + (for foldable) a
+  // fixed thickness that are product attributes, NOT order selections, so their dimensions must not
+  // be validated or scaled here.
+  if (isMattress) {
+    assertMattressDimensions(input.lengthIn, input.breadthIn);
+  }
+
+  // Scale the base MRP (72"x36") to the requested size/thickness — MATTRESS ONLY. For
+  // pillows/foldables the stored MRP/dealer price ARE the exact, final figures: no size factor, no
+  // thickness multiplier. Running applyMattressPricing on a foldable would scale its exact MRP by
+  // the thickness multiplier (the client sends a thickness for foldables), which is wrong. So we
+  // bypass it entirely for non-mattress and use the stored values verbatim.
+  const sized = isMattress
+    ? applyMattressPricing(priceRow.mrp, priceRow.dealer_price, {
+        lengthIn: input.lengthIn,
+        breadthIn: input.breadthIn,
+        thickness: input.thickness,
+      })
+    : {
+        factor: 1,
+        mrp: priceRow.mrp,
+        dealerPrice: priceRow.dealer_price,
+        pricingLength: input.lengthIn,
+        pricingBreadth: input.breadthIn,
+      };
+  const standardDims = isMattress
+    ? pricingDimensions(input.lengthIn, input.breadthIn)
+    : { lengthIn: input.lengthIn, breadthIn: input.breadthIn };
 
   // Mattress square-foot MRP. A mattress (any product that isn't a pillow/foldable) is priced from
   // its per-thickness ₹/sqft rate on the SNAPPED standard size. The rate is compulsory: if a
   // mattress is ordered with a size + thickness but has no configured rate, we refuse to quote
   // rather than silently fall back. Pillows/foldables and mattress previews without a size keep the
   // base-price model.
-  const isMattress = isMattressCategory(product.category);
   const wantsSqft = isMattress && !!input.lengthIn && !!input.breadthIn && !!input.thickness;
   let sqft: ReturnType<typeof applySqftMrp> = null;
   if (wantsSqft) {

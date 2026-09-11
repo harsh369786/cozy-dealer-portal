@@ -99,6 +99,8 @@ export type DistributorOrderItem = {
   campaignId?: string | null;
   farma: boolean;
   farmaDetails?: string;
+  /** Labels of the FARMA corners selected on the order (e.g. "Top left", "Bottom right"). */
+  farmaCorners?: string[];
   mrp: number;
   dealerPrice: number;
   campaignPrice?: number;
@@ -118,6 +120,8 @@ export type DistributorOrder = {
   contactName?: string;
   dealerAddress?: string;
   dealerPhone?: string;
+  /** Dealer's structured area (falls back to legacy free-text location). Used by the Job Card. */
+  dealerArea?: string;
   status: OrderStatus;
   placedAt: string;
   approvedAt?: string;

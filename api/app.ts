@@ -75,7 +75,7 @@ import {
   getVapidPublicKeyFromEnv,
   savePushSubscription,
 } from "./services/push-notifications";
-import { setPushEnv, resolveExecutionContext } from "./push-env";
+import { setPushEnv, resolveExecutionContext, snapshotPushContext, runBackground } from "./push-env";
 import {
   processWhatsappOutbox,
   scanPendingOrderReminders,
@@ -110,7 +110,7 @@ import {
   restoreAdminProduct,
   updateAdminProduct,
 } from "./services/products-admin";
-import { completeProductIds } from "./services/product-sqft-rates";
+import { completeProductIds, isMattressCategory } from "./services/product-sqft-rates";
 import { lookupPincode } from "./services/pincodes";
 import {
   activateAdminCampaign,
@@ -148,6 +148,12 @@ import {
   getRewardClaimDetail,
   listRewardClaimsScoped,
 } from "./services/reward-claims";
+import {
+  creditDealerPointsManual,
+  getDealerBalanceSummary,
+  getRewardResetStatus,
+  resetAllDealerRewards,
+} from "./services/reward-points-admin";
 import {
   normalizeRewardClaimStatus,
   REWARD_CLAIM_STATUSES,
@@ -424,9 +430,15 @@ function mapCatalogProductWithPricing(row: Record<string, unknown>) {
     throw new Error(`Price not found for product ${String(product['id'])}`);
   }
 
-  const sized = applyMattressPricing(Number(price_mrp), Number(price_dealer), {
-    thickness: default_thickness as string | undefined,
-  });
+  // Mattress catalog cards preview the base-size price (scaled by the default thickness). Pillows
+  // and foldables have a FIXED, exact MRP/dealer price — never scaled by thickness or size — so use
+  // the stored values verbatim for them (a foldable has a default thickness, but it must NOT scale
+  // its exact MRP).
+  const sized = isMattressCategory(String(product["category"] ?? ""))
+    ? applyMattressPricing(Number(price_mrp), Number(price_dealer), {
+        thickness: default_thickness as string | undefined,
+      })
+    : { factor: 1, mrp: Number(price_mrp), dealerPrice: Number(price_dealer) };
   const rawDiscountPercent = campaign_id ? Number(campaign_discount_percent ?? 0) : null;
   const rawCampaignPrice =
     campaign_id && rawDiscountPercent != null
@@ -1052,9 +1064,17 @@ app.get("/api/v1/distributor/campaigns", requireAuth, requireActiveAccount, requ
 app.get("/api/v1/rewards/catalog", requireAuth, requireActiveAccount, requirePermission("rewards:read"), async (c) => {
   const db = await getRequestDb(c);
   const hasKind = await hasRewardKindColumn(db);
+  // `light=1` omits the base64 image_url column. Reward images are stored inline as data URLs, so
+  // the full catalog can be hundreds of KB; the home rewards bar and product page only need
+  // id/name/emoji/points to compute progress, so they request the light variant to avoid pulling a
+  // large payload on every load. The full rewards page (which renders images) omits the flag.
+  const light = c.req.query("light") === "1";
+  const columns = light
+    ? `id, name, emoji, points_required`
+    : `id, name, emoji, points_required, image_url`;
   const { results } = await db
     .prepare(
-      `SELECT * FROM reward_catalog WHERE deleted_at IS NULL AND active = 1 ${standardCatalogSqlFilter(hasKind)}`,
+      `SELECT ${columns} FROM reward_catalog WHERE deleted_at IS NULL AND active = 1 ${standardCatalogSqlFilter(hasKind)}`,
     )
     .all();
   return c.json(
@@ -1063,7 +1083,7 @@ app.get("/api/v1/rewards/catalog", requireAuth, requireActiveAccount, requirePer
       name: r['name'],
       emoji: r['emoji'],
       points: coerceRewardPoints(r['points_required'], 0),
-      imageUrl: (r['image_url'] as string) ?? undefined,
+      imageUrl: light ? undefined : ((r['image_url'] as string) ?? undefined),
     })),
   );
 });
@@ -1279,12 +1299,19 @@ app.post("/api/v1/complaints", requireAuth, requireActiveAccount, requirePermiss
     .bind(user.dealerId)
     .first<{ store_name: string }>();
 
-  await notifyComplaintCreated(db, {
-    complaintId,
-    orderId: body.orderId,
-    distributorId: order.distributor_id,
-    dealerName: dealer?.store_name ?? "Dealer",
-  });
+  // Fan out complaint notifications in the background so the dealer's "need help" submit returns
+  // immediately (the notify path does several recipient SELECTs + insert batches that aren't on the
+  // user's critical path). On Workers this is tied to ctx.waitUntil so it still completes.
+  const { ctx } = snapshotPushContext();
+  runBackground(
+    ctx,
+    notifyComplaintCreated(db, {
+      complaintId,
+      orderId: body.orderId,
+      distributorId: order.distributor_id,
+      dealerName: dealer?.store_name ?? "Dealer",
+    }),
+  );
 
   return c.json({ id: complaintId, complaintNumber }, 201);
 });
@@ -2591,6 +2618,68 @@ admin.post("/reward-claims/:id/undo", requirePermission("catalog:write"), async 
     return c.json(await undoRewardClaim(db, c.req.param("id"), c.get("user").id));
   } catch (err) {
     return c.json({ error: err instanceof Error ? err.message : "Undo failed" }, 400);
+  }
+});
+
+// --- Master Admin Reward Points management (manual credit + annual reward-year reset) ---
+// All gated to master_admin only (in addition to the rewards:read admin-surface gate). Manual
+// credits and the reset are recorded in the immutable points_ledger + reward_year_resets, audited,
+// and (for credits) the dealer is notified.
+
+// Preview a single dealer's current balance before crediting (name/code + authoritative balance).
+admin.get("/reward-points/dealers/:id", requirePermission("rewards:read"), async (c) => {
+  if (c.get("user").role !== "master_admin") return c.json({ error: "Forbidden" }, 403);
+  const db = await getRequestDb(c);
+  const summary = await getDealerBalanceSummary(db, c.req.param("id"));
+  if (!summary) return c.json({ error: "Dealer not found" }, 404);
+  return c.json(summary);
+});
+
+// Manually credit reward points to one dealer. Reason mandatory.
+admin.post("/reward-points/credit", requirePermission("rewards:read"), async (c) => {
+  if (c.get("user").role !== "master_admin") return c.json({ error: "Forbidden" }, 403);
+  const db = await getRequestDb(c);
+  const body = await c.req.json<{ dealerId?: string; points?: number; reason?: string }>();
+  if (!body.dealerId) return c.json({ error: "Select a dealer" }, 400);
+  try {
+    const result = await creditDealerPointsManual(db, {
+      dealerId: body.dealerId,
+      points: Number(body.points ?? 0),
+      reason: String(body.reason ?? ""),
+      actor: c.get("user"),
+      ip: c.req.header("cf-connecting-ip") ?? null,
+    });
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Credit failed";
+    return c.json({ error: message }, message.includes("not found") ? 404 : 400);
+  }
+});
+
+// Whether the current reward year has already been reset (drives the duplicate-reset confirmation).
+admin.get("/reward-points/reset-status", requirePermission("rewards:read"), async (c) => {
+  if (c.get("user").role !== "master_admin") return c.json({ error: "Forbidden" }, 403);
+  const db = await getRequestDb(c);
+  return c.json(await getRewardResetStatus(db));
+});
+
+// Reset ALL dealers' available reward balance to zero for the new reward year. Requires code "1410".
+admin.post("/reward-points/reset", requirePermission("rewards:read"), async (c) => {
+  if (c.get("user").role !== "master_admin") return c.json({ error: "Forbidden" }, 403);
+  const db = await getRequestDb(c);
+  const body = await c.req.json<{ code?: string }>();
+  try {
+    const result = await resetAllDealerRewards(db, {
+      code: String(body.code ?? ""),
+      actor: c.get("user"),
+      ip: c.req.header("cf-connecting-ip") ?? null,
+    });
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Reset failed";
+    // Incorrect code -> 403; already-reset -> 409; else 400.
+    const status = message.includes("code") ? 403 : message.includes("already been reset") ? 409 : 400;
+    return c.json({ error: message }, status);
   }
 });
 

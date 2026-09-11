@@ -15,12 +15,11 @@ import {
   isCampaignActive,
   type PriceCampaign,
 } from "@/lib/campaign-service";
-import { dealer, getProduct, priceCampaigns, products } from "@/lib/demo-data";
+import { dealer, getProduct, priceCampaigns } from "@/lib/demo-data";
 import { firstName } from "@/lib/demo-users";
 import type { SessionUser } from "@/lib/mock/distributor/types";
 import { resolveDealerNotificationLink } from "@/lib/notification-links";
 import { isCampaignUnseen } from "@/lib/notifications";
-import { resolveAssetUrl } from "@/lib/asset-url";
 import { localizeNotification } from "@/lib/localize-notification";
 import { cn } from "@/lib/utils";
 import {
@@ -201,47 +200,6 @@ export default function DemoHomePage({ user }: { user: SessionUser }) {
                 <Icon className="h-5 w-5 text-primary" />
               </span>
               <span className="text-base font-bold">{t(labelKey)}</span>
-            </Link>
-          ))}
-        </div>
-      </Section>
-
-      <Section
-        title={t("common.featuredProducts")}
-        action={
-          <Link to="/products" className="text-sm font-bold text-primary">
-            {t("common.seeAll")}
-          </Link>
-        }
-      >
-        <div className="scrollbar-none -mx-5 flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth-touch px-5 pb-2">
-          {products.slice(0, 3).map((product) => (
-            <Link
-              key={product.id}
-              to="/products/$productId"
-              params={{ productId: product.id }}
-              className="press w-56 shrink-0 snap-start overflow-hidden rounded-2xl border border-border bg-card shadow-soft"
-            >
-              <img
-                src={resolveAssetUrl(product.image)}
-                alt={product.name}
-                loading="lazy"
-                width={800}
-                height={800}
-                className="h-32 w-full object-cover"
-              />
-              <div className="p-3">
-                <p className="text-base font-bold leading-snug">{product.name}</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {t("common.from")} {formatCurrency(product.price)}
-                </p>
-                <p className="mt-1 text-sm font-semibold text-primary">
-                  {t("common.earn")} {product.points} {t("common.points")}
-                </p>
-                <span className="press mt-3 block rounded-xl brand-gradient py-2.5 text-center text-sm font-bold text-primary-foreground">
-                  {t("common.order")}
-                </span>
-              </div>
             </Link>
           ))}
         </div>

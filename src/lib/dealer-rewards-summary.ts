@@ -50,8 +50,11 @@ export function computeDealerRewardsSummary(
   };
 }
 
-export async function fetchDealerRewardsSummary(): Promise<DealerRewardsSummary> {
-  const [balanceRes, catalogRes] = await Promise.all([getRewardBalance(), getRewardCatalog()]);
+export async function fetchDealerRewardsSummary(opts?: { light?: boolean }): Promise<DealerRewardsSummary> {
+  const [balanceRes, catalogRes] = await Promise.all([
+    getRewardBalance(),
+    getRewardCatalog({ light: opts?.light }),
+  ]);
   return computeDealerRewardsSummary(
     balanceRes.balance,
     balanceRes.nextRewardAt,

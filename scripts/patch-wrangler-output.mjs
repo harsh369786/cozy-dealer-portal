@@ -48,7 +48,11 @@ function readProdVars() {
 // Only carry over the Gupshup/WhatsApp keys, and only when non-empty, so a blank in the
 // toml never overwrites a value already set on the live Worker.
 const prodVars = readProdVars();
-const carryPrefixes = ["GUPSHUP_", "WHATSAPP_"];
+// Carry Gupshup/WhatsApp config AND VAPID push keys through the Nitro-dropped vars block, so a
+// CLI deploy never blanks them. VAPID keys are normally Worker SECRETS (wrangler secret put) and
+// won't appear here — in that case this is a no-op and the secrets survive the deploy untouched.
+// But if VAPID_* is ever placed in wrangler.toml [env.production.vars], protect it the same way.
+const carryPrefixes = ["GUPSHUP_", "WHATSAPP_", "VAPID_"];
 const carried = {};
 for (const [k, v] of Object.entries(prodVars)) {
   if (carryPrefixes.some((p) => k.startsWith(p)) && v !== "") carried[k] = v;
@@ -67,5 +71,5 @@ wrangler.env.production.vars = {
 writeFileSync(wranglerPath, `${JSON.stringify(wrangler, null, 2)}\n`);
 const carriedKeys = Object.keys(carried);
 console.info(
-  `[patch-wrangler] ensured DEMO_LOGINS_ENABLED + MOCK_OTP; carried ${carriedKeys.length} Gupshup/WhatsApp var(s): ${carriedKeys.join(", ") || "(none)"}`,
+  `[patch-wrangler] ensured DEMO_LOGINS_ENABLED + MOCK_OTP; carried ${carriedKeys.length} Gupshup/WhatsApp/VAPID var(s): ${carriedKeys.join(", ") || "(none)"}`,
 );

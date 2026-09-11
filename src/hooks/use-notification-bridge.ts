@@ -14,6 +14,7 @@ import {
   markNotificationRead,
   type NotificationRow,
 } from "@/services/notifications";
+import { emitInAppNotification } from "@/lib/in-app-notifications";
 
 const POLL_MS = 45_000;
 const LAST_POLL_KEY = "backrest_notifications_last_poll";
@@ -81,9 +82,24 @@ async function processNewNotifications(items: NotificationRow[], skipBrowser: bo
   const unread = items.filter((n) => !n.read);
   if (!unread.length) return;
 
-  if (!skipBrowser) {
-    for (const n of unread) {
-      if (isViewingNotificationTarget(n.link)) continue;
+  for (const n of unread) {
+    // Admin "in-app pop-up" announcements: when the notification is flagged popupEnabled, raise the
+    // in-app modal (InAppNotificationOverlay). This is INDEPENDENT of the OS/push notification and
+    // of the push-healthy skip — the popup is meant to show inside the open app. The overlay itself
+    // enforces the per-day / per-event impression caps carried in metadata.
+    if (n.metadata && (n.metadata as Record<string, unknown>)["popupEnabled"] === true) {
+      emitInAppNotification({
+        id: n.id,
+        title: n.title,
+        body: n.body,
+        link: n.link,
+        metadata: n.metadata,
+      });
+    }
+
+    // OS/system notification fallback (only when server push isn't already delivering) so the user
+    // gets a native alert while the app is open. Suppressed for the page they're already viewing.
+    if (!skipBrowser && !isViewingNotificationTarget(n.link)) {
       await showLocalNotification({
         id: n.id,
         title: n.title,

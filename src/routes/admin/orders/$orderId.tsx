@@ -10,7 +10,7 @@ import { CustomerDetailsSection } from "@/components/shared/customer-details-sec
 import { OrderNotesPanel } from "@/components/shared/order-notes-panel";
 import { ORDER_STATUS_LABELS, OrderTimeline } from "@/components/shared/order-timeline";
 import { StatusBadge } from "@/components/shared/status-badge";
-import { ErrorState, PageSkeleton } from "@/components/shared/states";
+import { EmptyState, ErrorState, PageSkeleton } from "@/components/shared/states";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
@@ -130,7 +130,25 @@ function AdminOrderDetailPage() {
   };
 
   if (loading) return <PageSkeleton rows={4} />;
-  if (error || !order) return <ErrorState message={error ?? t("common.orderNotFound")} onRetry={retry} />;
+  // A genuine fetch error (network/permission) → retryable error state.
+  if (error) return <ErrorState message={error} onRetry={retry} />;
+  // Order genuinely doesn't exist (e.g. a complaint that references a deleted/legacy order id).
+  // Show a clear "not found" message with a way back instead of a confusing generic error.
+  if (!order) {
+    return (
+      <div className="space-y-4">
+        <AdminPageHeader
+          title={t("common.orderHash", { orderId })}
+          actions={
+            <Link to="/admin/orders">
+              <Button variant="outline" className="rounded-2xl font-bold">← {t("common.back")}</Button>
+            </Link>
+          }
+        />
+        <EmptyState title={t("common.orderNotFound")} description={t("admin.orders.orderNotFoundDesc")} />
+      </div>
+    );
+  }
 
   const isPending = order.status === "order_placed";
   const statusOptions: OrderStatus[] = allowedStatuses;
@@ -144,7 +162,7 @@ function AdminOrderDetailPage() {
         description={`${order.dealerName} · ${order.distributorName ?? "—"}`}
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link to="/admin/orders/$orderId/print" params={{ orderId }}>
+            <Link to="/admin/orders/print/$orderId" params={{ orderId }}>
               <Button variant="outline" className="rounded-2xl font-bold">
                 <Printer className="mr-2 h-4 w-4" /> Print job card
               </Button>

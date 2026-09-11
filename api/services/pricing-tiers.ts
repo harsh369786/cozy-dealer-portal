@@ -302,14 +302,17 @@ export async function resolvePricingContext(
   tierId = tierId || DEFAULT_PRICING_TIER_ID;
 
   const tier = await getPricingTier(db, tierId);
-  const fallback = (await getPricingTier(db, DEFAULT_PRICING_TIER_ID)) ?? {
-    id: DEFAULT_PRICING_TIER_ID,
-    code: "T1",
-    name: "Tier 1",
-    distributorMarginPercent: 20,
-    sortOrder: 1,
-  };
-  const active = tier ?? fallback;
+  // Only fetch the DEFAULT tier as a fallback when the resolved tier didn't load — avoids a second
+  // round-trip on every quote when the tier is already known (the common case).
+  const active =
+    tier ??
+    (await getPricingTier(db, DEFAULT_PRICING_TIER_ID)) ?? {
+      id: DEFAULT_PRICING_TIER_ID,
+      code: "T1",
+      name: "Tier 1",
+      distributorMarginPercent: 20,
+      sortOrder: 1,
+    };
 
   const margins = await loadMarginsForTier(db, active.id);
 

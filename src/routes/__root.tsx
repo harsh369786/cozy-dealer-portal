@@ -18,6 +18,7 @@ import { PwaInstallPrompt } from "../components/shared/pwa-install-prompt";
 import { useOnline } from "../hooks/use-online";
 import { useNotificationBridge } from "../hooks/use-notification-bridge";
 import { PushNotificationPrompt } from "../components/shared/push-notification-prompt";
+import { InAppNotificationOverlay } from "../components/shared/in-app-notification-overlay";
 import { registerSuspensionHandler } from "@/lib/api-client";
 import { invalidateSessionCache } from "@/services/auth";
 
@@ -171,6 +172,9 @@ function RootComponent() {
       </div>
       <PushNotificationPrompt />
       <PwaInstallPrompt />
+      {/* Admin announcement "in-app pop-up" modal. Listens for IN_APP_NOTIFICATION_EVENT emitted by
+          the notification bridge for notifications whose metadata.popupEnabled is true. */}
+      <InAppNotificationOverlay />
       <Toaster position="top-center" richColors />
     </QueryClientProvider>
   );

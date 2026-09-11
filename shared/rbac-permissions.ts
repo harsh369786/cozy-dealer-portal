@@ -40,8 +40,10 @@ export const ROLE_PERMISSIONS = {
     "campaigns:read",
     "campaigns:write",
     "rewards:read",
-    // Admin staff processes approved claims: Approved -> Processing -> Dispatched from Factory.
+    // Admin staff processes approved claims: Approved -> Processing -> Dispatched from Factory,
+    // and may also mark a dispatched claim as Delivered.
     "rewards:process",
+    "rewards:deliver",
     "complaints:read",
     "complaints:update",
     "notifications:read",

@@ -384,6 +384,7 @@
       "orders": "Orders",
       "campaigns": "Campaigns",
       "rewards": "Rewards",
+      "rewardPoints": "Reward Points",
       "complaints": "Complaints",
       "dealerVisits": "Dealer Visits",
       "salesExecutives": "Sales Executives",
@@ -635,6 +636,10 @@
       "bodyDealer": "Your claim for {{rewardName}} is now {{status}}",
       "bodyDealerRejected": "Your claim for {{rewardName}} was rejected: {{reason}}",
       "bodyStaff": "Claim for {{rewardName}} is now {{status}}"
+    },
+    "pointsCredited": {
+      "title": "Reward points added",
+      "body": "{{points}} reward points were added to your wallet. New balance: {{balance}}."
     },
     "complaintNew": {
       "title": "New complaint",
@@ -1032,7 +1037,8 @@
     },
     "orders": {
       "title": "Orders",
-      "description": "View and manage all orders across the network."
+      "description": "View and manage all orders across the network.",
+      "orderNotFoundDesc": "This order no longer exists or could not be found. It may have been removed."
     },
     "campaigns": {
       "title": "Campaigns",
@@ -1068,7 +1074,44 @@
       "markProcessingDesc": "Move this approved claim into processing.",
       "markDispatched": "Mark dispatched from factory",
       "markDispatchedDesc": "Confirm this claim has been dispatched from the factory.",
+      "markDeliveredDesc": "Confirm this reward has been delivered to the dealer.",
       "confirmTransition": "Update the status of the claim for {{name}}?"
+    },
+    "rewardPoints": {
+      "title": "Reward Points",
+      "description": "Manually credit points to a dealer's wallet, or reset all balances for a new reward year.",
+      "addTitle": "Add reward points",
+      "addDescription": "Credit points to a single dealer's wallet. A reason is required and the credit is recorded as a separate wallet transaction.",
+      "selectDealer": "Select dealer / store",
+      "currentBalance": "Current balance",
+      "pointsToAdd": "Points to add",
+      "reason": "Reason",
+      "reasonPlaceholder": "e.g. Goodwill adjustment, promotional bonus, correction",
+      "reasonHint": "Required. This is stored permanently on the wallet transaction and shown in reward history.",
+      "addPoints": "Add points",
+      "confirmTitle": "Confirm reward points credit",
+      "reviewTitle": "Please review before confirming.",
+      "dealer": "Dealer",
+      "pointsAdded": "Points added",
+      "newBalance": "New balance",
+      "confirmCredit": "Confirm & add points",
+      "creditSuccess": "Added {{points}} points to {{name}}",
+      "resetTitle": "Annual reward reset",
+      "resetDescription": "Reset the available reward balance of every dealer to zero for a new reward year.",
+      "resetWarningTitle": "This resets ALL dealer reward balances to zero",
+      "resetWarningBody": "Every dealer's available reward points will be set to 0. This cannot be undone.",
+      "resetPreservesHistory": "Reward history, claims and redemptions are preserved — only the current available balance is reset.",
+      "rewardYear": "Reward year",
+      "alreadyResetNotice": "Already reset this year ({{count}} dealers affected).",
+      "resetButton": "Reset all dealer rewards",
+      "resetConfirmTitle": "Reset all dealer rewards?",
+      "resetConfirmBody": "This will set the available reward balance of every dealer to zero for the new reward year. Enter the reset code to proceed.",
+      "resetAgainTitle": "Rewards already reset this year",
+      "resetAgainWarning": "Rewards have already been reset for this reward year. Resetting again is blocked to prevent accidental duplicate resets.",
+      "enterResetCode": "Enter reset code",
+      "resetCodeHint": "Enter the reset code exactly to enable the reset.",
+      "resetSuccess": "Reset complete — {{count}} dealers affected.",
+      "resetFailed": "Reset failed"
     },
     "complaints": {
       "title": "Complaints"

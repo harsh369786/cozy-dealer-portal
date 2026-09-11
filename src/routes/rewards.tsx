@@ -48,7 +48,8 @@ function Rewards() {
   const { t } = useTranslation();
   const { formatNumber } = useFormat();
   const formatApiError = useFormatApiError();
-  const { summary, loading, refresh } = useDealerRewards();
+  // The rewards page renders reward images, so it needs the full (image-laden) catalog.
+  const { summary, loading, refresh } = useDealerRewards({ light: false });
   const [celebrate, setCelebrate] = useState(false);
   const [celebrateReward, setCelebrateReward] = useState<{ name: string; emoji: string } | null>(null);
   const [confirmReward, setConfirmReward] = useState<{ id: string; name: string; emoji: string; points: number } | null>(null);

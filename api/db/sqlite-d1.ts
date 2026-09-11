@@ -244,6 +244,10 @@ export function applyPendingDevMigrations(db: Database.Database, root: string) {
       file: "0046_notification_send_events.sql",
       applied: () => hasTable(db, "notification_send_events"),
     },
+    {
+      file: "0047_reward_year_reset.sql",
+      applied: () => hasTable(db, "reward_year_resets"),
+    },
   ];
 
   for (const migration of laterStructural) {

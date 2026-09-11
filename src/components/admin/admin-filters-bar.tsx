@@ -24,9 +24,18 @@ export function AdminFiltersBar({
   className?: string;
 }) {
   return (
-    <div className={cn("mb-4 flex flex-col gap-3 lg:flex-row lg:items-center", className)}>
+    // Wrap-friendly, overlap-proof filters row. The whole bar can wrap; the search column and the
+    // controls column are BOTH `min-w-0` so neither can overflow its track or push into the other.
+    // Below lg the layout stacks (search on its own full-width row, controls beneath); at lg+ they
+    // sit side by side and any control that doesn't fit wraps to the next line instead of clipping.
+    <div
+      className={cn(
+        "mb-4 flex w-full min-w-0 flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center",
+        className,
+      )}
+    >
       {onSearchChange !== undefined && (
-        <div className="min-w-0 flex-1 lg:max-w-sm">
+        <div className="w-full min-w-0 lg:w-auto lg:flex-1 lg:max-w-sm">
           <SearchBar
             value={search ?? ""}
             onChange={onSearchChange}
@@ -35,7 +44,9 @@ export function AdminFiltersBar({
           />
         </div>
       )}
-      {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
+      {children && (
+        <div className="flex min-w-0 flex-wrap items-center gap-2">{children}</div>
+      )}
     </div>
   );
 }

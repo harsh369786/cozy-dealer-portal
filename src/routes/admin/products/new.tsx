@@ -524,10 +524,11 @@ export function ProductEditor({
               />
             </div>
             <div>
-              <Label>Thickness options</Label>
+              <Label>{isMattress ? "Thickness options" : "Fixed thickness"}</Label>
               <p className="mt-1 text-xs text-muted-foreground">
-                Add each thickness a customer can order (e.g. 6&quot;). Type a value and press Add or
-                Enter. For mattresses, set a ₹/sq.ft rate for every thickness under the Pricing tab.
+                {isMattress
+                  ? 'Add each thickness a customer can order (e.g. 6"). Type a value and press Add or Enter. Set a ₹/sq.ft rate for every thickness under the Pricing tab.'
+                  : 'Set the fixed thickness for this product (e.g. 4"). It is saved as a product attribute and shown in product/order details — the dealer does not select it while ordering. Pillows can leave this empty.'}
               </p>
               {product.thicknesses.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">

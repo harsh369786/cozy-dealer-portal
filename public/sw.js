@@ -1,4 +1,4 @@
-const CACHE = "backrest-static-v50";
+const CACHE = "backrest-static-v52";
 const PRECACHE = [
   "/",
   "/manifest.webmanifest",
@@ -94,6 +94,63 @@ self.addEventListener("push", (event) => {
       requireInteraction: true,
       ...extra,
     }),
+  );
+});
+
+// VAPID key + POST helpers for auto-resubscribe (used by pushsubscriptionchange).
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  const output = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) output[i] = raw.charCodeAt(i);
+  return output;
+}
+
+async function postSubscriptionToServer(subscription) {
+  const json = subscription.toJSON();
+  if (!json.endpoint || !json.keys || !json.keys.p256dh || !json.keys.auth) return;
+  await fetch("/api/v1/notifications/push-subscribe", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    // Include cookies so the server associates the subscription with the logged-in user.
+    credentials: "include",
+    body: JSON.stringify({
+      endpoint: json.endpoint,
+      keys: { p256dh: json.keys.p256dh, auth: json.keys.auth },
+    }),
+  });
+}
+
+// Requirement #7: when the browser/OS ROTATES the push token (which happens periodically on
+// Android/Chrome and after long idle), the old endpoint silently becomes invalid. Without handling
+// this the device stops receiving push until the app is reopened. Here we transparently re-subscribe
+// with the same VAPID key and register the NEW subscription with the server — no app open needed.
+self.addEventListener("pushsubscriptionchange", (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        // Reuse the applicationServerKey from the expiring subscription when the browser provides it
+        // (event.oldSubscription); otherwise fetch the server's current VAPID public key.
+        let applicationServerKey = event.oldSubscription?.options?.applicationServerKey ?? null;
+        if (!applicationServerKey) {
+          const res = await fetch("/api/v1/notifications/vapid-public-key", { credentials: "include" });
+          const data = await res.json().catch(() => ({}));
+          if (data && data.publicKey) {
+            applicationServerKey = urlBase64ToUint8Array(data.publicKey);
+          }
+        }
+        if (!applicationServerKey) return;
+
+        const newSubscription = await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+        await postSubscriptionToServer(newSubscription);
+      } catch (err) {
+        console.error("[sw] pushsubscriptionchange resubscribe failed:", err);
+      }
+    })(),
   );
 });
 

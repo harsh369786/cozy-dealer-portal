@@ -57,6 +57,7 @@ function AdminClaimDetailPage() {
 
   const s = normalizeRewardClaimStatus(claim.status);
   const canProcess = can("rewards:process");
+  const canDeliver = can("rewards:deliver");
 
   return (
     <div className="space-y-6">
@@ -125,7 +126,7 @@ function AdminClaimDetailPage() {
             </Button>
           </>
         )}
-        {isMasterAdmin && s === "dispatched_from_factory" && (
+        {canDeliver && s === "dispatched_from_factory" && (
           <Button
             className="rounded-2xl font-bold"
             onClick={() => setConfirm({ to: "delivered", titleKey: "common.markDelivered" })}
