@@ -31,3 +31,12 @@ export async function getWhatsappOutbox(params: { status?: string; limit?: numbe
 export async function sendWhatsappTest(input: { templateKey: string; phone?: string }): Promise<{ ok: boolean; error?: string; providerMessageId?: string | null }> {
   return api.post("/api/v1/admin/whatsapp/test", input);
 }
+
+export type WhatsappDeliveryStatus =
+  | { ok: true; status: string; detail?: string; raw?: string }
+  | { ok: false; error: string };
+
+/** Fetch Meta's real delivery status for one logged message (why it did/didn't arrive). */
+export async function checkWhatsappStatus(outboxId: string): Promise<WhatsappDeliveryStatus> {
+  return api.get<WhatsappDeliveryStatus>(`/api/v1/admin/whatsapp/outbox/${outboxId}/status`);
+}

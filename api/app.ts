@@ -81,6 +81,7 @@ import {
   scanPendingOrderReminders,
   listWhatsappOutbox,
   sendWhatsappTest,
+  checkWhatsappDeliveryStatus,
 } from "./services/whatsapp";
 import {
   bulkUpdateAssignments,
@@ -2716,6 +2717,15 @@ admin.post("/whatsapp/test", requirePermission("settings:write"), async (c) => {
   const phone = String(body.phone ?? env.WHATSAPP_TEST_PHONE ?? "").trim();
   if (!phone) return c.json({ error: "No test phone provided or configured" }, 400);
   const result = await sendWhatsappTest(db, env, templateKey, phone);
+  return c.json(result, result.ok ? 200 : 400);
+});
+
+// Check the REAL delivery status of a logged WhatsApp message from Gupshup (delivered/read/failed +
+// reason) — surfaces why a "sent" message never arrived. Read-only.
+admin.get("/whatsapp/outbox/:id/status", requirePermission("settings:read"), async (c) => {
+  const db = await getRequestDb(c);
+  const env = effectiveEnv(c.env);
+  const result = await checkWhatsappDeliveryStatus(db, env, c.req.param("id"));
   return c.json(result, result.ok ? 200 : 400);
 });
 

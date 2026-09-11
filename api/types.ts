@@ -77,6 +77,7 @@ export type ApiEnv = {
   GUPSHUP_API_BASE_URL?: string; // default https://api.gupshup.io
   GUPSHUP_SOURCE?: string; // WhatsApp business number, digits only (e.g. 918451945853)
   GUPSHUP_SRC_NAME?: string; // Gupshup app name (e.g. Backrest)
+  GUPSHUP_APP_ID?: string; // Gupshup app UUID — needed for the delivery-status lookup endpoint
   GUPSHUP_TEMPLATE_LANG?: string; // template language code, default en
   GUPSHUP_TEMPLATE_ID_OTP?: string;
   GUPSHUP_TEMPLATE_ID_ORDER_PLACED?: string;

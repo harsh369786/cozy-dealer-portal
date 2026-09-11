@@ -15,6 +15,10 @@ export type GupshupSendResult =
   | { ok: true; providerMessageId: string | null }
   | { ok: false; error: string };
 
+export type GupshupStatusResult =
+  | { ok: true; status: string; detail?: string; raw?: string }
+  | { ok: false; error: string };
+
 /** True when Gupshup is configured enough to attempt a send (API key + source present). */
 export function isGupshupConfigured(env: ApiEnv): boolean {
   return Boolean((env.GUPSHUP_API_KEY ?? "").trim() && (env.GUPSHUP_SOURCE ?? "").trim());
@@ -73,6 +77,71 @@ export async function sendGupshupTemplate(
       // Non-JSON 2xx — treat as success but with no message id.
     }
     return { ok: true, providerMessageId };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Request failed: ${message.slice(0, 300)}` };
+  }
+}
+
+/**
+ * Look up the real delivery status of a previously-submitted message from Gupshup.
+ *
+ * WHY: our send path only records Gupshup's synchronous "submitted" ack — it never tells us whether
+ * Meta actually DELIVERED the message. When a template submits fine (messageId returned) but never
+ * arrives on the phone (the current MM Lite / certification block), this is the only way to see
+ * Meta's verdict (delivered / read / failed + reason) and get evidence for the Gupshup ticket.
+ *
+ * Needs GUPSHUP_APP_ID (Gupshup app UUID) — the message-status endpoint is app-scoped:
+ *   GET {base}/wa/app/{appId}/msg/{messageId}   header: apikey
+ * Returns a normalized {status, detail}. Never throws.
+ */
+export async function fetchGupshupMessageStatus(
+  env: ApiEnv & { GUPSHUP_APP_ID?: string },
+  messageId: string,
+): Promise<GupshupStatusResult> {
+  const apiKey = (env.GUPSHUP_API_KEY ?? "").trim();
+  const appId = (env.GUPSHUP_APP_ID ?? "").trim();
+  const baseUrl = (env.GUPSHUP_API_BASE_URL ?? "https://api.gupshup.io").replace(/\/+$/, "");
+
+  if (!apiKey) return { ok: false, error: "Gupshup not configured" };
+  if (!appId) {
+    return {
+      ok: false,
+      error:
+        "GUPSHUP_APP_ID not set — needed for delivery-status lookup. Add the Gupshup app UUID to the Worker vars.",
+    };
+  }
+  if (!messageId) return { ok: false, error: "No provider message id for this row" };
+
+  try {
+    const res = await fetch(`${baseUrl}/wa/app/${encodeURIComponent(appId)}/msg/${encodeURIComponent(messageId)}`, {
+      method: "GET",
+      headers: { apikey: apiKey, "Cache-Control": "no-cache" },
+    });
+    const text = await res.text();
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}: ${text.slice(0, 300)}` };
+
+    // Gupshup shapes vary; surface a best-effort status + the raw payload (trimmed) for evidence.
+    let status = "unknown";
+    let detail: string | undefined;
+    try {
+      const json = JSON.parse(text) as Record<string, unknown>;
+      // Common fields across Gupshup responses: status, details/reason, and a nested message state.
+      const s =
+        (json.status as string) ??
+        ((json.message as Record<string, unknown> | undefined)?.status as string) ??
+        "unknown";
+      status = String(s);
+      const reason =
+        (json.details as string) ??
+        (json.reason as string) ??
+        ((json.error as Record<string, unknown> | undefined)?.reason as string);
+      if (reason) detail = String(reason);
+    } catch {
+      // Non-JSON — keep the raw text as the detail.
+      detail = text.slice(0, 200);
+    }
+    return { ok: true, status, detail, raw: text.slice(0, 500) };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: `Request failed: ${message.slice(0, 300)}` };

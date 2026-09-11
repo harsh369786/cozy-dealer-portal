@@ -11,7 +11,7 @@ import { ErrorState, PageSkeleton } from "@/components/shared/states";
 import { useAsyncData } from "@/hooks/use-async-data";
 import { useFormat } from "@/hooks/use-format";
 import { useAdminPermissions } from "@/hooks/use-admin-permissions";
-import { getWhatsappOutbox, sendWhatsappTest } from "@/services/admin/whatsapp";
+import { checkWhatsappStatus, getWhatsappOutbox, sendWhatsappTest } from "@/services/admin/whatsapp";
 
 export const Route = createFileRoute("/admin/whatsapp/")({
   component: WhatsappPage,
@@ -38,8 +38,28 @@ function WhatsappContent() {
   const { can } = useAdminPermissions();
   const canTest = can("settings:write");
   const [testing, setTesting] = useState<string | null>(null);
+  const [checking, setChecking] = useState<string | null>(null);
 
   const { data, loading, error, retry } = useAsyncData(() => getWhatsappOutbox({ limit: 100 }), []);
+
+  const checkStatus = async (id: string) => {
+    setChecking(id);
+    try {
+      const res = await checkWhatsappStatus(id);
+      if (res.ok) {
+        const msg = res.detail ? `${res.status} — ${res.detail}` : res.status;
+        // "delivered"/"read" = good; anything else (failed/sent-but-not-delivered/unknown) is a warning.
+        if (/deliver|read|success/i.test(res.status)) toast.success(`Delivery: ${msg}`);
+        else toast.warning(`Delivery: ${msg}`);
+      } else {
+        toast.error(res.error ?? "Could not check status");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not check status");
+    } finally {
+      setChecking(null);
+    }
+  };
 
   const runTest = async (templateKey: string) => {
     setTesting(templateKey);
@@ -120,6 +140,25 @@ function WhatsappContent() {
             ),
           },
           { key: "error", header: "Error", cell: (m) => <span className="break-words text-xs text-destructive">{m.error ?? ""}</span> },
+          {
+            key: "delivery",
+            header: "",
+            cell: (m) =>
+              m.providerMessageId ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-xl"
+                  disabled={checking === m.id}
+                  onClick={() => void checkStatus(m.id)}
+                >
+                  {checking === m.id ? "Checking…" : "Check delivery"}
+                </Button>
+              ) : (
+                <span className="text-xs text-muted-foreground">—</span>
+              ),
+          },
         ]}
       />
     </div>

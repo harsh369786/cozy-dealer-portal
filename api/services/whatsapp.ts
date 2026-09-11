@@ -5,7 +5,7 @@ import {
   formatGupshupPhone,
   getTemplateDef,
 } from "../../shared/whatsapp-templates";
-import { isGupshupConfigured, sendGupshupTemplate } from "./gupshup";
+import { isGupshupConfigured, sendGupshupTemplate, fetchGupshupMessageStatus } from "./gupshup";
 
 /**
  * Queue a WhatsApp message into the durable outbox. The actual Gupshup send happens later in
@@ -163,6 +163,33 @@ export async function listWhatsappOutbox(
     scheduledAt: r.scheduled_at as string,
     sentAt: (r.sent_at as string) ?? null,
   }));
+}
+
+/**
+ * Check the REAL delivery status of an outbox row from Gupshup (delivered / read / failed + reason),
+ * so an admin can see why a "sent" message never arrived. Looks up the row's provider_message_id
+ * then queries Gupshup. Read-only; never throws.
+ */
+export async function checkWhatsappDeliveryStatus(
+  db: D1Database,
+  env: ApiEnv & { GUPSHUP_APP_ID?: string },
+  outboxId: string,
+) {
+  const row = await db
+    .prepare(`SELECT provider_message_id, status FROM whatsapp_outbox WHERE id = ?`)
+    .bind(outboxId)
+    .first<{ provider_message_id: string | null; status: string }>();
+  if (!row) return { ok: false as const, error: "Message not found" };
+  if (!row.provider_message_id) {
+    return {
+      ok: false as const,
+      error:
+        row.status === "pending"
+          ? "Not sent yet (pending) — no provider message id to check."
+          : "No provider message id recorded for this message.",
+    };
+  }
+  return fetchGupshupMessageStatus(env, row.provider_message_id);
 }
 
 /** Mask the middle of a phone for the admin log (e.g. +9198****5853). Not a security control. */
