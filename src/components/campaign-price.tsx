@@ -63,13 +63,25 @@ export function CampaignPriceBlock({
         </div>
       )}
       {hasCampaign && (
-        <div className="flex items-end justify-between border-t border-border/60 pt-2">
+        <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-2">
           <span className="text-base font-bold">{t("common.finalDiscountedPrice")}</span>
-          <span
-            className={cn("font-display font-bold text-primary", compact ? "text-2xl" : "text-3xl")}
-          >
-            {isFromPrice ? `${t("common.from")} ` : ""}
-            {formatCurrency(campaignTotal!)}
+          {/* Right-aligned price column. The "From" prefix is a small caption ABOVE the amount so
+              the big number always stays flush-right and its baseline never shifts, instead of the
+              old inline "From ₹4,600" that rendered ragged/left-leaning on narrow cards. */}
+          <span className="flex shrink-0 flex-col items-end leading-tight">
+            {isFromPrice && (
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                {t("common.from")}
+              </span>
+            )}
+            <span
+              className={cn(
+                "font-display font-bold text-primary",
+                compact ? "text-2xl" : "text-3xl",
+              )}
+            >
+              {formatCurrency(campaignTotal!)}
+            </span>
           </span>
         </div>
       )}

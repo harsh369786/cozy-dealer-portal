@@ -33,7 +33,7 @@ import {
   rejectOrder,
   updateOrderStatus,
 } from "@/services/admin/orders";
-import { MapPin, Printer, CheckCircle2, XCircle, Ban } from "lucide-react";
+import { MapPin, Printer, Tag, CheckCircle2, XCircle, Ban } from "lucide-react";
 
 export const Route = createFileRoute("/admin/orders/$orderId")({
   component: AdminOrderDetailPage,
@@ -43,7 +43,7 @@ function AdminOrderDetailPage() {
   const { t } = useTranslation();
   const { formatCurrency } = useFormat();
   const { orderId } = Route.useParams();
-  const { can } = useAdminPermissions();
+  const { can, isMasterAdmin } = useAdminPermissions();
   const [order, setOrder] = useState<Awaited<ReturnType<typeof getOrder>>>(null);
   const [allowedStatuses, setAllowedStatuses] = useState<OrderStatus[]>([]);
   const [approveOpen, setApproveOpen] = useState(false);
@@ -167,6 +167,15 @@ function AdminOrderDetailPage() {
                 <Printer className="mr-2 h-4 w-4" /> Print job card
               </Button>
             </Link>
+            {/* MRP sticker — admin + admin_staff only (both hold orders:status:fulfillment; the
+                sticker route re-checks the role and redirects otherwise). Not on the job card. */}
+            {(isMasterAdmin || can("orders:status:fulfillment")) && (
+              <Link to="/admin/orders/sticker/$orderId" params={{ orderId }}>
+                <Button variant="outline" className="rounded-2xl font-bold">
+                  <Tag className="mr-2 h-4 w-4" /> Print MRP sticker
+                </Button>
+              </Link>
+            )}
             <Link to="/admin/orders">
               <Button variant="outline" className="rounded-2xl font-bold">← Back</Button>
             </Link>

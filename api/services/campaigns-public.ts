@@ -29,11 +29,16 @@ function mapCampaignRow(r: Record<string, unknown>): PublicCampaign {
   const endDate = readCampaignDate(r.end_at);
   const storedStatus = String(r.status ?? "active");
   const discountPercent = Number(r.discount_percent ?? 0);
+  // Only expose the linked product when it STILL EXISTS. `product_name` comes from a LEFT JOIN on
+  // products, so a NULL name means the campaign's product_id is stale (product deleted/renamed to a
+  // new id). Surfacing that stale id makes the "Order product" deep link 404. Dropping it here lets
+  // the client fall back to the generic "View products" action instead of a dead link.
+  const productExists = r.product_name != null && String(r.product_name).trim() !== "";
   return {
     id: r.id as string,
     name: r.name as string,
-    productId: (r.product_id as string) ?? undefined,
-    productName: (r.product_name as string) ?? undefined,
+    productId: productExists ? (r.product_id as string) : undefined,
+    productName: productExists ? (r.product_name as string) : undefined,
     discountPercent: discountPercent > 0 ? discountPercent : undefined,
     description: String(r.description ?? ""),
     badgeLabel: (r.badge_label as string) ?? undefined,

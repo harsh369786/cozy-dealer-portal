@@ -78,12 +78,23 @@ function PrintJobCardPage() {
 
   const { data: order, loading, error, retry } = useAsyncData(() => getOrder(orderId), [orderId]);
 
-  // Auto-open the browser print dialog (acts like Ctrl+P) once the card is rendered.
+  // Auto-open the browser print dialog (acts like Ctrl+P) once the card is rendered. The browser
+  // uses document.title as the default "Save as PDF" filename, so set it to the order number while
+  // printing (e.g. "BR-11092604"), then restore the previous title afterwards.
   useEffect(() => {
-    if (order && !loading) {
-      const timer = setTimeout(() => window.print(), 500);
-      return () => clearTimeout(timer);
-    }
+    if (!order || loading) return;
+    const previousTitle = document.title;
+    document.title = `${order.id}`;
+    const timer = setTimeout(() => window.print(), 500);
+    const restore = () => {
+      document.title = previousTitle;
+    };
+    window.addEventListener("afterprint", restore);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("afterprint", restore);
+      document.title = previousTitle;
+    };
   }, [order, loading]);
 
   if (loading && !order) return <PageSkeleton rows={3} />;
@@ -110,134 +121,154 @@ function PrintJobCardPage() {
   const specialInstructions = extractSpecialInstructions(order.notes);
 
   return (
-    <div className="job-card-print mx-auto max-w-[900px] bg-white p-6 text-[#0b3b73]">
+    <div className="job-card-print">
       <style>{`
+        /* Print target: A5 LANDSCAPE (210mm x 148mm). Printable area after a 5mm @page margin is
+           ~200mm x 138mm. The card is fixed to exactly that box and every section is compacted so
+           the ENTIRE card (through Actual Mattress Size / Checked by) fits on ONE page — nothing is
+           cropped. overflow:hidden on the fixed-height card is the final safety net. */
         @media print {
-          @page { size: A4 landscape; margin: 10mm; }
+          @page { size: A5 landscape; margin: 5mm; }
+          html, body { margin: 0; padding: 0; }
           body * { visibility: hidden; }
           .job-card-print, .job-card-print * { visibility: visible; }
-          .job-card-print { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+          .job-card-print { position: absolute; left: 0; top: 0; width: 100%; }
+          .jc-card {
+            width: 200mm;
+            height: 138mm;
+            max-width: none;
+            padding: 0;
+            margin: 0;
+            overflow: hidden;
+          }
         }
-        .jc-box { border: 2px solid #1e4b8f; border-radius: 12px; }
-        .jc-field { background: #eaf1fb; border-radius: 8px; }
+        .jc-card {
+          box-sizing: border-box;
+          width: 100%;
+          max-width: 960px;
+          margin: 0 auto;
+          padding: 2mm;
+          background: #fff;
+          color: #0b3b73;
+          font-family: Arial, Helvetica, sans-serif;
+        }
+        .jc-box { border: 1.25px solid #1e4b8f; border-radius: 6px; padding: 4px 6px; }
+        .jc-field { background: #eaf1fb; border-radius: 4px; }
+        .jc-title { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+        .jc-title .jc-rule { flex: 1; height: 2px; background: #1e4b8f; }
+        .jc-title .jc-badge {
+          border-radius: 6px; background: #1e4b8f; color: #fff; padding: 2px 16px;
+          font-size: 14px; font-weight: 800; letter-spacing: 1px;
+        }
+        .jc-h { font-size: 10px; font-weight: 800; letter-spacing: 0.3px; color: #1e4b8f; }
+        .jc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+        .jc-row { display: flex; align-items: center; gap: 5px; font-size: 9px; margin-top: 2px; }
+        .jc-row .jc-key { width: 84px; flex-shrink: 0; font-weight: 700; }
+        .jc-row .jc-sep { flex-shrink: 0; }
+        .jc-row .jc-val { flex: 1; background: #eaf1fb; border-radius: 3px; padding: 1px 5px; font-weight: 600; }
+        .jc-dims { display: flex; align-items: center; gap: 5px; margin-top: 2px; }
+        .jc-dim { flex: 1; text-align: center; }
+        .jc-dim .jc-dim-v { background: #eaf1fb; border-radius: 3px; padding: 2px 3px; font-size: 11px; font-weight: 800; }
+        .jc-dim .jc-dim-l { font-size: 7px; font-weight: 700; color: #5a7bb0; margin-top: 1px; }
+        .jc-x { font-weight: 800; font-size: 10px; }
+        table.jc-layers { width: 100%; border-collapse: collapse; margin-top: 2px; }
+        table.jc-layers th { text-align: left; font-size: 8px; font-weight: 800; color: #1e4b8f; padding: 0 3px; }
+        table.jc-layers td { font-size: 8px; padding: 0 3px; line-height: 1.35; }
+        table.jc-layers tr.alt td { background: #eaf1fb; }
+        .jc-mt { margin-top: 4px; }
       `}</style>
 
-      {/* Title */}
-      <div className="mb-4 flex items-center gap-4">
-        <div className="h-1 flex-1 bg-[#1e4b8f]" />
-        <div className="rounded-xl bg-[#1e4b8f] px-8 py-2 text-2xl font-extrabold tracking-wide text-white">
-          JOB CARD
+      <div className="jc-card">
+        {/* Title */}
+        <div className="jc-title">
+          <div className="jc-rule" />
+          <div className="jc-badge">JOB CARD</div>
+          <div className="jc-rule" />
         </div>
-        <div className="h-1 flex-1 bg-[#1e4b8f]" />
-      </div>
 
-      {/* Row 1: Order Details | Cutting Size + FARMA */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Order Details */}
-        <section className="jc-box p-4">
-          <SectionHeading title="ORDER DETAILS" note />
-          <div className="mt-3 space-y-2 text-sm">
-            <FieldRow label="Order Date" value={orderDate} />
-            <FieldRow label="Order No." value={order.id} />
-            <FieldRow label="Dealer Name" value={order.dealerName} />
-            <FieldRow label="Distributor Name" value={order.distributorName ?? "—"} />
-            <FieldRow label="Area" value={order.dealerArea ?? "—"} />
-            <FieldRow label="Mattress Name" value={item?.model ?? "—"} />
+        {/* Row 1: Order Details | Cutting Size + FARMA */}
+        <div className="jc-grid">
+          <section className="jc-box">
+            <div className="jc-h">ORDER DETAILS</div>
+            <Field label="Order Date" value={orderDate} />
+            <Field label="Order No." value={order.id} />
+            <Field label="Dealer Name" value={order.dealerName} />
+            <Field label="Distributor Name" value={order.distributorName ?? "—"} />
+            <Field label="Area" value={order.dealerArea ?? "—"} />
+            <Field label="Mattress Name" value={item?.model ?? "—"} />
+          </section>
+
+          <div>
+            <section className="jc-box">
+              <div className="jc-h">CUTTING SIZE</div>
+              <Dimensions length={inch(cutLength)} width={inch(cutWidth)} thickness={inch(thicknessIn)} />
+            </section>
+
+            <section className="jc-box jc-mt">
+              <div className="jc-h">FARMA</div>
+              <FarmaGrid corners={item?.farmaCorners} note={item?.farmaDetails} enabled={item?.farma} />
+            </section>
+          </div>
+        </div>
+
+        {/* Row 2: Special Instructions (full width) */}
+        <section className="jc-box jc-mt">
+          <div className="jc-h">SPECIAL INSTRUCTIONS</div>
+          <div className="jc-field jc-mt" style={{ padding: "3px 6px", fontSize: 10, minHeight: 16 }}>
+            {specialInstructions || "—"}
           </div>
         </section>
 
-        <div className="space-y-4">
-          {/* Cutting Size */}
-          <section className="jc-box p-4">
-            <SectionHeading title="CUTTING SIZE" note />
-            <DimensionRow length={inch(cutLength)} width={inch(cutWidth)} thickness={inch(thicknessIn)} />
+        {/* Row 3: Layers | Labels + Consumer Scheme + Actual Size + Checked By */}
+        <div className="jc-grid jc-mt">
+          <section className="jc-box">
+            <div className="jc-h">LAYERS</div>
+            <LayersTable master={master} />
           </section>
 
-          {/* FARMA */}
-          <section className="jc-box p-4">
-            <SectionHeading title="FARMA" note />
-            <FarmaGrid corners={item?.farmaCorners} note={item?.farmaDetails} enabled={item?.farma} />
-          </section>
-        </div>
-      </div>
+          <div>
+            <section className="jc-box">
+              <div className="jc-h">LABELS</div>
+              <Field label="Label 1" value={master?.label1 || "—"} />
+              <Field label="Label 2" value={master?.label2 || "—"} />
+            </section>
 
-      {/* Row 2: Special Instructions (full width) */}
-      <section className="jc-box mt-4 p-4">
-        <SectionHeading title="SPECIAL INSTRUCTIONS" note />
-        <div className="jc-field mt-2 min-h-[2.25rem] px-3 py-2 text-sm">
-          {specialInstructions || "—"}
-        </div>
-      </section>
+            <section className="jc-box jc-mt">
+              <div className="jc-h">CONSUMER SCHEME</div>
+              <Field label="Option 1" value={master?.consumerScheme1 || "—"} />
+              <Field label="Option 2" value={master?.consumerScheme2 || "—"} />
+            </section>
 
-      {/* Row 3: Layers | Labels + Consumer Scheme + Actual Size + Checked By */}
-      <div className="mt-4 grid grid-cols-2 gap-4">
-        {/* Layers */}
-        <section className="jc-box p-4">
-          <SectionHeading title="LAYERS" excel />
-          <LayersTable master={master} />
-        </section>
-
-        <div className="space-y-4">
-          {/* Labels */}
-          <section className="jc-box p-4">
-            <SectionHeading title="LABELS" excel />
-            <div className="mt-2 space-y-2 text-sm">
-              <FieldRow label="Label 1" value={master?.label1 || "—"} />
-              <FieldRow label="Label 2" value={master?.label2 || "—"} />
-            </div>
-          </section>
-
-          {/* Consumer Scheme */}
-          <section className="jc-box p-4">
-            <SectionHeading title="CONSUMER SCHEME" note />
-            <div className="mt-2 space-y-2 text-sm">
-              <FieldRow label="Option 1" value={master?.consumerScheme1 || "—"} />
-              <FieldRow label="Option 2" value={master?.consumerScheme2 || "—"} />
-            </div>
-          </section>
-
-          {/* Actual Mattress Size */}
-          <section className="jc-box p-4">
-            <SectionHeading title="ACTUAL MATTRESS SIZE" note />
-            <DimensionRow
-              length={inch(actual.length)}
-              width={inch(actual.width)}
-              thickness={inch(thicknessIn)}
-            />
-            <div className="mt-3 space-y-2 text-sm">
-              <FieldRow label="Checked by" value={user?.name ?? "—"} />
-              <FieldRow label="Date" value={printDate} />
-            </div>
-          </section>
+            <section className="jc-box jc-mt">
+              <div className="jc-h">ACTUAL MATTRESS SIZE</div>
+              <Dimensions
+                length={inch(actual.length)}
+                width={inch(actual.width)}
+                thickness={inch(thicknessIn)}
+              />
+              <Field label="Checked by" value={user?.name ?? "—"} />
+              <Field label="Date" value={printDate} />
+            </section>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// ── Presentational sub-components ─────────────────────────────────────────────
+// ── Presentational sub-components (compact, A5-landscape) ─────────────────────
 
-function SectionHeading({ title, note, excel }: { title: string; note?: boolean; excel?: boolean }) {
+function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-2">
-      <h2 className="text-lg font-extrabold tracking-wide text-[#1e4b8f]">{title}</h2>
-      {note && <span className="text-xs text-[#5a7bb0]">(Take the real-time data from the app)</span>}
-      {excel && <span className="text-xs text-[#5a7bb0]">(Take the data from Excel)</span>}
+    <div className="jc-row">
+      <span className="jc-key">{label}</span>
+      <span className="jc-sep">:</span>
+      <span className="jc-val">{value}</span>
     </div>
   );
 }
 
-function FieldRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="w-36 shrink-0 font-semibold">{label}</span>
-      <span className="shrink-0">:</span>
-      <span className="jc-field flex-1 px-3 py-1.5 font-medium">{value}</span>
-    </div>
-  );
-}
-
-function DimensionRow({
+function Dimensions({
   length,
   width,
   thickness,
@@ -247,11 +278,11 @@ function DimensionRow({
   thickness: string;
 }) {
   return (
-    <div className="mt-3 flex items-center gap-2">
+    <div className="jc-dims">
       <DimensionCell value={length} label="Length" />
-      <span className="font-bold">X</span>
+      <span className="jc-x">X</span>
       <DimensionCell value={width} label="Width" />
-      <span className="font-bold">X</span>
+      <span className="jc-x">X</span>
       <DimensionCell value={thickness} label="Thickness" />
     </div>
   );
@@ -259,9 +290,9 @@ function DimensionRow({
 
 function DimensionCell({ value, label }: { value: string; label: string }) {
   return (
-    <div className="flex-1 text-center">
-      <div className="jc-field px-2 py-2 text-base font-bold">{value}</div>
-      <div className="mt-1 text-xs font-semibold text-[#5a7bb0]">{label}</div>
+    <div className="jc-dim">
+      <div className="jc-dim-v">{value}</div>
+      <div className="jc-dim-l">{label}</div>
     </div>
   );
 }
@@ -285,39 +316,36 @@ function FarmaGrid({
     enabled && selected.has(cornerLabel.toLowerCase()) ? cornerLabel : "";
 
   return (
-    <div className="mt-3 space-y-2 text-sm">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-        <FieldRow label="Top Left" value={valueFor("Top left")} />
-        <FieldRow label="Top Right" value={valueFor("Top right")} />
-        <FieldRow label="Bottom Left" value={valueFor("Bottom left")} />
-        <FieldRow label="Bottom Right" value={valueFor("Bottom right")} />
+    <div>
+      <div className="jc-grid">
+        <Field label="Top Left" value={valueFor("Top left")} />
+        <Field label="Top Right" value={valueFor("Top right")} />
+        <Field label="Bottom Left" value={valueFor("Bottom left")} />
+        <Field label="Bottom Right" value={valueFor("Bottom right")} />
       </div>
-      <FieldRow label="Note" value={note || ""} />
+      <Field label="Note" value={note || ""} />
     </div>
   );
 }
 
 function LayersTable({ master }: { master: JobCardProductData | null }) {
   return (
-    <table className="mt-2 w-full border-collapse text-sm">
+    <table className="jc-layers">
       <thead>
-        <tr className="text-left text-[#1e4b8f]">
-          <th className="w-10 py-1.5 font-bold">No.</th>
-          <th className="py-1.5 font-bold">Layer</th>
-          <th className="py-1.5 font-bold">Description (from Excel)</th>
+        <tr>
+          <th style={{ width: 24 }}>No.</th>
+          <th style={{ width: 88 }}>Layer</th>
+          <th>Description</th>
         </tr>
       </thead>
       <tbody>
         {JOB_CARD_LAYER_ROWS.map((row, i) => {
           const desc = master?.layers[row.key] ?? "";
           return (
-            <tr key={row.key} className={i % 2 === 1 ? "bg-[#eaf1fb]" : undefined}>
-              <td className="py-1.5">{i + 1}</td>
-              <td className="py-1.5">{row.label}</td>
-              <td className="py-1.5">
-                <span className="mr-2">:</span>
-                {desc || "-"}
-              </td>
+            <tr key={row.key} className={i % 2 === 1 ? "alt" : undefined}>
+              <td>{i + 1}</td>
+              <td>{row.label}</td>
+              <td>: {desc || "-"}</td>
             </tr>
           );
         })}

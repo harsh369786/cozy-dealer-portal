@@ -87,6 +87,7 @@ import { Route as DistributorRewardClaimsClaimIdRouteImport } from './routes/dis
 import { Route as DistributorVisitsIndexRouteImport } from './routes/distributor/visits/index'
 import { Route as DistributorVisitsHistoryRouteImport } from './routes/distributor/visits/history'
 import { Route as AdminOrdersPrintOrderIdRouteImport } from './routes/admin/orders/print.$orderId'
+import { Route as AdminOrdersStickerOrderIdRouteImport } from './routes/admin/orders/sticker.$orderId'
 import { Route as AdminRewardsClaimsClaimIdRouteImport } from './routes/admin/rewards/claims.$claimId'
 
 const IndexRoute = IndexRouteImport.update({
@@ -493,6 +494,12 @@ const AdminOrdersPrintOrderIdRoute = AdminOrdersPrintOrderIdRouteImport.update({
   path: '/orders/print/$orderId',
   getParentRoute: () => AdminRouteRoute,
 } as any)
+const AdminOrdersStickerOrderIdRoute =
+  AdminOrdersStickerOrderIdRouteImport.update({
+    id: '/orders/sticker/$orderId',
+    path: '/orders/sticker/$orderId',
+    getParentRoute: () => AdminRouteRoute,
+  } as any)
 const AdminRewardsClaimsClaimIdRoute =
   AdminRewardsClaimsClaimIdRouteImport.update({
     id: '/$claimId',
@@ -578,6 +585,7 @@ export interface FileRoutesByFullPath {
   '/distributor/reward-claims/': typeof DistributorRewardClaimsIndexRoute
   '/distributor/visits/': typeof DistributorVisitsIndexRoute
   '/admin/orders/print/$orderId': typeof AdminOrdersPrintOrderIdRoute
+  '/admin/orders/sticker/$orderId': typeof AdminOrdersStickerOrderIdRoute
   '/admin/rewards/claims/$claimId': typeof AdminRewardsClaimsClaimIdRoute
 }
 export interface FileRoutesByTo {
@@ -649,6 +657,7 @@ export interface FileRoutesByTo {
   '/distributor/reward-claims': typeof DistributorRewardClaimsIndexRoute
   '/distributor/visits': typeof DistributorVisitsIndexRoute
   '/admin/orders/print/$orderId': typeof AdminOrdersPrintOrderIdRoute
+  '/admin/orders/sticker/$orderId': typeof AdminOrdersStickerOrderIdRoute
   '/admin/rewards/claims/$claimId': typeof AdminRewardsClaimsClaimIdRoute
 }
 export interface FileRoutesById {
@@ -731,6 +740,7 @@ export interface FileRoutesById {
   '/distributor/reward-claims/': typeof DistributorRewardClaimsIndexRoute
   '/distributor/visits/': typeof DistributorVisitsIndexRoute
   '/admin/orders/print/$orderId': typeof AdminOrdersPrintOrderIdRoute
+  '/admin/orders/sticker/$orderId': typeof AdminOrdersStickerOrderIdRoute
   '/admin/rewards/claims/$claimId': typeof AdminRewardsClaimsClaimIdRoute
 }
 export interface FileRouteTypes {
@@ -813,6 +823,7 @@ export interface FileRouteTypes {
     | '/distributor/reward-claims/'
     | '/distributor/visits/'
     | '/admin/orders/print/$orderId'
+    | '/admin/orders/sticker/$orderId'
     | '/admin/rewards/claims/$claimId'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -884,6 +895,7 @@ export interface FileRouteTypes {
     | '/distributor/reward-claims'
     | '/distributor/visits'
     | '/admin/orders/print/$orderId'
+    | '/admin/orders/sticker/$orderId'
     | '/admin/rewards/claims/$claimId'
   id:
     | '__root__'
@@ -965,6 +977,7 @@ export interface FileRouteTypes {
     | '/distributor/reward-claims/'
     | '/distributor/visits/'
     | '/admin/orders/print/$orderId'
+    | '/admin/orders/sticker/$orderId'
     | '/admin/rewards/claims/$claimId'
   fileRoutesById: FileRoutesById
 }
@@ -1533,6 +1546,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminOrdersPrintOrderIdRouteImport
       parentRoute: typeof AdminRouteRoute
     }
+    '/admin/orders/sticker/$orderId': {
+      id: '/admin/orders/sticker/$orderId'
+      path: '/orders/sticker/$orderId'
+      fullPath: '/admin/orders/sticker/$orderId'
+      preLoaderRoute: typeof AdminOrdersStickerOrderIdRouteImport
+      parentRoute: typeof AdminRouteRoute
+    }
     '/admin/rewards/claims/$claimId': {
       id: '/admin/rewards/claims/$claimId'
       path: '/$claimId'
@@ -1660,6 +1680,7 @@ interface AdminRouteRouteChildren {
   AdminVisitsIndexRoute: typeof AdminVisitsIndexRoute
   AdminWhatsappIndexRoute: typeof AdminWhatsappIndexRoute
   AdminOrdersPrintOrderIdRoute: typeof AdminOrdersPrintOrderIdRoute
+  AdminOrdersStickerOrderIdRoute: typeof AdminOrdersStickerOrderIdRoute
 }
 
 const AdminRouteRouteChildren: AdminRouteRouteChildren = {
@@ -1686,6 +1707,7 @@ const AdminRouteRouteChildren: AdminRouteRouteChildren = {
   AdminVisitsIndexRoute: AdminVisitsIndexRoute,
   AdminWhatsappIndexRoute: AdminWhatsappIndexRoute,
   AdminOrdersPrintOrderIdRoute: AdminOrdersPrintOrderIdRoute,
+  AdminOrdersStickerOrderIdRoute: AdminOrdersStickerOrderIdRoute,
 }
 
 const AdminRouteRouteWithChildren = AdminRouteRoute._addFileChildren(
