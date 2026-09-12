@@ -9,6 +9,7 @@ export type RewardClaimListItem = {
   distributorName?: string;
   rewardName: string;
   emoji: string;
+  imageUrl?: string | null;
   points: number;
   kind: "standard" | "milestone";
   status: RewardClaimStatus;

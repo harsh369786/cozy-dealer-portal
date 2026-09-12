@@ -5,7 +5,7 @@ import type { ApiEnv } from "../types";
  * Deliver the login OTP. The SAME code stored/validated by the app is sent — never a second OTP.
  * Delivery goes through the existing WhatsApp outbox (Gupshup `otp_for_login` template) so it shares
  * the one Gupshup client, is durable, and retries via the queue. If Gupshup isn't configured the
- * outbox row simply stays pending (nothing is sent) — login still works (demo/mock uses code 123456).
+ * outbox row simply stays pending (nothing is sent). The OTP is ALWAYS a random 6-digit code.
  *
  * The OTP value is NEVER written to logs. No referenceId is set (OTP has no stable entity + is capped
  * by the OTP phone rate limiter), so it's excluded from the dedup index.
@@ -15,20 +15,18 @@ async function deliverOtp(db: D1Database, env: ApiEnv | undefined, phone: string
   await enqueueWhatsapp(db, env ?? {}, {
     toPhone: phone,
     templateKey: "otp_for_login",
-    payload: { otp: code, purpose: "Login" },
+    // {{2}} in the approved template renders after "This is your OTP code for " — so this yields
+    // "...This is your OTP code for Backrest App login."
+    payload: { otp: code, purpose: "Backrest App login" },
   });
 }
 
-export async function generateOtpCode(env?: {
-  MOCK_OTP?: string;
-  DEMO_LOGINS_ENABLED?: string;
-  ENVIRONMENT?: string;
-}): Promise<string> {
-  const { isDemoModeEnabled } = await import("../utils");
-  // Mock OTP (123456) is used whenever demo/mock mode is on — MOCK_OTP=1 or DEMO_LOGINS_ENABLED=1 —
-  // NOT based on ENVIRONMENT. This lets a "production" worker intentionally run in demo mode with a
-  // fixed OTP. When mock mode is OFF we generate a real random 6-digit code.
-  if (isDemoModeEnabled(env)) return "123456";
+export async function generateOtpCode(phone?: string): Promise<string> {
+  // Fixed demo OTP (123456) ONLY for the known demo login numbers (admin 9999999999, etc.) so the
+  // team can still sign into those accounts without a real WhatsApp-reachable phone. EVERY other
+  // (real) number gets a fresh cryptographically-random 6-digit OTP delivered over WhatsApp.
+  const { isDemoLoginPhone } = await import("../../shared/demo-phones");
+  if (isDemoLoginPhone(phone)) return "123456";
   const random = new Uint32Array(1);
   crypto.getRandomValues(random);
   return String(100000 + (random[0]! % 900000));
@@ -37,7 +35,7 @@ export async function generateOtpCode(env?: {
 export async function requestOtp(db: D1Database, phone: string, env?: ApiEnv) {
   const { normalizePhone, sha256, id, nowIso, OTP_TTL_MINUTES } = await import("../utils");
   const normalized = normalizePhone(phone);
-  const code = await generateOtpCode(env);
+  const code = await generateOtpCode(normalized);
   const expires = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
   const challengeId = id("otp");
 

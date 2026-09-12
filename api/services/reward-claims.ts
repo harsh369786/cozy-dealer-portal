@@ -263,6 +263,9 @@ function mapClaimListRow(row: Record<string, unknown>) {
     distributorName: (row.distributor_name as string) ?? undefined,
     rewardName: row.name as string,
     emoji: row.emoji as string,
+    // Image from the reward catalog (joined) so claim history can show the reward picture, not just
+    // the emoji fallback. Null when the reward has no image or the catalog row is gone.
+    imageUrl: (row.reward_image_url as string) ?? null,
     points: Number(row.points_spent ?? 0),
     kind: (row.kind as string) === "milestone" ? "milestone" : "standard",
     status: workflow,
@@ -317,10 +320,12 @@ export async function listRewardClaimsScoped(
 
   const { results } = await db
     .prepare(
-      `SELECT c.*, d.store_name AS dealer_name, dist.name AS distributor_name
+      `SELECT c.*, d.store_name AS dealer_name, dist.name AS distributor_name,
+              rc.image_url AS reward_image_url
        FROM reward_claims c
        JOIN dealers d ON d.id = c.dealer_id
        LEFT JOIN distributors dist ON dist.id = c.distributor_id
+       LEFT JOIN reward_catalog rc ON rc.id = c.reward_catalog_id
        ${where}
        ORDER BY c.claimed_at DESC LIMIT ? OFFSET ?`,
     )

@@ -46,6 +46,7 @@ export type DealerRewardClaim = {
   id: string;
   name: string;
   emoji: string;
+  imageUrl?: string | null;
   claimed?: string;
   status: RewardClaimStatus;
   rejectionReason?: string;
@@ -58,6 +59,7 @@ export async function getRewardClaims(): Promise<DealerRewardClaim[]> {
     id: c.id,
     name: c.rewardName,
     emoji: c.emoji,
+    imageUrl: c.imageUrl,
     claimed: c.claimedAt,
     status: c.status,
     rejectionReason: c.rejectionReason,

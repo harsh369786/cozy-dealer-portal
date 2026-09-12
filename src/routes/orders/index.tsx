@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AppShell } from "@/components/app-shell";
 import { DateRangePicker } from "@/components/shared/date-range-picker";
@@ -103,6 +103,16 @@ function Orders() {
   const [period, setPeriod] = useState<Period>("all");
   const [customRange, setCustomRange] = useState(defaultCustomRange);
   const [page, setPage] = useState(1);
+
+  // The pagination controls sit at the BOTTOM of the list. Changing page while scrolled to the
+  // bottom left the viewport on the last order of the new page. Scroll back to the top on an
+  // explicit page change so the new page starts from its first order.
+  const changePage = useCallback((next: number) => {
+    setPage(next);
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, []);
 
   const dateRange = periodToDateRange(period, customRange);
 
@@ -314,7 +324,7 @@ function Orders() {
       )}
 
       {!loading && !error && data && (
-        <ListPagination page={data.page} totalPages={data.totalPages} onPageChange={setPage} />
+        <ListPagination page={data.page} totalPages={data.totalPages} onPageChange={changePage} />
       )}
     </AppShell>
   );

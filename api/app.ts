@@ -381,7 +381,21 @@ app.post("/api/v1/auth/logout", requireAuth, async (c) => {
   return c.json({ ok: true }, 200);
 });
 
-app.get("/api/v1/auth/me", requireAuth, (c) => c.json({ user: c.get("user") }));
+app.get("/api/v1/auth/me", requireAuth, (c) => {
+  // Rolling refresh: re-issue BOTH the HttpOnly session cookie and the readable presence marker on
+  // every successful auth check. This (a) slides the 30-day expiry forward each time the app is
+  // opened, so an active user's session never lapses, and (b) re-plants the presence marker on the
+  // installed-PWA cold-launch /auth/me call, so if the browser had dropped just the marker cookie
+  // (keeping the session cookie), the client's cold-launch logic sees the marker again and never
+  // treats a transient 401 as a logout. sessionId is set by requireAuth.
+  const sessionId = c.get("sessionId");
+  if (sessionId) {
+    const secure = secureCookies(c.env);
+    c.header("Set-Cookie", setSessionCookie(sessionId, secure), { append: true });
+    c.header("Set-Cookie", setSessionPresentCookie(secure), { append: true });
+  }
+  return c.json({ user: c.get("user") });
+});
 
 app.post("/api/v1/auth/demo-login", async (c) => {
   if (!isDemoModeEnabled(effectiveEnv(c.env))) {

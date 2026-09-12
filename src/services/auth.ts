@@ -35,12 +35,6 @@ export function getPostLoginPath(user: SessionUser): string {
 let sessionCache: { user: SessionUser | null; at: number } | null = null;
 let sessionInflight: Promise<SessionUser | null> | null = null;
 let onSessionInvalidate: (() => void) | null = null;
-// Set true once /auth/me has confirmed a session in THIS app runtime. After that, the cookie is
-// known to be attaching, so a persistent 401 is a REAL server-side logout (suspended / session
-// deleted) and should clear local state — not be treated as a cold-launch blip. Before the first
-// confirmation (cold launch), a persistent 401 with a stored user is treated as unconfirmed so we
-// don't self-logout while the cookie is still attaching.
-let everConfirmedSession = false;
 
 function readStoredUser(): SessionUser | null {
   if (typeof window === "undefined") return null;
@@ -175,7 +169,6 @@ async function fetchCurrentUser(stored: SessionUser | null): Promise<FetchCurren
   for (let attempt = 0; attempt <= AUTH_RETRY_DELAYS_MS.length; attempt++) {
     try {
       const res = await api.get<{ user: SessionUser }>("/api/v1/auth/me");
-      everConfirmedSession = true;
       return { user: res.user, confirmedLoggedOut: false };
     } catch (err) {
       const status = err instanceof ApiError ? err.status : 0;
@@ -200,7 +193,17 @@ async function fetchCurrentUser(stored: SessionUser | null): Promise<FetchCurren
         if (hasSessionPresentCookie()) {
           return { user: null, confirmedLoggedOut: false };
         }
-        return { user: null, confirmedLoggedOut: !stored || everConfirmedSession };
+        // Marker ABSENT. The ONLY safe "confirmed logout" here is a genuinely-signed-out visitor:
+        // no stored user to preserve. When we DO have a stored user, a persistent 401 with the
+        // marker missing is treated as UNCONFIRMED — keep the stored user and let a later
+        // revalidation (or the rolling /auth/me refresh that re-plants the marker) recover it.
+        //
+        // We deliberately do NOT escalate to a confirmed logout just because a session was seen
+        // earlier this runtime (the old `everConfirmedSession` behaviour): on an installed Android
+        // PWA, backgrounding + reopening can momentarily drop BOTH cookies on the resume request,
+        // and escalating there caused a spurious auto-logout. A REAL logout still happens
+        // deterministically via logout()/invalidateSessionCache() and the USER_SUSPENDED handler.
+        return { user: null, confirmedLoggedOut: !stored };
       }
       // Network / server error: never destroy a working session over a blip.
       return { user: stored ?? null, confirmedLoggedOut: false };

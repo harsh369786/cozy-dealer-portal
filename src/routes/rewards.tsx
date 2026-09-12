@@ -134,9 +134,17 @@ function Rewards() {
           {nextReward ? (
             <>
               <div className="flex items-center gap-3">
-                <span className="grid h-12 w-12 place-items-center rounded-2xl bg-secondary text-2xl">
-                  {nextReward.emoji}
-                </span>
+                {nextReward.imageUrl ? (
+                  <img
+                    src={resolveAssetUrl(nextReward.imageUrl)}
+                    alt={nextReward.name}
+                    className="h-12 w-12 shrink-0 rounded-2xl object-cover"
+                  />
+                ) : (
+                  <span className="grid h-12 w-12 place-items-center rounded-2xl bg-secondary text-2xl">
+                    {nextReward.emoji}
+                  </span>
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-bold uppercase tracking-wide text-primary">
                     {t("common.nextReward")}
@@ -327,9 +335,17 @@ function DealerClaimCard({ claim }: { claim: DealerRewardClaim }) {
   return (
     <div className="rounded-3xl border border-border bg-card p-4 shadow-soft">
       <div className="flex items-start gap-3">
-        <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-secondary text-xl">
-          {claim.emoji}
-        </span>
+        {claim.imageUrl ? (
+          <img
+            src={resolveAssetUrl(claim.imageUrl)}
+            alt={claim.name}
+            className="h-12 w-12 shrink-0 rounded-2xl object-cover"
+          />
+        ) : (
+          <span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-secondary text-xl">
+            {claim.emoji}
+          </span>
+        )}
         <div className="flex-1">
           <div className="flex items-start justify-between gap-2">
             <p className="text-base font-bold">{claim.name}</p>
