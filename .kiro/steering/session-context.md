@@ -5,7 +5,45 @@ inclusion: always
 # Session Context — cross-laptop handoff
 
 This file is auto-written on "sync" so Kiro on the other laptop can resume instantly.
-Last updated: 2026-09-10 (session 11 — big multi-feature batch DEPLOYED: reward-claim workflow, dealer-code std, customer details, timeline actor names, global admin search, sales figure, push, order-status rename, Normal/Target rewards).
+Last updated: 2026-09-12 (session 12 — MRP sticker + job card print, notifications delivery fixes, OTP real/random + new Gupshup template, demo-button removal, Android PWA auto-logout fix, rewards images, pagination, pillow/foldable sizes).
+
+## SESSION 12 (this laptop) — DEPLOYED. Latest Version `3658a414-3eb1-499b-a15a-9155f047c01e`, SW **v64**. Commit `8814459` pushed to main.
+Prod URL https://backrest-pwa.shahharsh143-hs.workers.dev (health `/api/v1/config/public` -> `{"demoLoginsEnabled":true}` verified). NO new migrations this session (all code + one D1 data fix). Multiple deploys through the session (v55->v64); each verified live + committed. `wrangler login` token expired mid-session and was re-authed (OAuth). Two untracked binaries still present + never committed: `WhatsApp Image 2026-09-10 at 7.56.51 PM.jpeg`, `job card.xlsx`.
+
+### Features shipped this session (all built GREEN, deployed, pushed):
+1. **MRP sticker** (`src/routes/admin/orders/sticker.$orderId.tsx`) — overlays values onto the PRE-PRINTED 75x125mm BackRest label (blank middle band; header/footer are physically pre-printed). Removed "BACKREST" name prefix; content offset `padding: 29mm 6mm 37mm 6mm`; Batch No row renamed **"Order No"** = the real order id; prints **ONE** sticker showing **"1 Nos" + per-unit MRP** (item.mrp is per-unit; line_total separate) — operator sets copy count on the label printer. `@page { size:75mm 125mm; margin:0 }` suppresses Chrome header/footer.
+2. **Job card** (`src/routes/admin/orders/print.$orderId.tsx`, A5 landscape) — FARMA shows a **✓ tick** only on SELECTED corners (blank otherwise); added **Quantity** row in ORDER DETAILS; LAYERS table font sized to fit ALL 10 rows without cropping (11px, tight padding, `.jc-layer-name` white-space:nowrap so "Bottom Fabric" stays 1 line; layers box flex-col + table flex:1).
+3. **Freebies scale with qty** — `src/lib/free-items.ts` formatFreeItemsDisplay(value, multiplier=1) multiplies stored PER-UNIT freebie qty. Wired: product page (x qty) + dealer order detail (x item.quantity).
+4. **Pillow/foldable sizes** — product page records fixed size on order: `sizeRequested`/`sizeStandard` = `product.fixed_size` for non-mattress (was undefined -> printed blank). Admin editor makes **Fixed size REQUIRED** for Pillows/Foldable. PENDING: set **Wedge Queen** (`prod-1789024186872`) fixed_size in admin — NULL in prod. `orders/$orderId.tsx`: pillow/foldable detail shows NO size editor.
+5. **Notifications delivery FIXES (big one):**
+   - ROOT CAUSE of "distributor gets nothing on order placed": `createOrder` ran `notifyNewOrder` inside `runBackground(ctx,...)` (waitUntil) with a captured ctx — Workers silently dropped the D1 INSERTs. Proven via live D1: 0 `new_order` rows for a day of orders despite 5 placed. FIX: `notifyNewOrder` now **AWAITED on the request path** (try/catch so it can't fail the order); only WhatsApp enqueue stays backgrounded. Order-APPROVED already worked (notifyOrderStatusChange was awaited).
+   - Resilient status fan-out: dealer/distributor/admin groups each in own try/catch + logs.
+   - **Dealer home bell badge** (`src/routes/home.tsx`) now uses live `useUnreadNotificationCount()` (was `notifs.filter` on an array only fetched AFTER opening the dropdown -> always 0). `dealer-notifications.ts` re-exports AppNotification.
+   - "dealer got bell but no OS push in background" = per-device push subscription (sharma sub last_status 201; send succeeded). Multi-device: in-app works for all devices; OS push fans to ALL subs WHERE user_id=? but each device must enable push (iOS needs home-screen install).
+6. **Rewards images** — next-reward block + claim-history card render reward image (emoji fallback). Claim image required server change: `api/services/reward-claims.ts` list query LEFT JOINs reward_catalog for image_url -> imageUrl threaded through client types.
+7. **Campaign "product not found" (DG / Aqua Fresh Plush)** — DATA fix (already live): campaign `camp-1788002547301` had `product_id='aquafresh-plush'` (dead); real = `prod-1788958962380`. Remote UPDATE (changes:1).
+8. **Orders pagination** — page change now scrollTo top (buttons at bottom left viewport on last order).
+9. **OTP overhaul** (`api/services/otp.ts`, `shared/whatsapp-templates.ts`, `wrangler.toml`):
+   - `123456` ONLY for the 6 demo numbers (isDemoLoginPhone); **random 6-digit for every real number**.
+   - Switched to NEW APPROVED Gupshup template **`login`** UUID `21e090ee-558f-4885-9606-4c365d6f6f4d` (single `{{1}}`=code, clean, no duplicate line). `GUPSHUP_TEMPLATE_ID_OTP` updated in wrangler.toml. buildParams now sends ONLY `[otp]`. Old `otp` template `5b42fca5-...` had the duplicate "For your security..." line (in the TEMPLATE body, never our code).
+   - OTP now **SENT SYNCHRONOUSLY** — rows were stuck `pending` (queue consumer/cron not processing). `deliverOtp` enqueues then immediately `processWhatsappOutbox`. `enqueueWhatsapp` returns outboxId.
+   - "OTP sent" copy -> WhatsApp (en+hi).
+10. **Demo login BUTTONS removed** from login screen (`src/routes/index.tsx`). Demo numbers still work by typing 123456. `/auth/demo-login` endpoint still exists (unused by UI).
+11. **Android installed-PWA AUTO-LOGOUT on reopen — FIXED (real cause = #3):**
+   - (server) rolling cookie refresh on `/auth/me`.
+   - (client `src/services/auth.ts`) removed `everConfirmedSession` escalation (`confirmedLoggedOut: !stored`).
+   - **REAL FIX:** with `ssr:true`, TanStack Router does NOT re-run the "/" route `beforeLoad` on hydration, so a returning logged-in user relaunching at start_url "/" was STUCK on Login. Added a **client-side redirect in `<Login>`** (`src/routes/index.tsx` useEffect: peekCachedUser -> navigate home replace; background getCurrentUser fallback). `src/lib/auth-guard.ts` requireUser now trusts peekCachedUser synchronously + background-revalidates instead of blocking on /auth/me.
+   - Cookies CONFIRMED correct: `backrest_session=<id>; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000; Secure` + `backrest_session_present=1; ...; Secure` (not HttpOnly). Secure set in prod. API_BASE="" same-origin, credentials:include. Only unrecoverable case = Android wipes BOTH cookie AND localStorage.
+
+### PENDING / follow-ups (user action)
+- **ROTATE the Gupshup API key** — it was pasted in chat this session (exposed). Regenerate in Gupshup, then `npx wrangler secret put GUPSHUP_API_KEY --env production`.
+- **Set Wedge Queen fixed_size** in admin.
+- Gupshup ORDER templates still **PENDING** (mattress_order_placed 0d3527f6, rejection e9750510, delivered fd7c47ad) — won't deliver until Meta approves. OTP `login` + campaign_live APPROVED.
+- Gupshup APP_ID = `fc16d717-873b-4505-9d1e-a9020346e207` (not set as a Worker var; needed by fetchGupshupMessageStatus / delivery-status lookups).
+- Gupshup account delivery block (MM Lite / cert, ticket 273826) may still block actual WhatsApp delivery even when sends return submitted+messageId.
+
+### Env note (this laptop, Harsh's)
+- `npm` works; `bun` NOT on PATH. Build = `npm run build`. Deploy = `npx wrangler deploy --config .output/server/wrangler.json --env production`. SW cache in `public/sw.js` — bump every frontend deploy (now **v64**). Sync = `git add -u; git commit; git push origin main` (git push shows stderr as PS error but succeeds). NEVER commit the 2 untracked binaries.
 
 ## SESSION 11 (this laptop) — DEPLOYED. Version `2a098ad0-8850-44e2-85df-03e30cc440c5`, SW v48. Commit `350c4e2` pushed to main.
 Migrations 0044 + 0045 applied to REMOTE this session (0043 was already remote from session 10). All prod migrations current through 0045.
