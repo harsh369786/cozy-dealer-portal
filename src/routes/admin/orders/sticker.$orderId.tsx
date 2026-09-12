@@ -97,11 +97,12 @@ function PrintMrpStickerPage() {
   // (e.g. "35.50 x 71.50 x 5.50"). Our order size string is stored as Length × Breadth, so width
   // is the second parsed number.
   const sizeText = `${dim(size.width)} x ${dim(size.length)} x ${dim(thicknessNum)}`;
-  const qty = Number(item?.quantity ?? order.totalItems ?? 1) || 1;
+  // MRP is the PER-UNIT price (order line stores per-unit mrp; the line total lives separately).
+  // The sticker always shows a single unit ("1 Nos") — the operator prints copies for multi-qty.
   const mrp = Number(item?.mrp ?? 0) || 0;
   const mfgOn = placed ? `${placed.mm}/${placed.yyyy}` : "—";
-  // Batch No now shows this order's own order number (e.g. "BR-12092604") instead of a derived code.
-  const batchNo = order.id;
+  // Show this order's real order number (e.g. "BR-12092604").
+  const orderNo = order.id;
 
   return (
     <div className="mrp-sticker-print">
@@ -117,11 +118,7 @@ function PrintMrpStickerPage() {
           .mrp-sticker-print { display: block; }
           body * { visibility: hidden; }
           .mrp-sticker, .mrp-sticker * { visibility: visible; }
-          /* One label per physical unit. Each sticker is exactly one 75x125mm page and forces a
-             page break AFTER itself, so a qty-N order feeds N labels (each "1 Nos" + per-unit MRP).
-             break-before on every-but-first is the most reliable way to advance a label printer. */
           .mrp-sticker { break-inside: avoid; page-break-inside: avoid; }
-          .mrp-sticker + .mrp-sticker { break-before: page; page-break-before: always; }
         }
         .mrp-sticker {
           box-sizing: border-box;
@@ -150,47 +147,46 @@ function PrintMrpStickerPage() {
       `}</style>
 
       {/* Only the VALUES — header + footer are already printed on the physical sticker.
-          Render ONE sticker per unit: qty copies, each showing "1 Nos" and the per-unit MRP. */}
-      {Array.from({ length: qty }).map((_, i) => (
-        <div className="mrp-sticker" key={i}>
-          {/* Product name (name + thickness) */}
-          <div className="st-product">{productTitle}</div>
+          Print exactly ONE sticker showing a SINGLE unit ("1 Nos" + per-unit MRP). For a multi-qty
+          order the operator sets the copy count on the label printer. */}
+      <div className="mrp-sticker">
+        {/* Product name (name + thickness) */}
+        <div className="st-product">{productTitle}</div>
 
-          {/* Spec table */}
-          <table>
-            <tbody>
-              <tr>
-                <td className="st-label">
-                  Size <small>(Inches)</small>
-                </td>
-                <td className="st-value">{sizeText}</td>
-              </tr>
-              <tr>
-                <td className="st-label">
-                  Quantity <small>(In Pcs)</small>
-                </td>
-                <td className="st-value">1 Nos</td>
-              </tr>
-              <tr>
-                <td className="st-label">
-                  MRP <small>(Incl. of all Taxes)</small>
-                </td>
-                <td className="st-value">INR {mrp.toLocaleString("en-IN")}/-</td>
-              </tr>
-              <tr>
-                <td className="st-label">
-                  Mfg on <small>(month &amp; year)</small>
-                </td>
-                <td className="st-value">{mfgOn}</td>
-              </tr>
-              <tr>
-                <td className="st-label">Batch No</td>
-                <td className="st-value">{batchNo}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      ))}
+        {/* Spec table */}
+        <table>
+          <tbody>
+            <tr>
+              <td className="st-label">
+                Size <small>(Inches)</small>
+              </td>
+              <td className="st-value">{sizeText}</td>
+            </tr>
+            <tr>
+              <td className="st-label">
+                Quantity <small>(In Pcs)</small>
+              </td>
+              <td className="st-value">1 Nos</td>
+            </tr>
+            <tr>
+              <td className="st-label">
+                MRP <small>(Incl. of all Taxes)</small>
+              </td>
+              <td className="st-value">INR {mrp.toLocaleString("en-IN")}/-</td>
+            </tr>
+            <tr>
+              <td className="st-label">
+                Mfg on <small>(month &amp; year)</small>
+              </td>
+              <td className="st-value">{mfgOn}</td>
+            </tr>
+            <tr>
+              <td className="st-label">Order No</td>
+              <td className="st-value">{orderNo}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
