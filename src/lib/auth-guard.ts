@@ -1,7 +1,7 @@
 import { redirect } from "@tanstack/react-router";
 import type { UserRole } from "@/lib/mock/distributor/types";
 import type { SessionUser } from "@/lib/mock/distributor/types";
-import { getCurrentUser, getHomePath, getPostLoginPath } from "@/services/auth";
+import { getCurrentUser, getHomePath, getPostLoginPath, peekCachedUser } from "@/services/auth";
 import { storePendingNotificationTarget } from "@/lib/pending-notification-target";
 
 // When a logged-out user opens a deep link (e.g. tapping a push notification while signed out),
@@ -21,10 +21,28 @@ function deferOnSsr(): SessionUser | null {
 
 export async function requireUser() {
   if (import.meta.env.SSR) return deferOnSsr() as SessionUser;
-  // getCurrentUser() only resolves null on a CONFIRMED logout (a retried 401/403) or when
-  // there is genuinely no session; transient auth blips and network/server errors keep the
-  // last-known user (see fetchCurrentUser in services/auth.ts). So redirecting on null here
-  // no longer fires on a momentary cookie-not-sent during PWA reopen / deep links.
+
+  // COLD-LAUNCH SAFE PATH: trust the synchronously-available cached/stored user and render
+  // immediately, revalidating in the BACKGROUND. On an installed Android PWA, blocking on the
+  // network /auth/me here is exactly what caused the spurious auto-logout: right after reopening,
+  // the session cookie may not be attached to the first request yet, so a blocking getCurrentUser()
+  // could resolve null and bounce a perfectly-logged-in user to "/". By trusting peekCachedUser()
+  // (memory cache or localStorage) and kicking revalidation off without awaiting it, a transient
+  // cold-launch 401 can never log the user out — getCurrentUser only clears local state on a
+  // CONFIRMED logout (see fetchCurrentUser), which will then redirect on the NEXT navigation.
+  const cached = peekCachedUser();
+  if (cached) {
+    // Fire-and-forget revalidation (refreshes the cache + re-plants cookies via the rolling
+    // /auth/me refresh). Never awaited, so it can't block or bounce this cold launch.
+    void getCurrentUser();
+    if (cached.status === "pending_approval") throw redirect({ to: "/pending-approval" });
+    if (cached.status === "rejected" || cached.status === "suspended") throw redirect({ to: "/" });
+    return cached;
+  }
+
+  // No cached/stored user at all — this IS a genuinely signed-out visitor (or localStorage was
+  // evicted). Fall back to the network check; getCurrentUser only returns null on a confirmed
+  // logout, so this won't fire on a transient blip when a session actually exists.
   const user = await getCurrentUser();
   if (!user) {
     rememberDeepLinkBeforeLogin();

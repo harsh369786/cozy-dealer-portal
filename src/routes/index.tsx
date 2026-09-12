@@ -78,6 +78,30 @@ function Login() {
   const [loading, setLoading] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
 
+  // COLD-LAUNCH REDIRECT (Android installed PWA). Android relaunches the PWA at start_url "/", but
+  // with ssr:true TanStack Router does NOT re-run the route's beforeLoad on client hydration — so a
+  // returning, still-logged-in user lands on this Login screen and appears "logged out". This effect
+  // is the client-side safety net: on mount, if a cached/stored session exists, bounce to home
+  // immediately. If localStorage was evicted but the session cookie is still valid, the background
+  // getCurrentUser() recovers the user from /auth/me and redirects then. Skipped when we're here due
+  // to an explicit suspension (?reason=suspended) so the suspended banner can show.
+  useEffect(() => {
+    if (suspended) return;
+    let cancelled = false;
+    const cached = peekCachedUser();
+    if (cached) {
+      navigate({ to: resolvePostLoginPath(cached), replace: true });
+      return;
+    }
+    void getCurrentUser().then((user) => {
+      if (!cancelled && user) navigate({ to: resolvePostLoginPath(user), replace: true });
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suspended]);
+
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const timer = window.setTimeout(() => setResendCooldown((s) => s - 1), 1000);
