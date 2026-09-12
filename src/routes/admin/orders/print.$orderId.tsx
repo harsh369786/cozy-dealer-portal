@@ -178,10 +178,16 @@ function PrintJobCardPage() {
         .jc-dim .jc-dim-v { background: #eaf1fb; border-radius: 4px; padding: 3px 4px; font-size: 13px; font-weight: 800; }
         .jc-dim .jc-dim-l { font-size: 8px; font-weight: 700; color: #5a7bb0; margin-top: 1px; }
         .jc-x { font-weight: 800; font-size: 11px; }
-        table.jc-layers { width: 100%; border-collapse: collapse; margin-top: 2px; }
-        table.jc-layers th { text-align: left; font-size: 9px; font-weight: 800; color: #1e4b8f; padding: 0 3px; }
-        table.jc-layers td { font-size: 9px; padding: 0 3px; line-height: 1.45; }
+        /* Layers table fills the tall left box of row 3. Bigger, readable font + generous row
+           height so the 10 rows spread down the whole box instead of clustering at the top with a
+           large empty band beneath. height:100% + table-layout lets the rows distribute evenly. */
+        table.jc-layers { width: 100%; height: 100%; border-collapse: collapse; margin-top: 3px; }
+        table.jc-layers th { text-align: left; font-size: 12px; font-weight: 800; color: #1e4b8f; padding: 2px 4px; }
+        table.jc-layers td { font-size: 13px; padding: 4px 4px; line-height: 1.3; vertical-align: middle; }
         table.jc-layers tr.alt td { background: #eaf1fb; }
+        /* Let the layers table grow to fill the tall LAYERS box (row 3 boxes are flex columns). */
+        .jc-layers-box { display: flex; flex-direction: column; min-height: 0; }
+        .jc-layers-box table.jc-layers { flex: 1 1 auto; }
         .jc-mt { margin-top: 3px; }
         /* Row layout: rows 1 & 2 take their natural height; row 3 grows to fill the rest of the
            page so there is no empty band at the bottom. min-height:0 lets the grid children shrink
@@ -237,7 +243,7 @@ function PrintJobCardPage() {
         {/* Row 3: Layers | Labels + Consumer Scheme + Actual Size + Checked By.
             This row grows to fill the remaining page height so there's no empty band at the bottom. */}
         <div className="jc-row3">
-          <section className="jc-box">
+          <section className="jc-box jc-layers-box">
             <div className="jc-h">LAYERS</div>
             <LayersTable master={master} />
           </section>

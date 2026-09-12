@@ -166,7 +166,7 @@ import {
 } from "./services/reward-points";
 import { hasRewardKindColumn, standardCatalogSqlFilter } from "./db/reward-schema";
 import { createSignupApplication } from "./services/signup";
-import { listSignupApplications, reviewSignupApplication } from "./services/signup-review";
+import { listSignupApplications, reviewSignupApplication, reopenSignupApplication } from "./services/signup-review";
 import {
   insertComplaintTimelineEvent,
   listComplaintTimelineForApi,
@@ -2844,6 +2844,18 @@ admin.patch("/signup-applications/:id", requirePermission("signup:review"), asyn
     return c.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Review failed";
+    return c.json({ error: message }, 400);
+  }
+});
+
+// Reopen a mistakenly-rejected signup so it returns to the pending queue for re-review.
+admin.post("/signup-applications/:id/reopen", requirePermission("signup:review"), async (c) => {
+  const db = await getRequestDb(c);
+  try {
+    const result = await reopenSignupApplication(db, c.req.param("id"), c.get("user"));
+    return c.json(result);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Reopen failed";
     return c.json({ error: message }, 400);
   }
 });

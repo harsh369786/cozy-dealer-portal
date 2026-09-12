@@ -656,6 +656,9 @@ function mapOrderItemRow(i: Record<string, unknown>) {
   return {
     productId: i.product_id,
     model: i.product_name,
+    // Product category (joined from products) so the client can branch its edit UI: mattresses get
+    // the size editor; pillows/foldables (fixed size) get a quantity-only editor.
+    category: (i.category as string | null) ?? null,
     size: i.size_standard ?? i.size_requested ?? "",
     sizeRequested: i.size_requested,
     sizeStandard: i.size_standard,
@@ -691,7 +694,12 @@ export async function getOrderById(db: D1Database, orderId: string) {
   if (!order) return null;
 
   const items = await db
-    .prepare(`SELECT * FROM order_items WHERE order_id = ?`)
+    .prepare(
+      `SELECT oi.*, p.category AS category
+       FROM order_items oi
+       LEFT JOIN products p ON p.id = oi.product_id
+       WHERE oi.order_id = ?`,
+    )
     .bind(orderId)
     .all<Record<string, unknown>>();
 
@@ -876,7 +884,14 @@ function buildOrdersWhereClause(opts: ListOrdersOptions): { clause: string; bind
     binds.push(...opts.dealerIds);
   }
   if (opts.distributorId) {
-    clause += ` AND o.distributor_id = ?`;
+    // Scope by the dealer's CURRENT distributor (live membership), NOT the frozen
+    // orders.distributor_id snapshot captured at order-placement time. When a dealer is moved to a
+    // new distributor, their existing orders keep the old snapshot; scoping by membership means the
+    // orders follow the dealer (they belong to whoever the dealer is under now). This keeps the
+    // orders LIST consistent with the distributor dashboard/KPIs, which already resolve scope live
+    // via dealers.distributor_id (appendUserDealerScopeSql). Fixes the "dashboard shows N, list
+    // shows 0" divergence after a distributor change.
+    clause += ` AND o.dealer_id IN (SELECT id FROM dealers WHERE distributor_id = ? AND deleted_at IS NULL)`;
     binds.push(opts.distributorId);
   }
   if (opts.salesExecutiveUserId) {

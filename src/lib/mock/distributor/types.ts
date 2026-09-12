@@ -91,6 +91,8 @@ export type DistributorDealer = {
 export type DistributorOrderItem = {
   productId?: string;
   model: string;
+  /** Product category ("Mattresses" | "Pillows" | "Foldable" | ...). Drives the order edit UI. */
+  category?: string | null;
   size: string;
   sizeRequested?: string;
   sizeStandard?: string;

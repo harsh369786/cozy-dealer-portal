@@ -40,18 +40,6 @@ function dim(v: string | number | null): string {
   return Number(v).toFixed(2);
 }
 
-/**
- * Batch number, derived from the order (there is no dedicated batch column). The reference sticker's
- * batch (e.g. 202609070003) is YYYYMMDD + a 4-digit sequence. We reconstruct it from the order's
- * placed date (YYYYMMDD) + the numeric tail of the order id (`BR-DDMMYYNN` -> NN, zero-padded to 4).
- */
-function deriveBatchNumber(orderId: string, placed: { dd: string; mm: string; yyyy: string } | null): string {
-  const seqMatch = orderId.match(/(\d{1,4})\s*$/);
-  const seq = (seqMatch?.[1] ?? "").padStart(4, "0").slice(-4) || "0001";
-  if (!placed) return seq;
-  return `${placed.yyyy}${placed.mm}${placed.dd}${seq}`;
-}
-
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 function PrintMrpStickerPage() {
@@ -100,14 +88,10 @@ function PrintMrpStickerPage() {
   const placed = parseDdMmYyyy(order.placedAt);
 
   const productName = item?.model ?? "—";
-  // Match the physical sticker: "BACKREST AQUA FRESH PLUSH (5.5 INCH)".
-  //  - Prefix the brand "BACKREST" (unless the model name already starts with it).
-  //  - Append the thickness in parentheses, e.g. "(5.5 INCH)".
-  const brandedName = /^backrest\b/i.test(productName.trim())
-    ? productName
-    : `BACKREST ${productName}`;
+  // Print ONLY the product name (no "BACKREST" brand prefix — the physical label already carries the
+  // pre-printed brand header). Append the thickness in parentheses, e.g. "(5.5 INCH)".
   const productTitle =
-    thicknessNum != null ? `${brandedName} (${thicknessNum} INCH)` : brandedName;
+    thicknessNum != null ? `${productName} (${thicknessNum} INCH)` : productName;
 
   // Size row matches the printed label's order: Breadth (width) x Length x Thickness, 2 decimals
   // (e.g. "35.50 x 71.50 x 5.50"). Our order size string is stored as Length × Breadth, so width
@@ -116,7 +100,8 @@ function PrintMrpStickerPage() {
   const qty = Number(item?.quantity ?? order.totalItems ?? 1) || 1;
   const mrp = Number(item?.mrp ?? 0) || 0;
   const mfgOn = placed ? `${placed.mm}/${placed.yyyy}` : "—";
-  const batchNo = deriveBatchNumber(order.id, placed);
+  // Batch No now shows this order's own order number (e.g. "BR-12092604") instead of a derived code.
+  const batchNo = order.id;
 
   return (
     <div className="mrp-sticker-print">
@@ -130,72 +115,78 @@ function PrintMrpStickerPage() {
           @page { size: 75mm 125mm; margin: 0; }
           html, body { margin: 0; padding: 0; }
           body * { visibility: hidden; }
-          #mrp-sticker, #mrp-sticker * { visibility: visible; }
-          #mrp-sticker { position: absolute; left: 0; top: 0; }
+          .mrp-sticker, .mrp-sticker * { visibility: visible; }
+          /* One sticker per physical unit — force a page break after each so a qty-N order prints
+             N identical labels (each showing "1 Nos" + the single-unit MRP). */
+          .mrp-sticker { break-after: page; page-break-after: always; }
+          .mrp-sticker:last-child { break-after: auto; page-break-after: auto; }
         }
-        #mrp-sticker {
+        .mrp-sticker {
           box-sizing: border-box;
           width: 75mm;
           height: 125mm;
           margin: 0 auto;
           /* top pad clears the pre-printed BACKREST logo; bottom pad clears the pre-printed footer. */
-          padding: 30mm 6mm 40mm 6mm;
+          padding: 38mm 6mm 40mm 6mm;
           background: #fff;
           color: #000;
           font-family: Arial, Helvetica, sans-serif;
         }
-        #mrp-sticker .st-product {
+        .mrp-sticker .st-product {
           font-weight: 800; font-size: 15px; line-height: 1.15; text-transform: uppercase;
           margin: 0 0 8px;
         }
-        #mrp-sticker table { width: 100%; border-collapse: collapse; }
-        #mrp-sticker td {
+        .mrp-sticker table { width: 100%; border-collapse: collapse; }
+        .mrp-sticker td {
           border: 1px solid #000; padding: 3px 6px; vertical-align: middle;
         }
-        #mrp-sticker td.st-label { width: 46%; font-weight: 700; font-size: 10px; }
-        #mrp-sticker td.st-label small { display: block; font-weight: 400; font-size: 8px; }
-        #mrp-sticker td.st-value { font-weight: 700; font-size: 12px; }
+        .mrp-sticker td.st-label { width: 46%; font-weight: 700; font-size: 10px; }
+        .mrp-sticker td.st-label small { display: block; font-weight: 400; font-size: 8px; }
+        .mrp-sticker td.st-value { font-weight: 700; font-size: 12px; }
       `}</style>
 
-      {/* Only the VALUES — header + footer are already printed on the physical sticker. */}
-      <div id="mrp-sticker">
-        {/* Product name (name + thickness) */}
-        <div className="st-product">{productTitle}</div>
+      {/* Only the VALUES — header + footer are already printed on the physical sticker.
+          Render ONE sticker per unit: qty copies, each showing "1 Nos" and the per-unit MRP. */}
+      {Array.from({ length: qty }).map((_, i) => (
+        <div className="mrp-sticker" key={i}>
+          {/* Product name (name + thickness) */}
+          <div className="st-product">{productTitle}</div>
 
-        {/* Spec table */}
-        <table>
-          <tbody>
-            <tr>
-              <td className="st-label">
-                Size <small>(Inches)</small>
-              </td>
-              <td className="st-value">{sizeText}</td>
-            </tr>
-            <tr>
-              <td className="st-label">
-                Quantity <small>(In Pcs)</small>
-              </td>
-              <td className="st-value">{qty} Nos</td>
-            </tr>
-            <tr>
-              <td className="st-label">
-                MRP <small>(Incl. of all Taxes)</small>
-              </td>
-              <td className="st-value">INR {mrp.toLocaleString("en-IN")}/-</td>
-            </tr>
-            <tr>
-              <td className="st-label">
-                Mfg on <small>(month &amp; year)</small>
-              </td>
-              <td className="st-value">{mfgOn}</td>
-            </tr>
-            <tr>
-              <td className="st-label">Batch No</td>
-              <td className="st-value">{batchNo}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+          {/* Spec table */}
+          <table>
+            <tbody>
+              <tr>
+                <td className="st-label">
+                  Size <small>(Inches)</small>
+                </td>
+                <td className="st-value">{sizeText}</td>
+              </tr>
+              <tr>
+                <td className="st-label">
+                  Quantity <small>(In Pcs)</small>
+                </td>
+                <td className="st-value">1 Nos</td>
+              </tr>
+              <tr>
+                <td className="st-label">
+                  MRP <small>(Incl. of all Taxes)</small>
+                </td>
+                <td className="st-value">INR {mrp.toLocaleString("en-IN")}/-</td>
+              </tr>
+              <tr>
+                <td className="st-label">
+                  Mfg on <small>(month &amp; year)</small>
+                </td>
+                <td className="st-value">{mfgOn}</td>
+              </tr>
+              <tr>
+                <td className="st-label">Batch No</td>
+                <td className="st-value">{batchNo}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ))}
     </div>
   );
 }

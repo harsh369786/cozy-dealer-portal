@@ -40,7 +40,7 @@ import {
   listAssignments,
   updateDealerAssignment,
 } from "@/services/admin/assignments";
-import { listSignupApplications, reviewSignup } from "@/services/admin/users";
+import { listSignupApplications, reviewSignup, reopenSignup } from "@/services/admin/users";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDisplayDate } from "@/lib/date-format";
 import { cn } from "@/lib/utils";
@@ -101,6 +101,10 @@ function AdminAssignmentsPage() {
   const [bulkValue, setBulkValue] = useState<string>("");
   const [saving, setSaving] = useState(false);
 
+  // Approvals tab: which signup bucket to show — pending (default) or rejected (to reopen mistakes).
+  const [signupStatus, setSignupStatus] = useState<"pending" | "rejected">("pending");
+  const [reopeningId, setReopeningId] = useState<string | null>(null);
+
   const [reviewSignupRow, setReviewSignupRow] = useState<SignupApplication | null>(null);
   const [approveRole, setApproveRole] = useState<Exclude<UserRole, "master_admin">>("dealer");
   const [approveDistributorId, setApproveDistributorId] = useState<string>("");
@@ -149,9 +153,9 @@ function AdminAssignmentsPage() {
   const signupsQuery = useAsyncData(
     () =>
       activeTab === "approvals"
-        ? listSignupApplications({ search, page, pageSize: 10, status: "pending" })
+        ? listSignupApplications({ search, page, pageSize: 10, status: signupStatus })
         : Promise.resolve({ items: [], total: 0, page: 1, pageSize: 10, totalPages: 1 }),
-    [search, page, activeTab],
+    [search, page, activeTab, signupStatus],
   );
   const summaryQuery = useAsyncData(
     () => (activeTab === "approvals" ? Promise.resolve(null) : getAssignmentSummary()),
@@ -296,6 +300,19 @@ function AdminAssignmentsPage() {
     setRejectNote("");
   };
 
+  const handleReopen = async (row: SignupApplication) => {
+    setReopeningId(row.id);
+    try {
+      await reopenSignup(row.id);
+      toast.success(t("admin.assignments.reopenSuccess"));
+      signupsQuery.retry();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("errors.somethingWentWrong"));
+    } finally {
+      setReopeningId(null);
+    }
+  };
+
   const saveApprove = async () => {
     if (!reviewSignupRow) return;
     if (approveRole === "dealer" && !approveDistributorId) {
@@ -387,13 +404,25 @@ function AdminAssignmentsPage() {
             ) : null}
           </div>
 
-          <AdminFiltersBar search={search} onSearchChange={(v) => { setSearch(v); setPage(1); }} />
+          <AdminFiltersBar search={search} onSearchChange={(v) => { setSearch(v); setPage(1); }}>
+            <AdminFilterTabs
+              value={signupStatus}
+              onChange={(v) => {
+                setSignupStatus(v as "pending" | "rejected");
+                setPage(1);
+              }}
+              tabs={[
+                { value: "pending", label: t("admin.assignments.pendingTab") },
+                { value: "rejected", label: t("admin.assignments.rejectedTab") },
+              ]}
+            />
+          </AdminFiltersBar>
 
           <AdminDataTable
             data={signupResult.items ?? []}
             keyFn={(s) => s.id}
-            onRowClick={(s) => openReview(s)}
-            emptyTitle="No pending signups"
+            onRowClick={(s) => (signupStatus === "pending" ? openReview(s) : undefined)}
+            emptyTitle={signupStatus === "pending" ? "No pending signups" : "No rejected signups"}
             columns={[
               { key: "name", header: "Name", cell: (s) => <span className="font-bold">{s.contactName}</span> },
               { key: "phone", header: "Phone", cell: (s) => s.phone, hideOnMobile: true },
@@ -406,11 +435,16 @@ function AdminAssignmentsPage() {
               {
                 key: "status",
                 header: "Status",
-                cell: (s) => (
-                  <Badge variant="default" className="capitalize">
-                    Pending approval
-                  </Badge>
-                ),
+                cell: () =>
+                  signupStatus === "rejected" ? (
+                    <Badge variant="outline" className="border-destructive/40 capitalize text-destructive">
+                      Rejected
+                    </Badge>
+                  ) : (
+                    <Badge variant="default" className="capitalize">
+                      Pending approval
+                    </Badge>
+                  ),
               },
               { key: "store", header: "Store", cell: (s) => s.businessName },
               {
@@ -422,11 +456,25 @@ function AdminAssignmentsPage() {
               {
                 key: "actions",
                 header: "",
-                cell: (s) => (
-                  <Button size="sm" className="rounded-xl" onClick={() => openReview(s)}>
-                    Review
-                  </Button>
-                ),
+                cell: (s) =>
+                  signupStatus === "rejected" ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl"
+                      disabled={reopeningId === s.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleReopen(s);
+                      }}
+                    >
+                      {reopeningId === s.id ? t("common.saving") : t("admin.assignments.reopen")}
+                    </Button>
+                  ) : (
+                    <Button size="sm" className="rounded-xl" onClick={() => openReview(s)}>
+                      Review
+                    </Button>
+                  ),
               },
             ]}
           />

@@ -335,3 +335,59 @@ export async function reviewSignupApplication(
 
   return { status: "approved" as const, userId, dealerId };
 }
+
+/**
+ * Reopen a REJECTED signup application so it can be reviewed again (e.g. rejected by mistake).
+ * Moves the application back to 'pending' and restores the linked user to 'pending_approval', so it
+ * reappears in the pending approvals queue. Only works on a currently-rejected application; a
+ * pending/approved one is left untouched. Guarded so a concurrent action can't double-apply.
+ */
+export async function reopenSignupApplication(
+  db: D1Database,
+  applicationId: string,
+  actor: Pick<SessionUser, "id" | "role">,
+) {
+  const app = await db
+    .prepare(`SELECT * FROM signup_applications WHERE id = ?`)
+    .bind(applicationId)
+    .first<Record<string, unknown>>();
+  if (!app) throw new Error("Signup application not found");
+  if (app.status !== "rejected") {
+    throw new Error("Only a rejected application can be reopened");
+  }
+
+  const ts = nowIso();
+  const claim = await db
+    .prepare(
+      `UPDATE signup_applications SET status = 'pending', reviewed_by = NULL, review_note = NULL, updated_at = ?
+       WHERE id = ? AND status = 'rejected'`,
+    )
+    .bind(ts, applicationId)
+    .run();
+  if ((claim.meta.changes ?? 0) !== 1) {
+    throw new Error("Signup application could not be reopened; please refresh");
+  }
+
+  // Restore the linked user so they can log in again and be re-reviewed. Only flip a user that was
+  // set to 'rejected' by the original rejection (never resurrect a deleted/suspended account).
+  const userId = app.user_id as string | null;
+  if (userId) {
+    await db
+      .prepare(
+        `UPDATE users SET status = 'pending_approval', updated_at = ? WHERE id = ? AND status = 'rejected' AND deleted_at IS NULL`,
+      )
+      .bind(ts, userId)
+      .run();
+  }
+
+  await writeAuditLog(db, {
+    actorUserId: actor.id,
+    action: "signup.reopen",
+    entityType: "signup_application",
+    entityId: applicationId,
+    before: { status: "rejected" },
+    after: { status: "pending" },
+  });
+
+  return { status: "pending" as const };
+}

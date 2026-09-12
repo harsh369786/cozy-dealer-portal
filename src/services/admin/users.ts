@@ -155,6 +155,11 @@ export async function reviewSignup(id: string, input: ReviewSignupInput): Promis
   await api.patch(`/api/v1/admin/signup-applications/${id}`, input);
 }
 
+/** Reopen a mistakenly-rejected signup so it returns to the pending approvals queue. */
+export async function reopenSignup(id: string): Promise<void> {
+  await api.post(`/api/v1/admin/signup-applications/${id}/reopen`, {});
+}
+
 export async function countPendingSignups(): Promise<number> {
   const result = await listSignupApplications({ page: 1, pageSize: 1, status: "pending" });
   return result.total;

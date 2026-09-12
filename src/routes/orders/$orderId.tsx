@@ -59,6 +59,7 @@ function DealerOrderDetail() {
   const [editing, setEditing] = useState(false);
   const [lengthInput, setLengthInput] = useState("");
   const [breadthInput, setBreadthInput] = useState("");
+  const [qtyInput, setQtyInput] = useState(1);
   const [saving, setSaving] = useState(false);
 
   const { data: order, loading, error, retry } = useAsyncData(
@@ -104,6 +105,12 @@ function DealerOrderDetail() {
   const firstItem = order.items[0];
   const canEdit =
     status === "order_placed" || status === "pending_approval";
+  // Mattresses have a per-order size (editable). Pillows/foldables have a FIXED product size, so the
+  // only meaningful post-order edit is the quantity.
+  const isMattressItem =
+    firstItem?.category != null &&
+    firstItem.category !== "Pillows" &&
+    firstItem.category !== "Foldable";
   const sizeMatch = (firstItem?.sizeRequested ?? firstItem?.size)?.match(
     /([\d.]+)"\s*×\s*([\d.]+)"/,
   );
@@ -113,7 +120,30 @@ function DealerOrderDetail() {
       setLengthInput(sizeMatch[1] ?? "");
       setBreadthInput(sizeMatch[2] ?? "");
     }
+    setQtyInput(Number(firstItem?.quantity ?? 1) || 1);
     setEditing(true);
+  };
+
+  const saveQuantityChange = async () => {
+    if (!firstItem?.productId) return;
+    const nextQty = Math.max(1, Math.floor(qtyInput) || 1);
+    setSaving(true);
+    try {
+      await updateOrderLineItems(orderId, {
+        productId: firstItem.productId,
+        quantity: nextQty,
+        // Pillows/foldables: no size/thickness — server keeps the fixed product size and re-quotes.
+        thickness: firstItem.thickness !== "—" ? firstItem.thickness : undefined,
+        campaignId: firstItem.campaignId ?? undefined,
+      });
+      toast.success(t("common.orderUpdated"));
+      setEditing(false);
+      retry();
+    } catch (err) {
+      toast.error(formatApiError(err, "common.couldNotUpdateOrder"));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const saveSizeChange = async () => {
@@ -266,8 +296,14 @@ function DealerOrderDetail() {
           <div className="rounded-2xl border border-primary/30 bg-secondary/40 p-4">
             <div className="flex items-start justify-between gap-2">
               <div>
-                <p className="font-display font-bold">{t("common.changeSizeTitle")}</p>
-                <p className="mt-1 text-sm text-muted-foreground">{t("common.changeSizeDescription")}</p>
+                <p className="font-display font-bold">
+                  {isMattressItem ? t("common.changeSizeTitle") : t("common.changeQuantityTitle")}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {isMattressItem
+                    ? t("common.changeSizeDescription")
+                    : t("common.changeQuantityDescription")}
+                </p>
               </div>
               {!editing && (
                 <button
@@ -279,7 +315,43 @@ function DealerOrderDetail() {
                 </button>
               )}
             </div>
-            {editing && (
+            {/* Pillows/foldables: fixed size — only the quantity is editable. */}
+            {editing && !isMattressItem && (
+              <div className="mt-4">
+                <label className="text-xs font-bold">{t("common.quantity")}</label>
+                <div className="mt-1 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setQtyInput((q) => Math.max(1, q - 1))}
+                    className="press grid h-12 w-12 place-items-center rounded-xl border border-input bg-card text-xl font-bold"
+                  >
+                    −
+                  </button>
+                  <input
+                    inputMode="numeric"
+                    value={qtyInput}
+                    onChange={(e) => setQtyInput(Math.max(1, Math.floor(Number(e.target.value.replace(/[^\d]/g, "")) || 1)))}
+                    className="h-12 w-20 rounded-xl border border-input bg-card px-3 text-center text-lg font-bold"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setQtyInput((q) => q + 1)}
+                    className="press grid h-12 w-12 place-items-center rounded-xl border border-input bg-card text-xl font-bold"
+                  >
+                    +
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={saveQuantityChange}
+                  className="press mt-3 w-full rounded-xl brand-gradient py-3 text-sm font-bold text-primary-foreground disabled:opacity-50"
+                >
+                  {saving ? t("common.saving") : t("common.saveChanges")}
+                </button>
+              </div>
+            )}
+            {editing && isMattressItem && (
               <div className="mt-4 grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold">
