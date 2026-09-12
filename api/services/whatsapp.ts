@@ -52,15 +52,19 @@ export async function enqueueWhatsapp(
       .run();
 
     // If the OR IGNORE hit the unique index (duplicate event), don't queue a send.
-    if ((result.meta.changes ?? 0) === 0) return;
+    if ((result.meta.changes ?? 0) === 0) return null;
 
     if (env.WHATSAPP_QUEUE) {
       await env.WHATSAPP_QUEUE.send({ outboxId });
     }
+    // Return the id so time-critical callers (OTP) can also process it synchronously instead of
+    // waiting on the queue consumer / cron sweep.
+    return outboxId;
   } catch (err) {
     // Never let a notification enqueue break the caller. Log a safe, value-free reason.
     const message = err instanceof Error ? err.message : String(err);
     console.warn(`[whatsapp] enqueue failed for ${input.templateKey}: ${message}`);
+    return null;
   }
 }
 

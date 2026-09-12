@@ -11,14 +11,19 @@ import type { ApiEnv } from "../types";
  * by the OTP phone rate limiter), so it's excluded from the dedup index.
  */
 async function deliverOtp(db: D1Database, env: ApiEnv | undefined, phone: string, code: string) {
-  const { enqueueWhatsapp } = await import("./whatsapp");
-  await enqueueWhatsapp(db, env ?? {}, {
+  const { enqueueWhatsapp, processWhatsappOutbox } = await import("./whatsapp");
+  const outboxId = await enqueueWhatsapp(db, env ?? {}, {
     toPhone: phone,
     templateKey: "otp_for_login",
-    // {{2}} in the approved template renders after "This is your OTP code for " — so this yields
-    // "...This is your OTP code for Backrest App login."
-    payload: { otp: code, purpose: "Backrest App login" },
+    // New "login" template uses only {{1}} = the code.
+    payload: { otp: code },
   });
+  // OTP is time-critical and a single message — do NOT rely on the queue consumer / cron sweep to
+  // deliver it (rows were observed stuck at 'pending'). Send it SYNCHRONOUSLY right now. Still
+  // best-effort: processWhatsappOutbox never throws, so a WhatsApp failure never blocks login.
+  if (outboxId && env) {
+    await processWhatsappOutbox(db, env, outboxId);
+  }
 }
 
 export async function generateOtpCode(phone?: string): Promise<string> {

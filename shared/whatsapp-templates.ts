@@ -59,9 +59,10 @@ export const WHATSAPP_TEMPLATES: Record<WhatsappTemplateKey, TemplateDef> = {
   otp_for_login: {
     businessEvent: "LOGIN_OTP",
     resolveTemplateId: (env) => env.GUPSHUP_TEMPLATE_ID_OTP ?? "",
-    // Body has two placeholders: {{1}} = the code, {{2}} = the purpose/label ("your OTP code for {{2}}").
-    // The copy-code button reuses {{1}}. Sending only the code left {{2}} empty and Meta dropped the message.
-    buildParams: (p) => [str(p.otp), str(p.purpose ?? "Login")],
+    // New "login" template body has a SINGLE placeholder: {{1}} = the code
+    // ("*{{1}}* is your verification code. Expires in 15 minutes." + copy-code button which reuses {{1}}).
+    // Send ONLY the code — a stray second param would be an extra unused variable.
+    buildParams: (p) => [str(p.otp)],
   },
   mattress_order_placed: {
     businessEvent: "ORDER_PLACED",
