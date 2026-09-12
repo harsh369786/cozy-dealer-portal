@@ -322,19 +322,28 @@ export async function createOrder(
     }
   }
 
-  // Return to the dealer as soon as the order is persisted. The notification fan-out (~8 D1
-  // round-trips across dealer/distributor/SE/admin recipients) and the WhatsApp enqueue are NOT on
-  // the dealer's critical path — do them in the background via the request's execution context so
-  // the response isn't blocked. On Workers this is tied to ctx.waitUntil so it still completes
-  // after the HTTP response; in local dev it runs to completion in-process.
   const order = await getOrderById(db, orderId);
 
-  const { ctx } = snapshotPushContext();
-  runBackground(
-    ctx,
-    (async () => {
-      await notifyNewOrder(db, orderId, dealer.id, dealer.store_name, dealer.distributor_id, user.id);
-      if (dealer.phone) {
+  // The IN-APP notification rows (dealer/distributor/SE/admin) MUST be created on the request path,
+  // not in a background waitUntil task. Backgrounding them via a captured execution context caused
+  // the D1 INSERTs to be silently dropped on Workers ("Cannot perform I/O on behalf of a different
+  // request" when the captured ctx no longer matches the live request), so distributors/admins
+  // received NOTHING for placed orders. The inserts are fast D1 writes; the slower PUSH send is
+  // still backgrounded internally by createNotificationsBatch (its own context snapshot), so
+  // awaiting here does not block on any push network round-trips. Wrapped in try/catch so a
+  // notification failure can never fail the order itself.
+  try {
+    await notifyNewOrder(db, orderId, dealer.id, dealer.store_name, dealer.distributor_id, user.id);
+  } catch (err) {
+    console.error(`[notify] notifyNewOrder failed for order ${orderId}:`, err);
+  }
+
+  // WhatsApp enqueue is genuinely non-critical and network-bound — keep it off the critical path.
+  if (dealer.phone) {
+    const { ctx } = snapshotPushContext();
+    runBackground(
+      ctx,
+      (async () => {
         const payload = await buildOrderWhatsappPayload(db, orderId);
         if (payload) {
           await enqueueWhatsapp(db, env, {
@@ -344,9 +353,9 @@ export async function createOrder(
             referenceId: orderId,
           });
         }
-      }
-    })(),
-  );
+      })(),
+    );
+  }
 
   return order;
 }
