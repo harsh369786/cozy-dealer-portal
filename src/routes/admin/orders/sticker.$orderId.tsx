@@ -72,12 +72,22 @@ function PrintMrpStickerPage() {
 
   const { data: order, loading, error, retry } = useAsyncData(() => getOrder(orderId), [orderId]);
 
-  // Auto-open the print dialog once the sticker is rendered (acts like Ctrl+P).
+  // Auto-open the print dialog once the sticker is rendered (acts like Ctrl+P). The browser uses
+  // document.title as the default "Save as PDF" filename, so name it "<orderId>-sticker".
   useEffect(() => {
-    if (order && !loading && allowed) {
-      const timer = setTimeout(() => window.print(), 500);
-      return () => clearTimeout(timer);
-    }
+    if (!order || loading || !allowed) return;
+    const previousTitle = document.title;
+    document.title = `${order.id}-sticker`;
+    const timer = setTimeout(() => window.print(), 500);
+    const restore = () => {
+      document.title = previousTitle;
+    };
+    window.addEventListener("afterprint", restore);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("afterprint", restore);
+      document.title = previousTitle;
+    };
   }, [order, loading, allowed]);
 
   if (permsLoading || !allowed) return null;
@@ -90,11 +100,19 @@ function PrintMrpStickerPage() {
   const placed = parseDdMmYyyy(order.placedAt);
 
   const productName = item?.model ?? "—";
-  // "BR ORTHO 5 INCH" style: product name + thickness in inches.
-  const productTitle = thicknessNum != null ? `${productName} ${thicknessNum} INCH` : productName;
+  // Match the physical sticker: "BACKREST AQUA FRESH PLUSH (5.5 INCH)".
+  //  - Prefix the brand "BACKREST" (unless the model name already starts with it).
+  //  - Append the thickness in parentheses, e.g. "(5.5 INCH)".
+  const brandedName = /^backrest\b/i.test(productName.trim())
+    ? productName
+    : `BACKREST ${productName}`;
+  const productTitle =
+    thicknessNum != null ? `${brandedName} (${thicknessNum} INCH)` : brandedName;
 
-  // Size row: Length x Breadth x Thickness (inches), 2 decimals to match the label format.
-  const sizeText = `${dim(size.length)} x ${dim(size.width)} x ${dim(thicknessNum)}`;
+  // Size row matches the printed label's order: Breadth (width) x Length x Thickness, 2 decimals
+  // (e.g. "35.50 x 71.50 x 5.50"). Our order size string is stored as Length × Breadth, so width
+  // is the second parsed number.
+  const sizeText = `${dim(size.width)} x ${dim(size.length)} x ${dim(thicknessNum)}`;
   const qty = Number(item?.quantity ?? order.totalItems ?? 1) || 1;
   const mrp = Number(item?.mrp ?? 0) || 0;
   const mfgOn = placed ? `${placed.mm}/${placed.yyyy}` : "—";
@@ -103,59 +121,44 @@ function PrintMrpStickerPage() {
   return (
     <div className="mrp-sticker-print">
       <style>{`
+        /* PREDEFINED READY-MADE STICKER (75mm x 125mm portrait). The physical label already has the
+           BACKREST header (top) and the Shree Sacha Foam footer (bottom) PRE-PRINTED — we must NOT
+           re-print those or they'd double up. We print ONLY the variable content (product name +
+           spec table) into the BLANK middle band, offset from the top to clear the pre-printed
+           header and stopping above the pre-printed footer. */
         @media print {
-          /* Sticker page: 3.5in wide x 5.5in tall, no printer margins. */
-          @page { size: 3.5in 5.5in; margin: 0; }
+          @page { size: 75mm 125mm; margin: 0; }
+          html, body { margin: 0; padding: 0; }
           body * { visibility: hidden; }
           #mrp-sticker, #mrp-sticker * { visibility: visible; }
           #mrp-sticker { position: absolute; left: 0; top: 0; }
         }
         #mrp-sticker {
           box-sizing: border-box;
-          width: 3.5in;
-          min-height: 5.5in;
+          width: 75mm;
+          height: 125mm;
           margin: 0 auto;
-          padding: 0.18in 0.2in;
+          /* top pad clears the pre-printed BACKREST logo; bottom pad clears the pre-printed footer. */
+          padding: 30mm 6mm 40mm 6mm;
           background: #fff;
           color: #000;
           font-family: Arial, Helvetica, sans-serif;
-          display: flex;
-          flex-direction: column;
         }
-        #mrp-sticker .st-header { display: flex; justify-content: flex-end; }
-        #mrp-sticker .st-brand { text-align: right; line-height: 1; }
-        #mrp-sticker .st-brand-name {
-          font-weight: 800; font-size: 22px; color: #1c6fb8; letter-spacing: -0.5px;
-        }
-        #mrp-sticker .st-brand-sub { font-size: 9px; font-weight: 700; color: #1c6fb8; letter-spacing: 1px; }
-        #mrp-sticker .st-brand-tag { font-size: 8px; font-weight: 700; color: #1c6fb8; letter-spacing: 1px; }
         #mrp-sticker .st-product {
-          font-weight: 800; font-size: 20px; text-transform: uppercase; margin: 14px 0 12px;
+          font-weight: 800; font-size: 15px; line-height: 1.15; text-transform: uppercase;
+          margin: 0 0 8px;
         }
         #mrp-sticker table { width: 100%; border-collapse: collapse; }
         #mrp-sticker td {
-          border: 1.5px solid #000; padding: 6px 8px; vertical-align: middle; font-size: 12px;
+          border: 1px solid #000; padding: 3px 6px; vertical-align: middle;
         }
-        #mrp-sticker td.st-label { width: 44%; font-weight: 700; }
-        #mrp-sticker td.st-label small { display: block; font-weight: 400; font-size: 9px; }
-        #mrp-sticker td.st-value { font-weight: 700; font-size: 15px; }
-        #mrp-sticker .st-footer { margin-top: auto; padding-top: 12px; text-align: center; }
-        #mrp-sticker .st-footer .st-quality { font-size: 8px; font-weight: 700; letter-spacing: 1px; }
-        #mrp-sticker .st-footer .st-company { font-size: 15px; font-weight: 800; color: #1c6fb8; }
-        #mrp-sticker .st-footer .st-iso { font-size: 8px; font-weight: 600; }
-        #mrp-sticker .st-footer .st-addr { font-size: 8px; margin-top: 4px; line-height: 1.35; }
+        #mrp-sticker td.st-label { width: 46%; font-weight: 700; font-size: 10px; }
+        #mrp-sticker td.st-label small { display: block; font-weight: 400; font-size: 8px; }
+        #mrp-sticker td.st-value { font-weight: 700; font-size: 12px; }
       `}</style>
 
+      {/* Only the VALUES — header + footer are already printed on the physical sticker. */}
       <div id="mrp-sticker">
-        {/* Header — bodyline brand mark */}
-        <div className="st-header">
-          <div className="st-brand">
-            <div className="st-brand-name">bodyline</div>
-            <div className="st-brand-sub">MATTRESS</div>
-            <div className="st-brand-tag">SHAPE YOUR SLEEP</div>
-          </div>
-        </div>
-
         {/* Product name (name + thickness) */}
         <div className="st-product">{productTitle}</div>
 
@@ -192,18 +195,6 @@ function PrintMrpStickerPage() {
             </tr>
           </tbody>
         </table>
-
-        {/* Footer — manufacturer */}
-        <div className="st-footer">
-          <div className="st-quality">A QUALITY PRODUCT OF</div>
-          <div className="st-company">Shree Sacha Foam Industries</div>
-          <div className="st-iso">An ISO 9001-2015 Co.</div>
-          <div className="st-addr">
-            Shirishpada, Survey No. 54/1, at Kone Village, Wada, District Palghar – 421303
-            <br />
-            E-mail: info@sachafoam.com | Web: www.sachafoam.com
-          </div>
-        </div>
       </div>
     </div>
   );

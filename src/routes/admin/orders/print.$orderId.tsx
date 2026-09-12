@@ -128,54 +128,69 @@ function PrintJobCardPage() {
            the ENTIRE card (through Actual Mattress Size / Checked by) fits on ONE page — nothing is
            cropped. overflow:hidden on the fixed-height card is the final safety net. */
         @media print {
-          @page { size: A5 landscape; margin: 5mm; }
+          @page { size: A5 landscape; margin: 4mm; }
           html, body { margin: 0; padding: 0; }
           body * { visibility: hidden; }
           .job-card-print, .job-card-print * { visibility: visible; }
           .job-card-print { position: absolute; left: 0; top: 0; width: 100%; }
           .jc-card {
-            width: 200mm;
-            height: 138mm;
+            width: 202mm;
+            height: 140mm;   /* one A5-landscape page at 4mm margins; overflow clipped as safety net */
             max-width: none;
             padding: 0;
             margin: 0;
             overflow: hidden;
           }
         }
+        /* Flex column so the three rows spread across the whole page height with NO empty bottom
+           band, while staying within one A5-landscape page. Font sizes are the sweet spot: large
+           enough to read, small enough that all sections (through Actual Mattress Size) fit. */
         .jc-card {
           box-sizing: border-box;
           width: 100%;
-          max-width: 960px;
+          max-width: 1040px;
+          height: 140mm;
           margin: 0 auto;
           padding: 2mm;
           background: #fff;
           color: #0b3b73;
           font-family: Arial, Helvetica, sans-serif;
+          display: flex;
+          flex-direction: column;
+          overflow: hidden;
         }
-        .jc-box { border: 1.25px solid #1e4b8f; border-radius: 6px; padding: 4px 6px; }
-        .jc-field { background: #eaf1fb; border-radius: 4px; }
-        .jc-title { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-        .jc-title .jc-rule { flex: 1; height: 2px; background: #1e4b8f; }
+        .jc-box { border: 1.25px solid #1e4b8f; border-radius: 7px; padding: 3px 8px; }
+        .jc-field { background: #eaf1fb; border-radius: 5px; }
+        .jc-title { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+        .jc-title .jc-rule { flex: 1; height: 3px; background: #1e4b8f; }
         .jc-title .jc-badge {
-          border-radius: 6px; background: #1e4b8f; color: #fff; padding: 2px 16px;
-          font-size: 14px; font-weight: 800; letter-spacing: 1px;
+          border-radius: 7px; background: #1e4b8f; color: #fff; padding: 3px 22px;
+          font-size: 17px; font-weight: 800; letter-spacing: 1.2px;
         }
-        .jc-h { font-size: 10px; font-weight: 800; letter-spacing: 0.3px; color: #1e4b8f; }
-        .jc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
-        .jc-row { display: flex; align-items: center; gap: 5px; font-size: 9px; margin-top: 2px; }
-        .jc-row .jc-key { width: 84px; flex-shrink: 0; font-weight: 700; }
+        .jc-h { font-size: 11px; font-weight: 800; letter-spacing: 0.3px; color: #1e4b8f; margin-bottom: 2px; }
+        .jc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+        .jc-row { display: flex; align-items: center; gap: 6px; font-size: 10px; margin-top: 2px; }
+        .jc-row .jc-key { width: 96px; flex-shrink: 0; font-weight: 700; }
         .jc-row .jc-sep { flex-shrink: 0; }
-        .jc-row .jc-val { flex: 1; background: #eaf1fb; border-radius: 3px; padding: 1px 5px; font-weight: 600; }
-        .jc-dims { display: flex; align-items: center; gap: 5px; margin-top: 2px; }
+        .jc-row .jc-val { flex: 1; background: #eaf1fb; border-radius: 4px; padding: 2px 6px; font-weight: 600; }
+        .jc-dims { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
         .jc-dim { flex: 1; text-align: center; }
-        .jc-dim .jc-dim-v { background: #eaf1fb; border-radius: 3px; padding: 2px 3px; font-size: 11px; font-weight: 800; }
-        .jc-dim .jc-dim-l { font-size: 7px; font-weight: 700; color: #5a7bb0; margin-top: 1px; }
-        .jc-x { font-weight: 800; font-size: 10px; }
+        .jc-dim .jc-dim-v { background: #eaf1fb; border-radius: 4px; padding: 3px 4px; font-size: 13px; font-weight: 800; }
+        .jc-dim .jc-dim-l { font-size: 8px; font-weight: 700; color: #5a7bb0; margin-top: 1px; }
+        .jc-x { font-weight: 800; font-size: 11px; }
         table.jc-layers { width: 100%; border-collapse: collapse; margin-top: 2px; }
-        table.jc-layers th { text-align: left; font-size: 8px; font-weight: 800; color: #1e4b8f; padding: 0 3px; }
-        table.jc-layers td { font-size: 8px; padding: 0 3px; line-height: 1.35; }
+        table.jc-layers th { text-align: left; font-size: 9px; font-weight: 800; color: #1e4b8f; padding: 0 3px; }
+        table.jc-layers td { font-size: 9px; padding: 0 3px; line-height: 1.45; }
         table.jc-layers tr.alt td { background: #eaf1fb; }
-        .jc-mt { margin-top: 4px; }
+        .jc-mt { margin-top: 3px; }
+        /* Row layout: rows 1 & 2 take their natural height; row 3 grows to fill the rest of the
+           page so there is no empty band at the bottom. min-height:0 lets the grid children shrink
+           correctly inside the flex column instead of forcing overflow. */
+        .jc-row1 { flex: 0 0 auto; }
+        .jc-row2 { flex: 0 0 auto; }
+        .jc-row3 { flex: 1 1 auto; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 5px; }
+        .jc-row3 > .jc-box, .jc-row3 > div { display: flex; flex-direction: column; min-height: 0; }
+        .jc-row3 .jc-fill { flex: 1 1 auto; }
       `}</style>
 
       <div className="jc-card">
@@ -187,7 +202,7 @@ function PrintJobCardPage() {
         </div>
 
         {/* Row 1: Order Details | Cutting Size + FARMA */}
-        <div className="jc-grid">
+        <div className="jc-grid jc-row1">
           <section className="jc-box">
             <div className="jc-h">ORDER DETAILS</div>
             <Field label="Order Date" value={orderDate} />
@@ -211,16 +226,17 @@ function PrintJobCardPage() {
           </div>
         </div>
 
-        {/* Row 2: Special Instructions (full width) */}
-        <section className="jc-box jc-mt">
-          <div className="jc-h">SPECIAL INSTRUCTIONS</div>
-          <div className="jc-field jc-mt" style={{ padding: "3px 6px", fontSize: 10, minHeight: 16 }}>
+        {/* Row 2: Special Instructions (full width, single compact line to save vertical space) */}
+        <section className="jc-box jc-mt jc-row2" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="jc-h" style={{ marginBottom: 0, flexShrink: 0 }}>SPECIAL INSTRUCTIONS</div>
+          <div className="jc-field" style={{ flex: 1, padding: "2px 6px", fontSize: 10 }}>
             {specialInstructions || "—"}
           </div>
         </section>
 
-        {/* Row 3: Layers | Labels + Consumer Scheme + Actual Size + Checked By */}
-        <div className="jc-grid jc-mt">
+        {/* Row 3: Layers | Labels + Consumer Scheme + Actual Size + Checked By.
+            This row grows to fill the remaining page height so there's no empty band at the bottom. */}
+        <div className="jc-row3">
           <section className="jc-box">
             <div className="jc-h">LAYERS</div>
             <LayersTable master={master} />
@@ -231,6 +247,8 @@ function PrintJobCardPage() {
               <div className="jc-h">LABELS</div>
               <Field label="Label 1" value={master?.label1 || "—"} />
               <Field label="Label 2" value={master?.label2 || "—"} />
+              {/* Label 3 = the ordered product/model name. */}
+              <Field label="Label 3" value={item?.model ?? "—"} />
             </section>
 
             <section className="jc-box jc-mt">
@@ -239,7 +257,7 @@ function PrintJobCardPage() {
               <Field label="Option 2" value={master?.consumerScheme2 || "—"} />
             </section>
 
-            <section className="jc-box jc-mt">
+            <section className="jc-box jc-mt jc-fill">
               <div className="jc-h">ACTUAL MATTRESS SIZE</div>
               <Dimensions
                 length={inch(actual.length)}
