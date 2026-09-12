@@ -298,11 +298,17 @@ function Configurator() {
         // Raw entered width so width-based free items match the actual ordered width.
         freeItemWidthIn: isMattress ? breadth : undefined,
         campaignId: quote?.campaign?.id ?? campaignId ?? campaign?.id,
-        sizeRequested: isMattress ? `${length}" × ${breadth}"` : undefined,
-        sizeStandard:
-          isMattress && mapped
+        // Mattresses carry the entered custom size + snapped standard size. Pillows/foldables have a
+        // FIXED product size, so record that as both the requested and standard size — otherwise the
+        // order item stores no size and the job card / MRP sticker print blank.
+        sizeRequested: isMattress
+          ? `${length}" × ${breadth}"`
+          : product.fixed_size || undefined,
+        sizeStandard: isMattress
+          ? mapped
             ? `${mapped.standardLength}" × ${mapped.standardBreadth}"`
-            : undefined,
+            : undefined
+          : product.fixed_size || undefined,
         perma: isMattress ? perma : undefined,
         permaCorners: perma && cornerLabels.length ? JSON.stringify(permaCorners) : undefined,
         permaNotes: perma ? permaNotes : undefined,

@@ -514,7 +514,7 @@ export function ProductEditor({
         <AdminSection title="Sizes & thickness">
           <div className="grid max-w-lg gap-4">
             <div>
-              <Label>Fixed size (optional)</Label>
+              <Label>Fixed size {isMattress ? "(optional)" : "(required)"}</Label>
               <Input
                 value={product.fixedSize ?? ""}
                 disabled={readOnly}
@@ -926,7 +926,19 @@ export function ProductEditor({
 
       {!readOnly && (
         <div className="flex gap-2">
-          <AdminPrimaryButton onClick={onSave} disabled={saving}>
+          <AdminPrimaryButton
+            onClick={() => {
+              // Pillows/foldables have NO size selection at order time — their fixed size is the
+              // only size recorded on the order and printed on the job card / MRP sticker. Require
+              // it so a saved pillow/foldable can never end up sizeless (which printed blank).
+              if (!isMattress && !(product.fixedSize ?? "").trim()) {
+                toast.error("Fixed size is required for pillows and foldables");
+                return;
+              }
+              onSave();
+            }}
+            disabled={saving}
+          >
             {saving ? t("common.saving") : "Save product"}
           </AdminPrimaryButton>
           {onArchive && (

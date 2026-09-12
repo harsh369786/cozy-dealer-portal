@@ -206,12 +206,36 @@ async function dispatchOrderStatusNotifications(
   payloads: OrderStatusPayload,
   excludeUserId?: string,
 ) {
-  await notifyDealerUsers(db, ctx.dealer_id, payloads.dealer, excludeUserId);
+  // Resilient fan-out: each recipient group runs independently so a failure notifying one group
+  // (e.g. a transient D1 error, or a distributor with no users) can NEVER prevent the others from
+  // being notified. Previously these ran in a single await chain, so any throw silently dropped the
+  // remaining groups. The dealer is the primary recipient of a status change and must always be
+  // attempted first. Errors are logged with context instead of bubbling up and aborting the request.
+  const groups: Array<{ name: string; run: () => Promise<void> }> = [
+    { name: "dealer", run: () => notifyDealerUsers(db, ctx.dealer_id, payloads.dealer, excludeUserId) },
+  ];
   if (payloads.distributor) {
-    await notifyDistributorsForOrg(db, ctx.distributor_id, payloads.distributor, excludeUserId);
+    groups.push({
+      name: "distributor",
+      run: () => notifyDistributorsForOrg(db, ctx.distributor_id, payloads.distributor!, excludeUserId),
+    });
   }
   if (payloads.admin) {
-    await notifyOperationalAdmins(db, "orders:read", payloads.admin, excludeUserId);
+    groups.push({
+      name: "admin",
+      run: () => notifyOperationalAdmins(db, "orders:read", payloads.admin!, excludeUserId),
+    });
+  }
+
+  for (const group of groups) {
+    try {
+      await group.run();
+    } catch (err) {
+      console.error(
+        `[notify] order-status ${group.name} fan-out failed (dealer_id=${ctx.dealer_id}, distributor_id=${ctx.distributor_id}):`,
+        err,
+      );
+    }
   }
 }
 
