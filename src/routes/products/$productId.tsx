@@ -633,7 +633,7 @@ function Configurator() {
         </div>
       </div>
 
-      {formatFreeItemsDisplay(quote?.freeItems || product.free) && (
+      {formatFreeItemsDisplay(quote?.freeItems || product.free, qty) && (
         <div className="mt-5 rounded-3xl border-2 border-primary/40 bg-secondary p-4">
           <p className="font-display text-base font-bold">{t("common.freeWithMattress")}</p>
           <div className="mt-3 flex items-center gap-3">
@@ -642,7 +642,7 @@ function Configurator() {
             </span>
             <div>
               <p className="text-base font-bold">
-                {formatFreeItemsDisplay(quote?.freeItems || product.free)}
+                {formatFreeItemsDisplay(quote?.freeItems || product.free, qty)}
               </p>
             </div>
           </div>
@@ -808,10 +808,10 @@ function Configurator() {
                   <Line label={t("common.youSave")} value={formatCurrency(savingsTotal)} strong />
                 </>
               )}
-              {formatFreeItemsDisplay(quote?.freeItems || product.free) && (
+              {formatFreeItemsDisplay(quote?.freeItems || product.free, qty) && (
                 <Line
                   label={t("common.freeItems")}
-                  value={formatFreeItemsDisplay(quote?.freeItems || product.free)}
+                  value={formatFreeItemsDisplay(quote?.freeItems || product.free, qty)}
                 />
               )}
               <Line label={t("dealer.orders.rewardPointsLabel")} value={`+${points}`} strong />

@@ -114,23 +114,27 @@ function PrintMrpStickerPage() {
         @media print {
           @page { size: 75mm 125mm; margin: 0; }
           html, body { margin: 0; padding: 0; }
+          .mrp-sticker-print { display: block; }
           body * { visibility: hidden; }
           .mrp-sticker, .mrp-sticker * { visibility: visible; }
-          /* One sticker per physical unit — force a page break after each so a qty-N order prints
-             N identical labels (each showing "1 Nos" + the single-unit MRP). */
-          .mrp-sticker { break-after: page; page-break-after: always; }
-          .mrp-sticker:last-child { break-after: auto; page-break-after: auto; }
+          /* One label per physical unit. Each sticker is exactly one 75x125mm page and forces a
+             page break AFTER itself, so a qty-N order feeds N labels (each "1 Nos" + per-unit MRP).
+             break-before on every-but-first is the most reliable way to advance a label printer. */
+          .mrp-sticker { break-inside: avoid; page-break-inside: avoid; }
+          .mrp-sticker + .mrp-sticker { break-before: page; page-break-before: always; }
         }
         .mrp-sticker {
           box-sizing: border-box;
           width: 75mm;
           height: 125mm;
           margin: 0 auto;
-          /* top pad clears the pre-printed BACKREST logo; bottom pad clears the pre-printed footer. */
-          padding: 38mm 6mm 40mm 6mm;
+          /* Position content in the BLANK band between the pre-printed header (~28mm) and the
+             pre-printed Shree Sacha Foam footer (~90mm from top). */
+          padding: 29mm 6mm 37mm 6mm;
           background: #fff;
           color: #000;
           font-family: Arial, Helvetica, sans-serif;
+          overflow: hidden;
         }
         .mrp-sticker .st-product {
           font-weight: 800; font-size: 15px; line-height: 1.15; text-transform: uppercase;

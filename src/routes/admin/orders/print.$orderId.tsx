@@ -178,13 +178,16 @@ function PrintJobCardPage() {
         .jc-dim .jc-dim-v { background: #eaf1fb; border-radius: 4px; padding: 3px 4px; font-size: 13px; font-weight: 800; }
         .jc-dim .jc-dim-l { font-size: 8px; font-weight: 700; color: #5a7bb0; margin-top: 1px; }
         .jc-x { font-weight: 800; font-size: 11px; }
-        /* Layers table fills the tall left box of row 3. Bigger, readable font + generous row
-           height so the 10 rows spread down the whole box instead of clustering at the top with a
-           large empty band beneath. height:100% + table-layout lets the rows distribute evenly. */
-        table.jc-layers { width: 100%; height: 100%; border-collapse: collapse; margin-top: 3px; }
-        table.jc-layers th { text-align: left; font-size: 12px; font-weight: 800; color: #1e4b8f; padding: 2px 4px; }
-        table.jc-layers td { font-size: 13px; padding: 4px 4px; line-height: 1.3; vertical-align: middle; }
+        /* Layers table fills the tall left box of row 3. Readable font, but sized so ALL 10 rows
+           fit inside the box height without the last row (Piping) being clipped at the bottom.
+           height:100% lets rows distribute; modest padding keeps the total height in check. */
+        table.jc-layers { width: 100%; height: 100%; border-collapse: collapse; margin-top: 2px; }
+        table.jc-layers th { text-align: left; font-size: 11px; font-weight: 800; color: #1e4b8f; padding: 1px 4px; }
+        table.jc-layers td { font-size: 11px; padding: 1.5px 4px; line-height: 1.2; vertical-align: middle; }
         table.jc-layers tr.alt td { background: #eaf1fb; }
+        /* Keep the layer NAME on a single line (e.g. "Bottom Fabric") so no row grows to two lines
+           and pushes the last row (Piping) off the box. */
+        table.jc-layers td.jc-layer-name { white-space: nowrap; font-weight: 600; }
         /* Let the layers table grow to fill the tall LAYERS box (row 3 boxes are flex columns). */
         .jc-layers-box { display: flex; flex-direction: column; min-height: 0; }
         .jc-layers-box table.jc-layers { flex: 1 1 auto; }
@@ -217,6 +220,7 @@ function PrintJobCardPage() {
             <Field label="Distributor Name" value={order.distributorName ?? "—"} />
             <Field label="Area" value={order.dealerArea ?? "—"} />
             <Field label="Mattress Name" value={item?.model ?? "—"} />
+            <Field label="Quantity" value={`${Number(item?.quantity ?? order.totalItems ?? 1) || 1} Nos`} />
           </section>
 
           <div>
@@ -323,8 +327,8 @@ function DimensionCell({ value, label }: { value: string; label: string }) {
 
 /**
  * FARMA: four corner slots + a Note, populated from the actual order data. The app stores which
- * corners were selected (farmaCorners) and a free-text note (farmaDetails). Each corner slot shows
- * its captured value; unselected corners render blank.
+ * corners were selected (farmaCorners) and a free-text note (farmaDetails). Each SELECTED corner
+ * shows a ✓ tick; unselected corners render blank.
  */
 function FarmaGrid({
   corners,
@@ -336,8 +340,9 @@ function FarmaGrid({
   enabled?: boolean;
 }) {
   const selected = new Set((corners ?? []).map((c) => c.toLowerCase()));
+  // Show a tick ONLY on the selected positions; everything else stays blank.
   const valueFor = (cornerLabel: string) =>
-    enabled && selected.has(cornerLabel.toLowerCase()) ? cornerLabel : "";
+    enabled && selected.has(cornerLabel.toLowerCase()) ? "✓" : "";
 
   return (
     <div>
@@ -357,8 +362,8 @@ function LayersTable({ master }: { master: JobCardProductData | null }) {
     <table className="jc-layers">
       <thead>
         <tr>
-          <th style={{ width: 24 }}>No.</th>
-          <th style={{ width: 88 }}>Layer</th>
+          <th style={{ width: 22 }}>No.</th>
+          <th style={{ width: 96 }}>Layer</th>
           <th>Description</th>
         </tr>
       </thead>
@@ -368,7 +373,7 @@ function LayersTable({ master }: { master: JobCardProductData | null }) {
           return (
             <tr key={row.key} className={i % 2 === 1 ? "alt" : undefined}>
               <td>{i + 1}</td>
-              <td>{row.label}</td>
+              <td className="jc-layer-name">{row.label}</td>
               <td>: {desc || "-"}</td>
             </tr>
           );
