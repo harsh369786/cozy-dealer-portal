@@ -1,4 +1,4 @@
-const CACHE = "backrest-static-v54";
+const CACHE = "backrest-static-v55";
 const PRECACHE = [
   "/",
   "/manifest.webmanifest",
@@ -206,14 +206,22 @@ function isApiRequest(url) {
   return url.pathname.startsWith("/api/");
 }
 
+// Code assets (JS/CSS) change every deploy. They MUST be network-first so a fresh deploy's bundles
+// are always fetched — never served stale from cache. Serving a stale JS chunk after a deploy
+// (whose sibling chunks were purged on the new SW's `activate`) produces a module/mismatch error
+// that silently breaks live features (e.g. the notification bell/inbox/bridge) even though the API
+// is healthy. This was the cause of "notifications totally broken" after several SW cache bumps.
+function isCodeAsset(url) {
+  return url.pathname.endsWith(".js") || url.pathname.endsWith(".css");
+}
+
+// Truly static, content-addressed assets (fonts/images/icons) are safe to serve cache-first.
 function isStaticAsset(url) {
   return (
-    url.pathname.startsWith("/assets/") ||
-    PRECACHE.includes(url.pathname) ||
     url.pathname.startsWith("/icons/") ||
-    url.pathname.endsWith(".js") ||
-    url.pathname.endsWith(".css") ||
+    (PRECACHE.includes(url.pathname) && !isCodeAsset(url)) ||
     url.pathname.endsWith(".woff2") ||
+    url.pathname.endsWith(".woff") ||
     url.pathname.endsWith(".png") ||
     url.pathname.endsWith(".jpg") ||
     url.pathname.endsWith(".jpeg") ||
@@ -250,6 +258,24 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Code assets (.js/.css): NETWORK-FIRST. Always try the network so a new deploy's bundles load;
+  // cache the fresh copy for offline, and only fall back to cache when the network is unavailable.
+  if (isCodeAsset(url)) {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const copy = response.clone();
+            caches.open(CACHE).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(request).then((cached) => cached ?? Response.error())),
+    );
+    return;
+  }
+
+  // Fonts/images/icons: cache-first (content-addressed / rarely change).
   if (isStaticAsset(url)) {
     event.respondWith(
       caches.match(request).then((cached) => {
