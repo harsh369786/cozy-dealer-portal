@@ -32,6 +32,7 @@ import { isCampaignUnseen } from "@/lib/notifications";
 import { DealerRewardsCard } from "@/components/shared/dealer-rewards-card";
 import { AdditionalRewardsSection } from "@/components/shared/additional-rewards-section";
 import { useDealerRewards } from "@/hooks/use-dealer-rewards";
+import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications";
 import { getDealerById } from "@/services/dealers";
 import { getCatalog, getProductDetail } from "@/services/catalog";
 import { getDealerCampaigns, type DealerCampaign } from "@/services/campaigns";
@@ -200,7 +201,13 @@ function HomeHeader({
   onMarkRead: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  const unread = notifs.filter((n) => !n.read).length;
+  // Badge must show BEFORE the dropdown is opened. The notifs list is only fetched on click, so
+  // filtering it would keep the badge at 0 on load. Drive the badge from the live unread-count hook
+  // (polls independently), and once the dropdown has loaded the list, prefer the list's own unread
+  // tally so marking-as-read updates the badge instantly.
+  const liveUnread = useUnreadNotificationCount();
+  const listUnread = notifs.filter((n) => !n.read).length;
+  const unread = notifs.length > 0 ? listUnread : liveUnread;
 
   return (
     <>

@@ -1,4 +1,6 @@
 import type { AppNotification } from "@/lib/notifications";
+// Re-export so consumers (e.g. home.tsx) can import the type from this service module directly.
+export type { AppNotification };
 import { requestUnreadCountRefresh } from "@/lib/notification-count-cache";
 import { api } from "@/lib/api-client";
 import { formatCampaignDate } from "@/lib/campaign-service";
